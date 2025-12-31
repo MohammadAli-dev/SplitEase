@@ -68,3 +68,8 @@ Thumbs.db
 # User-specific configuration
 .idea/misc.xml
 .idea/deployment.xml
+
+# spec files
+specs*.md
+
+*.hprof
