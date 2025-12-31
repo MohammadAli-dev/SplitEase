@@ -35,6 +35,7 @@ data class AddExpenseUiState(
     val groupMembers: List<String> = emptyList(), // Available members
     val validationResult: SplitValidationResult = SplitValidationResult.Valid,
     val isLoading: Boolean = false,
+    val isSaved: Boolean = false, // Event: expense saved successfully
     val errorMessage: String? = null
 )
 
@@ -189,8 +190,8 @@ class AddExpenseViewModel @Inject constructor(
 
                 expenseRepository.addExpense(expense, expenseSplits)
                 
-                // Success - navigate back or show success message
-                _uiState.value = state.copy(isLoading = false, errorMessage = null)
+                // Success - signal navigation
+                _uiState.value = state.copy(isLoading = false, isSaved = true, errorMessage = null)
             } catch (e: Exception) {
                 _uiState.value = state.copy(
                     isLoading = false,

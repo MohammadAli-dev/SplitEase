@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -24,11 +25,17 @@ import com.splitease.domain.SplitValidationResult
 
 @Composable
 fun AddExpenseScreen(
-    groupId: String,
     onExpenseSaved: () -> Unit,
     viewModel: AddExpenseViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    // Navigate back when expense is saved successfully
+    LaunchedEffect(uiState.isSaved) {
+        if (uiState.isSaved) {
+            onExpenseSaved()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -92,10 +99,7 @@ fun AddExpenseScreen(
             CircularProgressIndicator()
         } else {
             Button(
-                onClick = { 
-                    viewModel.saveExpense()
-                    // TODO: Navigate back on success
-                },
+                onClick = { viewModel.saveExpense() },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = uiState.validationResult is SplitValidationResult.Valid
             ) {

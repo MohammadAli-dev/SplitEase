@@ -24,6 +24,7 @@ import com.splitease.ui.account.AccountScreen
 import com.splitease.ui.activity.ActivityScreen
 import com.splitease.ui.dashboard.DashboardScreen
 import com.splitease.ui.expense.AddExpenseScreen
+import com.splitease.ui.groups.GroupDetailScreen
 import com.splitease.ui.groups.GroupListScreen
 
 data class BottomNavItem(
@@ -43,27 +44,32 @@ fun MainScaffold() {
         BottomNavItem(Screen.Account.route, "Account", Icons.Default.AccountCircle)
     )
 
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = navBackStackEntry?.destination
+    
+    // Determine if bottom nav should be shown (only on main tabs)
+    val showBottomBar = currentDestination?.route in items.map { it.route }
+
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = navBackStackEntry?.destination
-
-                items.forEach { item ->
-                    NavigationBarItem(
-                        icon = { Icon(item.icon, contentDescription = item.label) },
-                        label = { Text(item.label) },
-                        selected = currentDestination?.hierarchy?.any { it.route == item.route } == true,
-                        onClick = {
-                            navController.navigate(item.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+            if (showBottomBar) {
+                NavigationBar {
+                    items.forEach { item ->
+                        NavigationBarItem(
+                            icon = { Icon(item.icon, contentDescription = item.label) },
+                            label = { Text(item.label) },
+                            selected = currentDestination?.hierarchy?.any { it.route == item.route } == true,
+                            onClick = {
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -77,13 +83,31 @@ fun MainScaffold() {
                 DashboardScreen()
             }
             composable(Screen.Groups.route) {
-                GroupListScreen()
+                GroupListScreen(
+                    onNavigateToGroupDetail = { groupId ->
+                        navController.navigate(Screen.GroupDetail.createRoute(groupId))
+                    }
+                )
             }
             composable(Screen.Activity.route) {
                 ActivityScreen()
             }
             composable(Screen.Account.route) {
                 AccountScreen()
+            }
+            composable(
+                route = Screen.GroupDetail.route,
+                arguments = listOf(androidx.navigation.navArgument("groupId") { 
+                    type = androidx.navigation.NavType.StringType 
+                })
+            ) { backStackEntry ->
+                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+                GroupDetailScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToAddExpense = { id ->
+                        navController.navigate(Screen.AddExpense.createRoute(id))
+                    }
+                )
             }
             composable(
                 route = Screen.AddExpense.route,
