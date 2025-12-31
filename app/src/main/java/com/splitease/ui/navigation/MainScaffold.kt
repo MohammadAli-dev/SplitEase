@@ -3,9 +3,9 @@ package com.splitease.ui.navigation
 import androidx.compose.foundation.layout.padding
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -39,7 +39,7 @@ fun MainScaffold() {
     
     val items = listOf(
         BottomNavItem(Screen.Dashboard.route, "Dashboard", Icons.Default.Home),
-        BottomNavItem(Screen.Groups.route, "Groups", Icons.Default.List),
+        BottomNavItem(Screen.Groups.route, "Groups", Icons.AutoMirrored.Filled.List),
         BottomNavItem(Screen.Activity.route, "Activity", Icons.Default.Notifications),
         BottomNavItem(Screen.Account.route, "Account", Icons.Default.AccountCircle)
     )
@@ -100,8 +100,7 @@ fun MainScaffold() {
                 arguments = listOf(androidx.navigation.navArgument("groupId") { 
                     type = androidx.navigation.NavType.StringType 
                 })
-            ) { backStackEntry ->
-                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+            ) {
                 GroupDetailScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToAddExpense = { id ->
@@ -114,10 +113,8 @@ fun MainScaffold() {
                 arguments = listOf(androidx.navigation.navArgument("groupId") { 
                     type = androidx.navigation.NavType.StringType 
                 })
-            ) { backStackEntry ->
-                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+            ) {
                 AddExpenseScreen(
-                    groupId = groupId,
                     onExpenseSaved = { navController.popBackStack() }
                 )
             }
