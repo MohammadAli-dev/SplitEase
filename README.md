@@ -714,10 +714,32 @@ Even though this is a demo, it uses patterns you'd find in production apps:
 
 ## 📄 License
 
-[Add your license here]
+This project is licensed under the **MIT License**.
+
+You are free to:
+- Use the code for personal or commercial projects
+- Modify and distribute it
+- Fork and build upon it
+
+Under the condition that:
+- The original copyright notice
+- And this permission notice
+
+are included in all copies or substantial portions of the software.
+
+See the [LICENSE](LICENSE) file for full details.
+
 
 ---
 
 ## 🤝 Contributing
 
-[Add contribution guidelines here]
+Contributions are welcome and appreciated! 🎉  
+This project is intended as a **reference-quality, architecture-first Android app**, so please read the guidelines below carefully.
+
+### How to Contribute
+
+1. **Fork the repository**
+2. **Create a feature branch**
+   ```bash
+   git checkout -b feature/your-feature-name
