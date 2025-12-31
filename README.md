@@ -727,7 +727,7 @@ Under the condition that:
 
 are included in all copies or substantial portions of the software.
 
-See the [LICENSE](LICENSE) file for full details.
+See the [LICENSE](LICENSE.md) file for full details.
 
 
 ---
