@@ -21,4 +21,11 @@ sealed class Screen(val route: String) {
             fun createRoute(groupId: String) = "add_expense/$groupId"
         }
     }
+
+    data class EditExpense(val groupId: String, val expenseId: String) : Screen("edit_expense/{groupId}/{expenseId}") {
+        companion object {
+            const val route = "edit_expense/{groupId}/{expenseId}"
+            fun createRoute(groupId: String, expenseId: String) = "edit_expense/$groupId/$expenseId"
+        }
+    }
 }

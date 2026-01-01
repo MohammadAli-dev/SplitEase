@@ -105,6 +105,9 @@ fun MainScaffold() {
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToAddExpense = { id ->
                         navController.navigate(Screen.AddExpense.createRoute(id))
+                    },
+                    onNavigateToEditExpense = { groupId, expenseId ->
+                        navController.navigate(Screen.EditExpense.createRoute(groupId, expenseId))
                     }
                 )
             }
@@ -113,6 +116,18 @@ fun MainScaffold() {
                 arguments = listOf(androidx.navigation.navArgument("groupId") { 
                     type = androidx.navigation.NavType.StringType 
                 })
+            ) {
+                AddExpenseScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onExpenseSaved = { navController.popBackStack() }
+                )
+            }
+            composable(
+                route = Screen.EditExpense.route,
+                arguments = listOf(
+                    androidx.navigation.navArgument("groupId") { type = androidx.navigation.NavType.StringType },
+                    androidx.navigation.navArgument("expenseId") { type = androidx.navigation.NavType.StringType }
+                )
             ) {
                 AddExpenseScreen(
                     onNavigateBack = { navController.popBackStack() },

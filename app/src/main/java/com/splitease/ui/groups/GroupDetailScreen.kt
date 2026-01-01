@@ -45,6 +45,7 @@ import java.util.Locale
 fun GroupDetailScreen(
     onNavigateBack: () -> Unit,
     onNavigateToAddExpense: (groupId: String) -> Unit,
+    onNavigateToEditExpense: (groupId: String, expenseId: String) -> Unit,
     viewModel: GroupDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -137,7 +138,10 @@ fun GroupDetailScreen(
                         ) {
                             item { Spacer(modifier = Modifier.height(8.dp)) }
                             items(state.expenses) { expense ->
-                                ExpenseItem(expense = expense)
+                                ExpenseItem(
+                                    expense = expense,
+                                    onClick = { onNavigateToEditExpense(expense.groupId, expense.id) }
+                                )
                             }
                             item { Spacer(modifier = Modifier.height(80.dp)) } // FAB clearance
                         }
@@ -149,11 +153,13 @@ fun GroupDetailScreen(
 }
 
 @Composable
-fun ExpenseItem(expense: Expense) {
+fun ExpenseItem(expense: Expense, onClick: () -> Unit) {
     val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
