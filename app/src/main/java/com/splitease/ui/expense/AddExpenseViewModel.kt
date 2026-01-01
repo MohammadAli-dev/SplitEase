@@ -26,16 +26,26 @@ enum class SplitType {
     EQUAL, EXACT, PERCENTAGE, SHARES
 }
 
+/**
+ * UI state for Add Expense screen.
+ * splitPreview is derived state, recalculated on any input change.
+ */
 data class AddExpenseUiState(
     val title: String = "",
     val amountText: String = "",
     val splitType: SplitType = SplitType.EQUAL,
     val payerId: String = "",
-    val selectedParticipants: List<String> = emptyList(), // Sorted list of userIds
-    val groupMembers: List<String> = emptyList(), // Available members
+    val selectedParticipants: List<String> = emptyList(),
+    val groupMembers: List<String> = emptyList(),
+    // Per-participant input fields
+    val exactAmounts: Map<String, String> = emptyMap(),
+    val percentages: Map<String, String> = emptyMap(),
+    val shares: Map<String, Int> = emptyMap(),
+    // Derived state: calculated split amounts per participant
+    val splitPreview: Map<String, BigDecimal> = emptyMap(),
     val validationResult: SplitValidationResult = SplitValidationResult.Valid,
     val isLoading: Boolean = false,
-    val isSaved: Boolean = false, // Event: expense saved successfully
+    val isSaved: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -60,12 +70,13 @@ class AddExpenseViewModel @Inject constructor(
     private fun loadGroupMembers() {
         viewModelScope.launch {
             groupDao.getGroupMembers(groupId).collectLatest { members ->
-                // Sort for deterministic ordering
                 val sortedMemberIds = members.map { it.userId }.sorted()
                 _uiState.value = _uiState.value.copy(
                     groupMembers = sortedMemberIds,
-                    selectedParticipants = sortedMemberIds // Default: all members
+                    selectedParticipants = sortedMemberIds,
+                    shares = sortedMemberIds.associateWith { 1 } // Default 1 share each
                 )
+                recalculateSplits()
             }
         }
     }
@@ -83,69 +94,158 @@ class AddExpenseViewModel @Inject constructor(
 
     fun updateAmount(amountText: String) {
         _uiState.value = _uiState.value.copy(amountText = amountText)
-        calculateSplits()
+        recalculateSplits()
     }
 
     fun updateSplitType(splitType: SplitType) {
         _uiState.value = _uiState.value.copy(splitType = splitType)
-        calculateSplits()
+        recalculateSplits()
     }
 
     fun updatePayer(payerId: String) {
         _uiState.value = _uiState.value.copy(payerId = payerId)
     }
 
-    fun updateParticipants(participants: List<String>) {
-        // Ensure deterministic ordering
-        _uiState.value = _uiState.value.copy(selectedParticipants = participants.sorted())
-        calculateSplits()
+    fun toggleParticipant(userId: String) {
+        val current = _uiState.value.selectedParticipants.toMutableList()
+        if (userId in current) {
+            current.remove(userId)
+        } else {
+            current.add(userId)
+        }
+        _uiState.value = _uiState.value.copy(selectedParticipants = current.sorted())
+        recalculateSplits()
     }
 
-    private fun calculateSplits() {
+    fun updateExactAmount(userId: String, amountText: String) {
+        val updated = _uiState.value.exactAmounts.toMutableMap()
+        updated[userId] = amountText
+        _uiState.value = _uiState.value.copy(exactAmounts = updated)
+        recalculateSplits()
+    }
+
+    fun updatePercentage(userId: String, percentageText: String) {
+        val updated = _uiState.value.percentages.toMutableMap()
+        updated[userId] = percentageText
+        _uiState.value = _uiState.value.copy(percentages = updated)
+        recalculateSplits()
+    }
+
+    fun updateShares(userId: String, shareCount: Int) {
+        val updated = _uiState.value.shares.toMutableMap()
+        updated[userId] = shareCount.coerceAtLeast(1)
+        _uiState.value = _uiState.value.copy(shares = updated)
+        recalculateSplits()
+    }
+
+    /**
+     * Recalculates splitPreview and validation based on current state.
+     * Soft validation: updates preview, shows warnings.
+     */
+    private fun recalculateSplits() {
         val state = _uiState.value
-        
-        // Safe amount parsing
+
+        // Validate participants
+        val participantValidation = SplitValidator.validateParticipants(state.selectedParticipants)
+        if (participantValidation is SplitValidationResult.Invalid) {
+            _uiState.value = state.copy(
+                validationResult = participantValidation,
+                splitPreview = emptyMap()
+            )
+            return
+        }
+
+        // Parse amount
         val amount = try {
             if (state.amountText.isBlank()) {
-                _uiState.value = state.copy(validationResult = SplitValidationResult.Valid)
+                _uiState.value = state.copy(
+                    validationResult = SplitValidationResult.Valid,
+                    splitPreview = emptyMap()
+                )
                 return
             }
-            BigDecimal(state.amountText).setScale(2, RoundingMode.HALF_EVEN)
+            BigDecimal(state.amountText).setScale(2, RoundingMode.HALF_UP)
         } catch (e: NumberFormatException) {
             _uiState.value = state.copy(
-                validationResult = SplitValidationResult.Invalid("Invalid amount format")
+                validationResult = SplitValidationResult.Invalid("Invalid amount format"),
+                splitPreview = emptyMap()
             )
             return
         }
 
-        if (state.selectedParticipants.isEmpty()) {
+        // Validate amount
+        val amountValidation = SplitValidator.validateAmount(amount)
+        if (amountValidation is SplitValidationResult.Invalid) {
             _uiState.value = state.copy(
-                validationResult = SplitValidationResult.Invalid("No participants selected")
+                validationResult = amountValidation,
+                splitPreview = emptyMap()
             )
             return
         }
 
-        // For Sprint 5, we only implement EQUAL split
-        // Other split types can be added later
-        when (state.splitType) {
+        // Calculate splits based on type
+        val (preview, validation) = when (state.splitType) {
             SplitType.EQUAL -> {
-                val splits = SplitValidator.calculateEqualSplit(amount, state.selectedParticipants.size)
-                val validationResult = SplitValidator.validateSplit(amount, splits)
-                _uiState.value = state.copy(validationResult = validationResult)
+                val splits = SplitValidator.calculateEqualSplit(amount, state.selectedParticipants)
+                splits to SplitValidationResult.Valid
             }
-            else -> {
-                _uiState.value = state.copy(
-                    validationResult = SplitValidationResult.Invalid("Split type not yet implemented")
-                )
+            SplitType.EXACT -> {
+                val amounts = parseExactAmounts(state.exactAmounts, state.selectedParticipants)
+                val splits = SplitValidator.calculateExactSplit(amounts)
+                splits to SplitValidator.validateExactSum(amounts, amount)
+            }
+            SplitType.PERCENTAGE -> {
+                val pcts = parsePercentages(state.percentages, state.selectedParticipants)
+                val splits = SplitValidator.calculatePercentageSplit(amount, pcts)
+                splits to SplitValidator.validatePercentageSum(pcts)
+            }
+            SplitType.SHARES -> {
+                val shareMap = state.shares.filterKeys { it in state.selectedParticipants }
+                val splits = SplitValidator.calculateSharesSplit(amount, shareMap)
+                splits to SplitValidator.validateSharesSum(shareMap)
+            }
+        }
+
+        _uiState.value = state.copy(
+            splitPreview = preview,
+            validationResult = validation
+        )
+    }
+
+    private fun parseExactAmounts(
+        exactAmounts: Map<String, String>,
+        participants: List<String>
+    ): Map<String, BigDecimal> {
+        return participants.associateWith { userId ->
+            try {
+                BigDecimal(exactAmounts[userId] ?: "0").setScale(2, RoundingMode.HALF_UP)
+            } catch (e: NumberFormatException) {
+                BigDecimal.ZERO
             }
         }
     }
 
+    private fun parsePercentages(
+        percentages: Map<String, String>,
+        participants: List<String>
+    ): Map<String, BigDecimal> {
+        return participants.associateWith { userId ->
+            try {
+                BigDecimal(percentages[userId] ?: "0").setScale(2, RoundingMode.HALF_UP)
+            } catch (e: NumberFormatException) {
+                BigDecimal.ZERO
+            }
+        }
+    }
+
+    /**
+     * Hard validation and save. Blocks on any invalid state.
+     */
     fun saveExpense() {
         val state = _uiState.value
 
-        // Validation-before-save: Only proceed if validation is Valid
-        if (state.validationResult !is SplitValidationResult.Valid) {
+        // Hard validation
+        if (state.validationResult is SplitValidationResult.Invalid) {
             _uiState.value = state.copy(errorMessage = "Please fix validation errors before saving")
             return
         }
@@ -155,10 +255,20 @@ class AddExpenseViewModel @Inject constructor(
             return
         }
 
+        if (state.selectedParticipants.isEmpty()) {
+            _uiState.value = state.copy(errorMessage = "Select at least one participant")
+            return
+        }
+
         val amount = try {
-            BigDecimal(state.amountText).setScale(2, RoundingMode.HALF_EVEN)
+            BigDecimal(state.amountText).setScale(2, RoundingMode.HALF_UP)
         } catch (e: NumberFormatException) {
             _uiState.value = state.copy(errorMessage = "Invalid amount")
+            return
+        }
+
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            _uiState.value = state.copy(errorMessage = "Amount must be greater than 0")
             return
         }
 
@@ -179,8 +289,7 @@ class AddExpenseViewModel @Inject constructor(
                     syncStatus = "PENDING"
                 )
 
-                val splits = SplitValidator.calculateEqualSplit(amount, state.selectedParticipants.size)
-                val expenseSplits = state.selectedParticipants.zip(splits).map { (userId, splitAmount) ->
+                val expenseSplits = state.splitPreview.map { (userId, splitAmount) ->
                     ExpenseSplit(
                         expenseId = expenseId,
                         userId = userId,
@@ -190,7 +299,6 @@ class AddExpenseViewModel @Inject constructor(
 
                 expenseRepository.addExpense(expense, expenseSplits)
                 
-                // Success - signal navigation
                 _uiState.value = state.copy(isLoading = false, isSaved = true, errorMessage = null)
             } catch (e: Exception) {
                 _uiState.value = state.copy(
