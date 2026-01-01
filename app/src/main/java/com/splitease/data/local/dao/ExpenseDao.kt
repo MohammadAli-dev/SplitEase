@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
+import com.splitease.data.local.entities.SyncOperation
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -16,6 +17,14 @@ interface ExpenseDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSplits(splits: List<ExpenseSplit>)
+
+    /**
+     * Write-through method for sync_operations table.
+     * Exposed here to enable transactional writes with expenses.
+     * SyncDao remains the primary interface for read/query operations.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSyncOp(syncOp: SyncOperation)
 
     @Query("SELECT * FROM expenses WHERE groupId = :groupId ORDER BY date DESC")
     fun getExpensesForGroup(groupId: String): Flow<List<Expense>>
@@ -27,5 +36,20 @@ interface ExpenseDao {
     suspend fun insertExpenseWithSplits(expense: Expense, splits: List<ExpenseSplit>) {
         insertExpense(expense)
         insertSplits(splits)
+    }
+
+    /**
+     * Atomic write of expense, splits, and sync operation.
+     * Ensures crash safety - all succeed or all fail.
+     */
+    @Transaction
+    suspend fun insertExpenseWithSync(
+        expense: Expense,
+        splits: List<ExpenseSplit>,
+        syncOp: SyncOperation
+    ) {
+        insertExpense(expense)
+        insertSplits(splits)
+        insertSyncOp(syncOp)
     }
 }
