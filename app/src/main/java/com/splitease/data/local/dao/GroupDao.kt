@@ -28,4 +28,7 @@ interface GroupDao {
 
     @Query("SELECT * FROM group_members WHERE groupId = :groupId")
     fun getGroupMembers(groupId: String): Flow<List<GroupMember>>
+
+    @Query("SELECT * FROM expense_groups WHERE id = :groupId")
+    fun getGroup(groupId: String): Flow<Group?>
 }

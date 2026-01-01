@@ -1,5 +1,6 @@
 package com.splitease.ui.groups
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +35,10 @@ class GroupListViewModel @Inject constructor(
 }
 
 @Composable
-fun GroupListScreen(viewModel: GroupListViewModel = hiltViewModel()) {
+fun GroupListScreen(
+    onNavigateToGroupDetail: (groupId: String) -> Unit,
+    viewModel: GroupListViewModel = hiltViewModel()
+) {
     val groups by viewModel.groups.collectAsState(initial = emptyList())
 
     Column(
@@ -64,7 +68,10 @@ fun GroupListScreen(viewModel: GroupListViewModel = hiltViewModel()) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(groups) { group ->
-                    GroupItem(group)
+                    GroupItem(
+                        group = group,
+                        onClick = { onNavigateToGroupDetail(group.id) }
+                    )
                 }
             }
         }
@@ -72,9 +79,14 @@ fun GroupListScreen(viewModel: GroupListViewModel = hiltViewModel()) {
 }
 
 @Composable
-fun GroupItem(group: Group) {
+fun GroupItem(
+    group: Group,
+    onClick: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
