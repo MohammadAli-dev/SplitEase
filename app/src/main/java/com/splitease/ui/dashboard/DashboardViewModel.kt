@@ -53,11 +53,11 @@ class DashboardViewModel @Inject constructor(
                 // 3. Calculate net balance
                 
                 val totalOwed = splits
-                    .filter { it.amount > BigDecimal.ZERO }
+                    .filter { it.amount.compareTo(BigDecimal.ZERO) > 0 }
                     .sumOf { it.amount }
                 
                 val totalOwing = splits
-                    .filter { it.amount < BigDecimal.ZERO }
+                    .filter { it.amount.compareTo(BigDecimal.ZERO) < 0 }
                     .sumOf { it.amount.abs() }
 
                 _uiState.value = DashboardUiState(

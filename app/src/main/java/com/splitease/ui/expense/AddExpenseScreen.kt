@@ -1,18 +1,25 @@
 package com.splitease.ui.expense
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -24,11 +31,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.domain.SplitValidationResult
+import java.math.BigDecimal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,7 +48,6 @@ fun AddExpenseScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Navigate back when expense is saved successfully
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
             onExpenseSaved()
@@ -62,9 +70,11 @@ fun AddExpenseScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Title
             OutlinedTextField(
                 value = uiState.title,
                 onValueChange = { viewModel.updateTitle(it) },
@@ -72,6 +82,7 @@ fun AddExpenseScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // Amount
             OutlinedTextField(
                 value = uiState.amountText,
                 onValueChange = { viewModel.updateAmount(it) },
@@ -80,17 +91,69 @@ fun AddExpenseScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Split Type Selector (simplified for Sprint 5)
-            Text(
-                text = "Split Type: Equal",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            // Split Type Selector
+            Text("Split Type", style = MaterialTheme.typography.labelMedium)
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SplitType.values().forEach { type ->
+                    FilterChip(
+                        selected = uiState.splitType == type,
+                        onClick = { viewModel.updateSplitType(type) },
+                        label = { Text(type.name) }
+                    )
+                }
+            }
 
-            // Participants (showing count for now)
-            Text(
-                text = "Participants: ${uiState.selectedParticipants.size}",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            // Participant Selection
+            Text("Participants", style = MaterialTheme.typography.labelMedium)
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                uiState.groupMembers.forEach { userId ->
+                    FilterChip(
+                        selected = userId in uiState.selectedParticipants,
+                        onClick = { viewModel.toggleParticipant(userId) },
+                        label = { Text("User ${userId.take(4)}") }
+                    )
+                }
+            }
+
+            // Split Input Section
+            when (uiState.splitType) {
+                SplitType.EQUAL -> {
+                    SplitPreviewSection(uiState.splitPreview)
+                }
+                SplitType.EXACT -> {
+                    ExactAmountInputSection(
+                        participants = uiState.selectedParticipants,
+                        amounts = uiState.exactAmounts,
+                        onAmountChange = { userId, amount -> viewModel.updateExactAmount(userId, amount) }
+                    )
+                }
+                SplitType.PERCENTAGE -> {
+                    PercentageInputSection(
+                        participants = uiState.selectedParticipants,
+                        percentages = uiState.percentages,
+                        onPercentageChange = { userId, pct -> viewModel.updatePercentage(userId, pct) }
+                    )
+                }
+                SplitType.SHARES -> {
+                    SharesInputSection(
+                        participants = uiState.selectedParticipants,
+                        shares = uiState.shares,
+                        onSharesChange = { userId, count -> viewModel.updateShares(userId, count) }
+                    )
+                }
+            }
+
+            // Split Preview (for non-EQUAL types)
+            if (uiState.splitType != SplitType.EQUAL && uiState.splitPreview.isNotEmpty()) {
+                Text("Preview", style = MaterialTheme.typography.labelMedium)
+                SplitPreviewSection(uiState.splitPreview)
+            }
 
             // Validation feedback
             if (uiState.validationResult is SplitValidationResult.Invalid) {
@@ -118,9 +181,105 @@ fun AddExpenseScreen(
                 Button(
                     onClick = { viewModel.saveExpense() },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = uiState.validationResult is SplitValidationResult.Valid
+                    enabled = uiState.validationResult is SplitValidationResult.Valid &&
+                              uiState.title.isNotBlank() &&
+                              uiState.amountText.isNotBlank()
                 ) {
                     Text("Save Expense")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun SplitPreviewSection(splitPreview: Map<String, BigDecimal>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        splitPreview.forEach { (userId, amount) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("User ${userId.take(4)}", style = MaterialTheme.typography.bodyMedium)
+                Text("₹$amount", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExactAmountInputSection(
+    participants: List<String>,
+    amounts: Map<String, String>,
+    onAmountChange: (String, String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        participants.forEach { userId ->
+            OutlinedTextField(
+                value = amounts[userId] ?: "",
+                onValueChange = { onAmountChange(userId, it) },
+                label = { Text("User ${userId.take(4)}") },
+                suffix = { Text("₹") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun PercentageInputSection(
+    participants: List<String>,
+    percentages: Map<String, String>,
+    onPercentageChange: (String, String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        participants.forEach { userId ->
+            OutlinedTextField(
+                value = percentages[userId] ?: "",
+                onValueChange = { onPercentageChange(userId, it) },
+                label = { Text("User ${userId.take(4)}") },
+                suffix = { Text("%") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun SharesInputSection(
+    participants: List<String>,
+    shares: Map<String, Int>,
+    onSharesChange: (String, Int) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        participants.forEach { userId ->
+            val currentShares = shares[userId] ?: 1
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("User ${userId.take(4)}", style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { onSharesChange(userId, (currentShares - 1).coerceAtLeast(1)) }
+                    ) {
+                        Text("-", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Text(
+                        text = currentShares.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.width(32.dp)
+                    )
+                    IconButton(
+                        onClick = { onSharesChange(userId, currentShares + 1) }
+                    ) {
+                        Text("+", style = MaterialTheme.typography.titleLarge)
+                    }
                 }
             }
         }
