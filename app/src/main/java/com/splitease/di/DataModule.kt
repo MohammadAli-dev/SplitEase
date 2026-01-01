@@ -6,6 +6,8 @@ import com.splitease.data.repository.ExpenseRepository
 import com.splitease.data.repository.ExpenseRepositoryImpl
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.repository.SyncRepositoryImpl
+import com.splitease.data.sync.SyncWriteService
+import com.splitease.data.sync.SyncWriteServiceImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -33,4 +35,10 @@ abstract class DataModule {
     abstract fun bindSyncRepository(
         syncRepositoryImpl: SyncRepositoryImpl
     ): SyncRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSyncWriteService(
+        syncWriteServiceImpl: SyncWriteServiceImpl
+    ): SyncWriteService
 }
