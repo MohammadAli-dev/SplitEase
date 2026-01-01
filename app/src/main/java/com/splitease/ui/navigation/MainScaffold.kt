@@ -115,6 +115,7 @@ fun MainScaffold() {
                 })
             ) {
                 AddExpenseScreen(
+                    onNavigateBack = { navController.popBackStack() },
                     onExpenseSaved = { navController.popBackStack() }
                 )
             }
