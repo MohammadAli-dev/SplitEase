@@ -49,6 +49,13 @@ interface ExpenseDao {
     @Query("SELECT * FROM expense_splits WHERE expenseId = :expenseId")
     fun getSplits(expenseId: String): Flow<List<ExpenseSplit>>
 
+    @Query("""
+        SELECT expense_splits.* FROM expense_splits
+        INNER JOIN expenses ON expense_splits.expenseId = expenses.id
+        WHERE expenses.groupId = :groupId
+    """)
+    fun getAllExpenseSplitsForGroup(groupId: String): Flow<List<ExpenseSplit>>
+
     @Transaction
     suspend fun insertExpenseWithSplits(expense: Expense, splits: List<ExpenseSplit>) {
         insertExpense(expense)

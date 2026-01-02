@@ -172,6 +172,42 @@ fun GroupDetailScreen(
                             }
                         }
 
+                        // Balances Section
+                        item {
+                            Text(
+                                text = "Balances",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 16.dp)
+                            )
+                        }
+
+                        item {
+                            val nonZeroBalances = state.balances
+                                .filterValues { it.compareTo(java.math.BigDecimal.ZERO) != 0 }
+                                .toList()
+                                .sortedByDescending { it.second.abs() }
+
+                            if (nonZeroBalances.isEmpty()) {
+                                Text(
+                                    text = "All settled 🎉",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    nonZeroBalances.forEach { (userId, amount) ->
+                                        val user = state.members.find { it.id == userId }
+                                        val isOwed = amount.signum() > 0
+                                        BalanceRow(
+                                            userName = user?.name ?: "Unknown",
+                                            amount = amount,
+                                            isOwed = isOwed
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // Expenses Section
                         item {
                             Text(
@@ -272,3 +308,38 @@ fun ExpenseItem(expense: Expense, onClick: () -> Unit) {
     }
 }
 
+@Composable
+private fun BalanceRow(
+    userName: String,
+    amount: java.math.BigDecimal,
+    isOwed: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = userName,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = com.splitease.domain.MoneyFormatter.format(amount),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isOwed) {
+                    androidx.compose.ui.graphics.Color(0xFF2E7D32) // Green
+                } else {
+                    androidx.compose.ui.graphics.Color(0xFFC62828) // Red
+                }
+            )
+            Text(
+                text = if (isOwed) "is owed" else "owes",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
