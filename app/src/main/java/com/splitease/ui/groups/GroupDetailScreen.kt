@@ -208,6 +208,37 @@ fun GroupDetailScreen(
                             }
                         }
 
+                        // Settle Up Section
+                        item {
+                            Text(
+                                text = "Settle Up",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 16.dp)
+                            )
+                        }
+
+                        item {
+                            if (state.settlements.isEmpty()) {
+                                Text(
+                                    text = "No settlements needed 🎉",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    state.settlements.forEach { settlement ->
+                                        val fromUser = state.members.find { it.id == settlement.fromUserId }
+                                        val toUser = state.members.find { it.id == settlement.toUserId }
+                                        SettlementRow(
+                                            fromName = fromUser?.name ?: "Unknown",
+                                            toName = toUser?.name ?: "Unknown",
+                                            amount = settlement.amount
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // Expenses Section
                         item {
                             Text(
@@ -341,5 +372,31 @@ private fun BalanceRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+@Composable
+private fun SettlementRow(
+    fromName: String,
+    toName: String,
+    amount: java.math.BigDecimal
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "$fromName → pays → $toName",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = com.splitease.domain.MoneyFormatter.format(amount),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }

@@ -9,6 +9,8 @@ import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.User
 import com.splitease.domain.BalanceCalculator
+import com.splitease.domain.SettlementCalculator
+import com.splitease.domain.SettlementSuggestion
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,7 +27,8 @@ sealed interface GroupDetailUiState {
         val group: Group,
         val members: List<User>,
         val expenses: List<Expense>,
-        val balances: Map<String, BigDecimal> // userId → netAmount
+        val balances: Map<String, BigDecimal>,
+        val settlements: List<SettlementSuggestion>
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
@@ -63,7 +66,10 @@ class GroupDetailViewModel @Inject constructor(
                 BalanceCalculator.calculate(expenses, splits)
             }
 
-            GroupDetailUiState.Success(group, sortedMembers, expenses, balances)
+            // Compute settlements as derived state from balances
+            val settlements = SettlementCalculator.calculate(balances)
+
+            GroupDetailUiState.Success(group, sortedMembers, expenses, balances, settlements)
         }
     }.stateIn(
         scope = viewModelScope,
