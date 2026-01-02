@@ -76,4 +76,12 @@ interface ExpenseDao {
         insertSplits(splits)
         insertSyncOp(syncOp)
     }
+
+    /**
+     * Checks if an expense exists by ID.
+     * **For diagnostics/tests only — do NOT use as insert guard.**
+     * Database REPLACE strategy enforces idempotency.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM expenses WHERE id = :id)")
+    suspend fun existsById(id: String): Boolean
 }
