@@ -31,11 +31,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.User
+import com.splitease.domain.SettlementSuggestion
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -57,8 +66,24 @@ fun GroupDetailScreen(
     viewModel: GroupDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    
+    // Settlement Confirmation State
+    var settlementToConfirm by remember { mutableStateOf<SettlementSuggestion?>(null) }
+
+    // Handle one-off events (Snackbar)
+    LaunchedEffect(viewModel.events) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is GroupDetailEvent.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+            }
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -111,7 +136,7 @@ fun GroupDetailScreen(
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { viewModel.retry() }) {
+                        Button(onClick = viewModel::retry) {
                             Text("Retry")
                         }
                     }
@@ -232,7 +257,9 @@ fun GroupDetailScreen(
                                         SettlementRow(
                                             fromName = fromUser?.name ?: "Unknown",
                                             toName = toUser?.name ?: "Unknown",
-                                            amount = settlement.amount
+                                            amount = settlement.amount,
+                                            enabled = !state.isSettling,
+                                            onClick = { settlementToConfirm = settlement }
                                         )
                                     }
                                 }
@@ -260,7 +287,7 @@ fun GroupDetailScreen(
                             items(state.expenses) { expense ->
                                 ExpenseItem(
                                     expense = expense,
-                                    onClick = { onNavigateToEditExpense(expense.groupId, expense.id) }
+                                    onClick = { onNavigateToEditExpense(state.group.id, expense.id) }
                                 )
                             }
                         }
@@ -270,6 +297,38 @@ fun GroupDetailScreen(
                 }
             }
         }
+    }
+
+    // Confirmation Dialog
+    if (settlementToConfirm != null) {
+        val settlement = settlementToConfirm!!
+        val state = uiState as? GroupDetailUiState.Success
+        val fromUser = state?.members?.find { it.id == settlement.fromUserId }?.name ?: "Unknown"
+        val toUser = state?.members?.find { it.id == settlement.toUserId }?.name ?: "Unknown"
+        val amount = com.splitease.domain.MoneyFormatter.format(settlement.amount)
+
+        AlertDialog(
+            onDismissRequest = { settlementToConfirm = null },
+            title = { Text(text = "Settle up?") },
+            text = { Text(text = "$fromUser pays $toUser $amount") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.executeSettlement(settlement)
+                        settlementToConfirm = null
+                    }
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { settlementToConfirm = null }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -379,11 +438,16 @@ private fun BalanceRow(
 private fun SettlementRow(
     fromName: String,
     toName: String,
-    amount: java.math.BigDecimal
+    amount: java.math.BigDecimal,
+    enabled: Boolean = true,
+    onClick: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (enabled) Modifier.clickable(onClick = onClick) else Modifier
+            )
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -391,12 +455,15 @@ private fun SettlementRow(
         Text(
             text = "$fromName → pays → $toName",
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         )
         Text(
             text = com.splitease.domain.MoneyFormatter.format(amount),
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         )
     }
 }
+
+

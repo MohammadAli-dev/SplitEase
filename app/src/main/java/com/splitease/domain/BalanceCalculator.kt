@@ -25,10 +25,12 @@ object BalanceCalculator {
      */
     fun calculate(
         expenses: List<Expense>,
-        splits: List<ExpenseSplit>
+        splits: List<ExpenseSplit>,
+        settlements: List<com.splitease.data.local.entities.Settlement> = emptyList()
     ): Map<String, BigDecimal> {
         val balances = mutableMapOf<String, BigDecimal>()
 
+        // 1. Process Expenses
         // Payer gets +amount
         for (expense in expenses) {
             balances[expense.payerId] = (balances[expense.payerId] ?: BigDecimal.ZERO)
@@ -39,6 +41,26 @@ object BalanceCalculator {
         for (split in splits) {
             balances[split.userId] = (balances[split.userId] ?: BigDecimal.ZERO)
                 .subtract(split.amount)
+        }
+
+        // 2. Process Settlements
+        // GUARANTEE: Settlements are applied AFTER expenses.
+        // fromUser (payer) -> toUser (receiver)
+        // Payer's balance decreases (less debt/more credit used), Receiver's balance increases (less credit/more debt paid)
+        // Wait, standard logic:
+        // Alice owes Bob 100. Balance: Alice -100, Bob +100.
+        // Alice pays Bob 100.
+        // Alice: -100 + 100 = 0. (Payer balance INCREASES)
+        // Bob: +100 - 100 = 0. (Receiver balance DECREASES)
+        
+        for (settlement in settlements) {
+            // Payer (fromUser) is paying off debt -> Balance INCREASES (becomes less negative)
+            balances[settlement.fromUserId] = (balances[settlement.fromUserId] ?: BigDecimal.ZERO)
+                .add(settlement.amount)
+
+            // Receiver (toUser) is getting paid -> Balance DECREASES (becomes less positive)
+            balances[settlement.toUserId] = (balances[settlement.toUserId] ?: BigDecimal.ZERO)
+                .subtract(settlement.amount)
         }
 
         // Apply consistent rounding

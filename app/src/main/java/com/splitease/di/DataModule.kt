@@ -49,4 +49,10 @@ abstract class DataModule {
     abstract fun bindSyncWriteService(
         syncWriteServiceImpl: SyncWriteServiceImpl
     ): SyncWriteService
+
+    @Binds
+    @Singleton
+    abstract fun bindSettlementRepository(
+        settlementRepositoryImpl: com.splitease.data.repository.SettlementRepositoryImpl
+    ): com.splitease.data.repository.SettlementRepository
 }

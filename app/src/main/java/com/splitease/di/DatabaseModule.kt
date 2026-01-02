@@ -6,6 +6,7 @@ import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SyncDao
+import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.UserDao
 import dagger.Module
 import dagger.Provides
@@ -46,5 +47,10 @@ object DatabaseModule {
     @Provides
     fun provideSyncDao(db: AppDatabase): SyncDao {
         return db.syncDao()
+    }
+
+    @Provides
+    fun provideSettlementDao(db: AppDatabase): SettlementDao {
+        return db.settlementDao()
     }
 }

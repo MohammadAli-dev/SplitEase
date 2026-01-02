@@ -15,5 +15,6 @@ enum class SyncOperationType {
 enum class SyncEntityType {
     EXPENSE,
     GROUP,
-    MEMBER
+    MEMBER,
+    SETTLEMENT
 }
