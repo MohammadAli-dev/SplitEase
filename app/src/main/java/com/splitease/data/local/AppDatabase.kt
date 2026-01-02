@@ -75,4 +75,15 @@ abstract class AppDatabase : RoomDatabase() {
         groupDao().insertMembers(members)
         syncDao().insertSyncOp(syncOp)
     }
+
+    abstract fun settlementDao(): com.splitease.data.local.dao.SettlementDao
+
+    @androidx.room.Transaction
+    open suspend fun insertSettlementWithSync(
+        settlement: Settlement,
+        syncOp: SyncOperation
+    ) {
+        settlementDao().insertSettlement(settlement)
+        syncDao().insertSyncOp(syncOp)
+    }
 }

@@ -28,7 +28,14 @@ interface SyncWriteService {
      * Creates a SyncOperation for a new group.
      * Caller is responsible for persisting within a transaction.
      */
+
     fun createGroupCreateSyncOp(group: Group, members: List<GroupMember>): SyncOperation
+
+    /**
+     * Creates a SyncOperation for a new settlement.
+     * Caller is responsible for persisting within a transaction.
+     */
+    fun createSettlementCreateSyncOp(settlement: com.splitease.data.local.entities.Settlement): SyncOperation
 }
 
 @Singleton
@@ -90,6 +97,24 @@ class SyncWriteServiceImpl @Inject constructor(
             timestamp = System.currentTimeMillis()
         )
     }
+
+    override fun createSettlementCreateSyncOp(settlement: com.splitease.data.local.entities.Settlement): SyncOperation {
+        val payload = SettlementCreatePayload(
+            version = 1,
+            id = settlement.id,
+            groupId = settlement.groupId,
+            fromUserId = settlement.fromUserId,
+            toUserId = settlement.toUserId,
+            amount = settlement.amount
+        )
+        return SyncOperation(
+            operationType = SyncOperationType.CREATE.name,
+            entityType = SyncEntityType.SETTLEMENT.name,
+            entityId = settlement.id,
+            payload = gson.toJson(payload),
+            timestamp = System.currentTimeMillis()
+        )
+    }
 }
 
 /**
@@ -99,5 +124,18 @@ data class GroupCreatePayload(
     val version: Int,
     val group: Group,
     val members: List<GroupMember>
+)
+
+/**
+ * Versioned payload for settlement creation sync.
+ * Includes groupId and ID for backend reconciliation.
+ */
+data class SettlementCreatePayload(
+    val version: Int,
+    val id: String,
+    val groupId: String,
+    val fromUserId: String,
+    val toUserId: String,
+    val amount: java.math.BigDecimal
 )
 
