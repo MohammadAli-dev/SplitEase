@@ -22,9 +22,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
+import java.math.RoundingMode
 import javax.inject.Inject
 
 sealed interface GroupDetailUiState {
@@ -35,7 +35,7 @@ sealed interface GroupDetailUiState {
         val expenses: List<Expense>,
         val balances: Map<String, BigDecimal>,
         val settlements: List<SettlementSuggestion>,
-        val isSettling: Boolean = false
+        val executingSettlements: Set<String> = emptySet()
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
@@ -56,7 +56,7 @@ class GroupDetailViewModel @Inject constructor(
     private val groupId: String = savedStateHandle.get<String>("groupId") ?: ""
 
     private val _retryTrigger = MutableStateFlow(0)
-    private val _isSettling = MutableStateFlow(false)
+    private val _executingSettlements = MutableStateFlow<Set<String>>(emptySet())
 
     private val _eventChannel = Channel<GroupDetailEvent>()
     val events = _eventChannel.receiveAsFlow()
@@ -67,7 +67,7 @@ class GroupDetailViewModel @Inject constructor(
         expenseDao.getExpensesForGroup(groupId),
         expenseDao.getAllExpenseSplitsForGroup(groupId),
         settlementDao.getSettlementsForGroup(groupId),
-        _isSettling,
+        _executingSettlements,
         _retryTrigger
     ) { args ->
         val group = args[0] as? Group
@@ -75,7 +75,7 @@ class GroupDetailViewModel @Inject constructor(
         val expenses = args[2] as List<Expense>
         val splits = args[3] as List<ExpenseSplit>
         val persistedSettlements = args[4] as List<com.splitease.data.local.entities.Settlement>
-        val isSettling = args[5] as Boolean
+        val executingSettlements = args[5] as Set<String>
 
         if (group == null) {
             GroupDetailUiState.Error("Group not found")
@@ -84,7 +84,6 @@ class GroupDetailViewModel @Inject constructor(
             val sortedMembers = members.sortedWith(
                 compareBy<User> { it.id != group.createdBy }.thenBy { it.name }
             )
-
 
             // Compute balances as derived state (no caching)
             // Includes persisted settlements in calculation
@@ -95,6 +94,7 @@ class GroupDetailViewModel @Inject constructor(
             }
 
             // Compute settlements as derived state from balances
+            // Always recomputed—no local mutation of suggestion list
             val settlements = SettlementCalculator.calculate(balances)
 
             GroupDetailUiState.Success(
@@ -103,7 +103,7 @@ class GroupDetailViewModel @Inject constructor(
                 expenses,
                 balances,
                 settlements,
-                isSettling
+                executingSettlements
             )
         }
     }.stateIn(
@@ -118,24 +118,31 @@ class GroupDetailViewModel @Inject constructor(
         }
     }
 
-    fun executeSettlement(suggestion: SettlementSuggestion) {
-        if (_isSettling.value) return
+    /**
+     * Executes a settlement with optional custom amount.
+     * Amount is normalized to 2 decimal places for consistency.
+     */
+    fun executeSettlement(suggestion: SettlementSuggestion, amount: BigDecimal = suggestion.amount) {
+        val key = suggestion.key
+        if (_executingSettlements.value.contains(key)) return
 
         viewModelScope.launch {
-            _isSettling.value = true
+            _executingSettlements.value = _executingSettlements.value + key
             try {
+                // Normalize amount to 2 decimals (defensive against weird inputs)
+                val normalized = amount.setScale(2, RoundingMode.HALF_UP)
+                
                 settlementRepository.executeSettlement(
                     groupId = groupId,
                     fromUserId = suggestion.fromUserId,
                     toUserId = suggestion.toUserId,
-                    amount = suggestion.amount
+                    amount = normalized
                 )
                 _eventChannel.send(GroupDetailEvent.ShowSnackbar("Settlement recorded"))
             } catch (e: Exception) {
-                // Log error or show error snackbar
                 _eventChannel.send(GroupDetailEvent.ShowSnackbar("Failed to record settlement"))
             } finally {
-                _isSettling.value = false
+                _executingSettlements.value = _executingSettlements.value - key
             }
         }
     }

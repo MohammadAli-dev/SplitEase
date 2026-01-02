@@ -30,11 +30,11 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -54,6 +54,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.User
 import com.splitease.domain.SettlementSuggestion
+import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -68,8 +69,8 @@ fun GroupDetailScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     
-    // Settlement Confirmation State
-    var settlementToConfirm by remember { mutableStateOf<SettlementSuggestion?>(null) }
+    // Expanded settlement row state
+    var expandedSettlementKey by remember { mutableStateOf<String?>(null) }
 
     // Handle one-off events (Snackbar)
     LaunchedEffect(viewModel.events) {
@@ -254,12 +255,22 @@ fun GroupDetailScreen(
                                     state.settlements.forEach { settlement ->
                                         val fromUser = state.members.find { it.id == settlement.fromUserId }
                                         val toUser = state.members.find { it.id == settlement.toUserId }
-                                        SettlementRow(
+                                        val isExecuting = state.executingSettlements.contains(settlement.key)
+                                        val isExpanded = expandedSettlementKey == settlement.key
+                                        
+                                        ExpandableSettlementCard(
+                                            suggestion = settlement,
                                             fromName = fromUser?.name ?: "Unknown",
                                             toName = toUser?.name ?: "Unknown",
-                                            amount = settlement.amount,
-                                            enabled = !state.isSettling,
-                                            onClick = { settlementToConfirm = settlement }
+                                            isExpanded = isExpanded,
+                                            isExecuting = isExecuting,
+                                            onExpandToggle = {
+                                                expandedSettlementKey = if (isExpanded) null else settlement.key
+                                            },
+                                            onSettle = { amount ->
+                                                viewModel.executeSettlement(settlement, amount)
+                                                expandedSettlementKey = null
+                                            }
                                         )
                                     }
                                 }
@@ -299,37 +310,7 @@ fun GroupDetailScreen(
         }
     }
 
-    // Confirmation Dialog
-    if (settlementToConfirm != null) {
-        val settlement = settlementToConfirm!!
-        val state = uiState as? GroupDetailUiState.Success
-        val fromUser = state?.members?.find { it.id == settlement.fromUserId }?.name ?: "Unknown"
-        val toUser = state?.members?.find { it.id == settlement.toUserId }?.name ?: "Unknown"
-        val amount = com.splitease.domain.MoneyFormatter.format(settlement.amount)
 
-        AlertDialog(
-            onDismissRequest = { settlementToConfirm = null },
-            title = { Text(text = "Settle up?") },
-            text = { Text(text = "$fromUser pays $toUser $amount") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.executeSettlement(settlement)
-                        settlementToConfirm = null
-                    }
-                ) {
-                    Text("Confirm")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { settlementToConfirm = null }
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -435,34 +416,97 @@ private fun BalanceRow(
 }
 
 @Composable
-private fun SettlementRow(
+private fun ExpandableSettlementCard(
+    suggestion: SettlementSuggestion,
     fromName: String,
     toName: String,
-    amount: java.math.BigDecimal,
-    enabled: Boolean = true,
-    onClick: () -> Unit = {}
+    isExpanded: Boolean,
+    isExecuting: Boolean,
+    onExpandToggle: () -> Unit,
+    onSettle: (BigDecimal) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (enabled) Modifier.clickable(onClick = onClick) else Modifier
-            )
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    var amountText by remember(suggestion.key) { mutableStateOf(suggestion.amount.toPlainString()) }
+    val parsedAmount = amountText.toBigDecimalOrNull()
+    val isValidAmount = parsedAmount != null && 
+        parsedAmount > BigDecimal.ZERO && 
+        parsedAmount <= suggestion.amount
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Text(
-            text = "$fromName → pays → $toName",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        )
-        Text(
-            text = com.splitease.domain.MoneyFormatter.format(amount),
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        )
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Header row (always visible)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !isExecuting, onClick = onExpandToggle),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$fromName → $toName",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                    color = if (isExecuting) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) 
+                            else MaterialTheme.colorScheme.onSurface
+                )
+                if (isExecuting) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                } else {
+                    Text(
+                        text = com.splitease.domain.MoneyFormatter.format(suggestion.amount),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            
+            // Expanded content
+            if (isExpanded && !isExecuting) {
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { newValue ->
+                            // Clamp to 2 decimal places
+                            val filtered = newValue.filter { it.isDigit() || it == '.' }
+                            val parts = filtered.split(".")
+                            amountText = if (parts.size > 1) {
+                                parts[0] + "." + parts[1].take(2)
+                            } else {
+                                filtered
+                            }
+                        },
+                        label = { Text("Amount") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        isError = amountText.isNotEmpty() && !isValidAmount
+                    )
+                    
+                    Button(
+                        onClick = { parsedAmount?.let { onSettle(it) } },
+                        enabled = isValidAmount
+                    ) {
+                        Text("Settle")
+                    }
+                }
+                
+                if (amountText.isNotEmpty() && !isValidAmount) {
+                    Text(
+                        text = "Amount must be between ₹0.01 and ₹${suggestion.amount.toPlainString()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
