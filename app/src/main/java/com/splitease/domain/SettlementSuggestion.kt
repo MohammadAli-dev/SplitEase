@@ -10,4 +10,7 @@ data class SettlementSuggestion(
     val fromUserId: String,
     val toUserId: String,
     val amount: BigDecimal
-)
+) {
+    /** Deterministic key for UI state tracking (includes amount to handle partial settlements) */
+    val key: String get() = "$fromUserId:$toUserId:${amount.toPlainString()}"
+}
