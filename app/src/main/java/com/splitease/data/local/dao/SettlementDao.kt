@@ -15,4 +15,12 @@ interface SettlementDao {
 
     @Query("SELECT * FROM settlements WHERE groupId = :groupId ORDER BY date DESC")
     fun getSettlementsForGroup(groupId: String): Flow<List<Settlement>>
+
+    /**
+     * Checks if a settlement exists by ID.
+     * **For diagnostics/tests only — do NOT use as insert guard.**
+     * Database REPLACE strategy enforces idempotency.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM settlements WHERE id = :id)")
+    suspend fun existsById(id: String): Boolean
 }

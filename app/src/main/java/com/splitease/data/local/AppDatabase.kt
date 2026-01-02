@@ -30,6 +30,19 @@ import com.splitease.data.local.entities.User
     exportSchema = false
 )
 @TypeConverters(Converters::class)
+/**
+ * SplitEase Room database.
+ *
+ * ## Sync Correctness Invariant
+ *
+ * **For any SyncOperation payload with ID = X, applying it N times must result
+ * in the same final database state as applying it once.**
+ *
+ * All entity DAOs use [androidx.room.OnConflictStrategy.REPLACE] to guarantee
+ * idempotency under at-least-once delivery semantics.
+ *
+ * See `/docs/SYNC_INVARIANTS.md` for full documentation.
+ */
 abstract class AppDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
     abstract fun syncDao(): SyncDao
