@@ -17,6 +17,10 @@ interface SyncWriteService {
      * Caller is responsible for persisting within a transaction.
      */
     fun createExpenseSyncOp(expense: Expense, splits: List<ExpenseSplit>): SyncOperation
+
+    fun createUpdateExpenseSyncOp(expense: Expense, splits: List<ExpenseSplit>): SyncOperation
+
+    fun createDeleteExpenseSyncOp(expenseId: String): SyncOperation
 }
 
 @Singleton
@@ -35,6 +39,31 @@ class SyncWriteServiceImpl @Inject constructor(
             entityType = SyncEntityType.EXPENSE.name,
             entityId = expense.id,
             payload = gson.toJson(payload),
+            timestamp = System.currentTimeMillis()
+        )
+    }
+
+    override fun createUpdateExpenseSyncOp(expense: Expense, splits: List<ExpenseSplit>): SyncOperation {
+        val payload = ExpenseCreatePayload(
+            version = 1,
+            expense = expense,
+            splits = splits
+        )
+        return SyncOperation(
+            operationType = SyncOperationType.UPDATE.name,
+            entityType = SyncEntityType.EXPENSE.name,
+            entityId = expense.id,
+            payload = gson.toJson(payload),
+            timestamp = System.currentTimeMillis()
+        )
+    }
+
+    override fun createDeleteExpenseSyncOp(expenseId: String): SyncOperation {
+        return SyncOperation(
+            operationType = SyncOperationType.DELETE.name,
+            entityType = SyncEntityType.EXPENSE.name,
+            entityId = expenseId,
+            payload = "", // No payload for delete, ID is enough
             timestamp = System.currentTimeMillis()
         )
     }

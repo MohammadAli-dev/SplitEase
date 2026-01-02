@@ -1,10 +1,12 @@
 package com.splitease.data.local.dao
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.SyncOperation
@@ -26,11 +28,26 @@ interface ExpenseDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSyncOp(syncOp: SyncOperation)
 
+    @Update
+    suspend fun updateExpense(expense: Expense)
+
+    @Query("DELETE FROM expenses WHERE id = :id")
+    suspend fun deleteExpense(id: String)
+
+    @Query("DELETE FROM expense_splits WHERE expenseId = :expenseId")
+    suspend fun deleteSplitsForExpense(expenseId: String)
+
     @Query("SELECT * FROM expenses WHERE groupId = :groupId ORDER BY date DESC")
     fun getExpensesForGroup(groupId: String): Flow<List<Expense>>
 
+    @Query("SELECT * FROM expenses WHERE id = :id")
+    fun getExpense(id: String): Flow<Expense?>
+
     @Query("SELECT * FROM expense_splits WHERE userId = :userId")
     fun getSplitsForUser(userId: String): Flow<List<ExpenseSplit>>
+
+    @Query("SELECT * FROM expense_splits WHERE expenseId = :expenseId")
+    fun getSplits(expenseId: String): Flow<List<ExpenseSplit>>
 
     @Transaction
     suspend fun insertExpenseWithSplits(expense: Expense, splits: List<ExpenseSplit>) {

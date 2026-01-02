@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -46,7 +49,8 @@ data class AddExpenseUiState(
     val validationResult: SplitValidationResult = SplitValidationResult.Valid,
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isEditMode: Boolean = false
 )
 
 @HiltViewModel
@@ -58,13 +62,44 @@ class AddExpenseViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val groupId: String = savedStateHandle.get<String>("groupId") ?: ""
+    private val expenseId: String? = savedStateHandle.get<String>("expenseId")
     
     private val _uiState = MutableStateFlow(AddExpenseUiState())
     val uiState: StateFlow<AddExpenseUiState> = _uiState.asStateFlow()
 
     init {
         loadGroupMembers()
+        if (expenseId != null) {
+            _uiState.update { it.copy(isEditMode = true) }
+            loadExpense(expenseId)
+        }
         setDefaultPayer()
+    }
+
+    private fun loadExpense(id: String) {
+        viewModelScope.launch {
+            val expense = expenseRepository.getExpense(id).firstOrNull() ?: return@launch
+            val splits = expenseRepository.getSplits(id).first()
+            
+            _uiState.update { state ->
+                val inferredType = inferSplitType(splits, expense.amount)
+                
+                val exactAmounts = if (inferredType == SplitType.EXACT) {
+                    splits.associate { it.userId to it.amount.toPlainString() }
+                } else emptyMap()
+                
+                state.copy(
+                    title = expense.title,
+                    amountText = expense.amount.toPlainString(),
+                    splitType = inferredType,
+                    payerId = expense.payerId,
+                    selectedParticipants = splits.map { it.userId }.sorted(),
+                    exactAmounts = exactAmounts,
+                    isEditMode = true
+                )
+            }
+            recalculateSplits()
+        }
     }
 
     private fun loadGroupMembers() {
@@ -276,35 +311,51 @@ class AddExpenseViewModel @Inject constructor(
             _uiState.value = state.copy(isLoading = true)
             
             try {
-                val expenseId = UUID.randomUUID().toString()
+                // Use existing ID if editing, else generate new
+                val finalExpenseId = expenseId ?: UUID.randomUUID().toString()
+                
                 val expense = Expense(
-                    id = expenseId,
+                    id = finalExpenseId,
                     groupId = groupId,
                     title = state.title,
                     amount = amount,
                     currency = "INR",
-                    date = Date(),
-                    payerId = state.payerId,
-                    createdBy = state.payerId,
+                    date = Date(System.currentTimeMillis()),
+                    payerId = authRepository.getCurrentUserId() ?: "",
+                    createdBy = authRepository.getCurrentUserId() ?: "",
                     syncStatus = "PENDING"
                 )
 
-                val expenseSplits = state.splitPreview.map { (userId, splitAmount) ->
+                val splits = state.splitPreview.map { (userId, splitAmount) ->
                     ExpenseSplit(
-                        expenseId = expenseId,
+                        expenseId = finalExpenseId,
                         userId = userId,
                         amount = splitAmount
                     )
                 }
 
-                expenseRepository.addExpense(expense, expenseSplits)
+                if (expenseId != null) {
+                    expenseRepository.updateExpense(expense, splits)
+                } else {
+                    expenseRepository.addExpense(expense, splits)
+                }
                 
-                _uiState.value = state.copy(isLoading = false, isSaved = true, errorMessage = null)
+                _uiState.value = state.copy(isSaved = true, isLoading = false)
             } catch (e: Exception) {
-                _uiState.value = state.copy(
-                    isLoading = false,
-                    errorMessage = "Failed to save expense: ${e.message}"
-                )
+                _uiState.value = state.copy(errorMessage = e.message, isLoading = false)
+            }
+        }
+    }
+
+    fun deleteExpense() {
+        val id = expenseId ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                expenseRepository.deleteExpense(id)
+                _uiState.update { it.copy(isSaved = true, isLoading = false) } // isSaved triggers nav back
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message, isLoading = false) }
             }
         }
     }

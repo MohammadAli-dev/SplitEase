@@ -31,8 +31,32 @@ import com.splitease.data.local.entities.User
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun userDao(): UserDao
-    abstract fun groupDao(): GroupDao
     abstract fun expenseDao(): ExpenseDao
     abstract fun syncDao(): SyncDao
+    abstract fun groupDao(): GroupDao
+    abstract fun userDao(): UserDao
+
+    @androidx.room.Transaction
+    open suspend fun updateExpenseWithSync(
+        expense: Expense,
+        splits: List<ExpenseSplit>,
+        syncOp: SyncOperation
+    ) {
+        expenseDao().updateExpense(expense)
+        expenseDao().deleteSplitsForExpense(expense.id)
+        expenseDao().insertSplits(splits)
+        syncDao().insertSyncOp(syncOp)
+    }
+
+    @androidx.room.Transaction
+    open suspend fun deleteExpenseWithSync(
+        expenseId: String,
+        syncOp: SyncOperation
+    ) {
+        // Deleting expense might cascade delete splits depending on FK,
+        // but explicit delete is safer if we want to be sure.
+        expenseDao().deleteSplitsForExpense(expenseId)
+        expenseDao().deleteExpense(expenseId)
+        syncDao().insertSyncOp(syncOp)
+    }
 }
