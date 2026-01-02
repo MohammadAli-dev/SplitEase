@@ -336,7 +336,7 @@ private fun BalanceRow(
                 }
             )
             Text(
-                text = if (isOwed) "is owed" else "owes",
+                text = if (isOwed) "Gets back" else "Pays",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

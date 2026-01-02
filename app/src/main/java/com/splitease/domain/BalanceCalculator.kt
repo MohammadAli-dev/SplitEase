@@ -49,7 +49,7 @@ object BalanceCalculator {
         // Enforce zero-sum invariant
         val sum = rounded.values.fold(BigDecimal.ZERO, BigDecimal::add)
         require(sum.compareTo(BigDecimal.ZERO) == 0) {
-            "Balance invariant violated: sum = $sum, expected 0"
+            "Balance invariant violated: sum=₹${sum.setScale(2, RoundingMode.HALF_UP)} for ${rounded.size} users"
         }
 
         return rounded
