@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
+// import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -94,6 +96,31 @@ fun GroupDetailScreen(
                             else -> "Group Details"
                         }
                     )
+                },
+                actions = {
+                    // Show pending sync badge if there are pending items for this group
+                    if (uiState is GroupDetailUiState.Success) {
+                        val count = (uiState as GroupDetailUiState.Success).pendingGroupSyncCount
+                        if (count > 0) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = "Pending sync",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "$count",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -296,8 +323,10 @@ fun GroupDetailScreen(
                             }
                         } else {
                             items(state.expenses) { expense ->
+                                val isPending = expense.id in state.pendingExpenseIds
                                 ExpenseItem(
                                     expense = expense,
+                                    isPending = isPending,
                                     onClick = { onNavigateToEditExpense(state.group.id, expense.id) }
                                 )
                             }
@@ -343,7 +372,11 @@ private fun MemberAvatar(user: User) {
 }
 
 @Composable
-fun ExpenseItem(expense: Expense, onClick: () -> Unit) {
+fun ExpenseItem(
+    expense: Expense, 
+    isPending: Boolean = false,
+    onClick: () -> Unit
+) {
     val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
     Card(
@@ -360,10 +393,21 @@ fun ExpenseItem(expense: Expense, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = expense.title,
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = expense.title,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (isPending) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = "Pending sync",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 Text(
                     text = dateFormat.format(expense.date),
                     style = MaterialTheme.typography.bodySmall,
@@ -422,6 +466,7 @@ private fun ExpandableSettlementCard(
     toName: String,
     isExpanded: Boolean,
     isExecuting: Boolean,
+    isPending: Boolean = false,
     onExpandToggle: () -> Unit,
     onSettle: (BigDecimal) -> Unit
 ) {
@@ -444,13 +489,27 @@ private fun ExpandableSettlementCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "$fromName → $toName",
-                    style = MaterialTheme.typography.bodyMedium,
+                Row(
                     modifier = Modifier.weight(1f),
-                    color = if (isExecuting) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) 
-                            else MaterialTheme.colorScheme.onSurface
-                )
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "$fromName → $toName",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isExecuting) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) 
+                                else MaterialTheme.colorScheme.onSurface
+                    )
+                    if (isPending) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = "Pending sync",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 if (isExecuting) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
                 } else {
