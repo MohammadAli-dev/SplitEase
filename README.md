@@ -105,7 +105,7 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 
 ---
 
-## 3. High-Level Architecture (HLD)
+### 3. High-Level Architecture (HLD)
 
 SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional Data Flow (UDF)**.
 

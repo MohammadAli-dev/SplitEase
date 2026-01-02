@@ -24,6 +24,7 @@ import com.splitease.ui.account.AccountScreen
 import com.splitease.ui.activity.ActivityScreen
 import com.splitease.ui.dashboard.DashboardScreen
 import com.splitease.ui.expense.AddExpenseScreen
+import com.splitease.ui.groups.CreateGroupScreen
 import com.splitease.ui.groups.GroupDetailScreen
 import com.splitease.ui.groups.GroupListScreen
 
@@ -86,6 +87,9 @@ fun MainScaffold() {
                 GroupListScreen(
                     onNavigateToGroupDetail = { groupId ->
                         navController.navigate(Screen.GroupDetail.createRoute(groupId))
+                    },
+                    onNavigateToCreateGroup = {
+                        navController.navigate(Screen.CreateGroup.route)
                     }
                 )
             }
@@ -132,6 +136,11 @@ fun MainScaffold() {
                 AddExpenseScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onExpenseSaved = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.CreateGroup.route) {
+                CreateGroupScreen(
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
         }

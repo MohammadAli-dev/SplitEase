@@ -1,5 +1,6 @@
 package com.splitease.ui.groups
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,8 +12,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -21,6 +25,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,10 +38,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.local.entities.Expense
+import com.splitease.data.local.entities.User
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -109,46 +117,121 @@ fun GroupDetailScreen(
                     }
                 }
                 is GroupDetailUiState.Success -> {
-                    if (state.expenses.isEmpty()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = "No expenses yet",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        item { Spacer(modifier = Modifier.height(8.dp)) }
+
+                        // Group Type Chip
+                        item {
+                            FilterChip(
+                                selected = true,
+                                onClick = { },
+                                label = { Text(state.group.type) },
+                                enabled = false
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
+                        // Group Metadata
+                        item {
+                            val creator = state.members.find { it.id == state.group.createdBy }
                             Text(
-                                text = "Tap the + button to add an expense",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = "Created by ${creator?.name ?: "Unknown"}",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            item { Spacer(modifier = Modifier.height(8.dp)) }
+
+                        // Members Section
+                        item {
+                            Text(
+                                text = "Members (${state.members.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+
+                        item {
+                            if (state.members.isEmpty()) {
+                                Text(
+                                    text = "No members found",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(state.members) { member ->
+                                        MemberAvatar(user = member)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Expenses Section
+                        item {
+                            Text(
+                                text = "Expenses (${state.expenses.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 16.dp)
+                            )
+                        }
+
+                        if (state.expenses.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "No expenses yet. Tap + to add one.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
                             items(state.expenses) { expense ->
                                 ExpenseItem(
                                     expense = expense,
                                     onClick = { onNavigateToEditExpense(expense.groupId, expense.id) }
                                 )
                             }
-                            item { Spacer(modifier = Modifier.height(80.dp)) } // FAB clearance
                         }
+
+                        item { Spacer(modifier = Modifier.height(80.dp)) } // FAB clearance
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MemberAvatar(user: User) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(64.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = user.name.take(1).uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = user.name,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -188,3 +271,4 @@ fun ExpenseItem(expense: Expense, onClick: () -> Unit) {
         }
     }
 }
+

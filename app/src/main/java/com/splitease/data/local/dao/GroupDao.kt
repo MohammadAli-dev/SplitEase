@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
+import com.splitease.data.local.entities.User
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -15,6 +16,9 @@ interface GroupDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMember(member: GroupMember)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMembers(members: List<GroupMember>)
 
     @Query("""
         SELECT * FROM expense_groups 
@@ -31,4 +35,11 @@ interface GroupDao {
 
     @Query("SELECT * FROM expense_groups WHERE id = :groupId")
     fun getGroup(groupId: String): Flow<Group?>
+
+    @Query("""
+        SELECT users.* FROM users
+        INNER JOIN group_members ON users.id = group_members.userId
+        WHERE group_members.groupId = :groupId
+    """)
+    fun getGroupMembersWithDetails(groupId: String): Flow<List<User>>
 }
