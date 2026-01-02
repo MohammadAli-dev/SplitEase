@@ -85,3 +85,23 @@ If this assertion fails after replay, the sync system has corrupted financial st
 - No duplicate rows in any table
 - Balances sum to zero
 - `sync_operations` table has expected entries
+
+---
+
+## UI Sync State
+
+> **UI must derive sync state from `sync_operations`, not entity flags.**
+
+The `sync_operations` table is the single source of truth. Entity-level `syncStatus` 
+fields (if present) are for debugging only and must never be trusted for UI display.
+
+**Derived state pattern:**
+```kotlin
+// In ViewModel
+val pendingExpenseIds = syncDao.getPendingEntityIds("EXPENSE").map { it.toSet() }
+
+// In UI
+val isPending = expense.id in state.pendingExpenseIds
+```
+
+This ensures UI indicators disappear immediately when sync completes (operation deleted from queue).

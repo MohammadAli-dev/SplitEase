@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.splitease.data.local.entities.SyncOperation
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SyncDao {
@@ -19,4 +20,17 @@ interface SyncDao {
 
     @Query("DELETE FROM sync_operations WHERE id = :id")
     suspend fun deleteSyncOp(id: Int)
+
+    /**
+     * Get distinct pending entity IDs for a given entity type.
+     * Used for deriving sync status in UI — source of truth for "isPending".
+     */
+    @Query("SELECT DISTINCT entityId FROM sync_operations WHERE entityType = :entityType")
+    fun getPendingEntityIds(entityType: String): Flow<List<String>>
+
+    /**
+     * Get total count of pending sync operations.
+     */
+    @Query("SELECT COUNT(*) FROM sync_operations")
+    fun getPendingSyncCount(): Flow<Int>
 }

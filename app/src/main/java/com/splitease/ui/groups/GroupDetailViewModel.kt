@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
+import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,7 +37,10 @@ sealed interface GroupDetailUiState {
         val expenses: List<Expense>,
         val balances: Map<String, BigDecimal>,
         val settlements: List<SettlementSuggestion>,
-        val executingSettlements: Set<String> = emptySet()
+        val executingSettlements: Set<String> = emptySet(),
+        val pendingExpenseIds: Set<String> = emptySet(),
+        val pendingSettlementIds: Set<String> = emptySet(),
+        val pendingGroupSyncCount: Int = 0
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
@@ -50,7 +55,8 @@ class GroupDetailViewModel @Inject constructor(
     private val groupDao: GroupDao,
     private val expenseDao: ExpenseDao,
     private val settlementDao: SettlementDao,
-    private val settlementRepository: SettlementRepository
+    private val settlementRepository: SettlementRepository,
+    private val syncDao: SyncDao
 ) : ViewModel() {
 
     private val groupId: String = savedStateHandle.get<String>("groupId") ?: ""
@@ -61,21 +67,55 @@ class GroupDetailViewModel @Inject constructor(
     private val _eventChannel = Channel<GroupDetailEvent>()
     val events = _eventChannel.receiveAsFlow()
 
-    val uiState: StateFlow<GroupDetailUiState> = combine(
+    // Derive pending IDs from sync_operations (source of truth)
+    private val pendingExpenseIds = syncDao.getPendingEntityIds("EXPENSE")
+        .map { it.toSet() }
+    private val pendingSettlementIds = syncDao.getPendingEntityIds("SETTLEMENT")
+        .map { it.toSet() }
+
+    // Combine data sources
+    private data class GroupData(
+        val group: Group?,
+        val members: List<User>,
+        val expenses: List<Expense>,
+        val splits: List<ExpenseSplit>,
+        val settlements: List<com.splitease.data.local.entities.Settlement>
+    )
+
+    private val groupData = combine(
         groupDao.getGroup(groupId),
         groupDao.getGroupMembersWithDetails(groupId),
         expenseDao.getExpensesForGroup(groupId),
         expenseDao.getAllExpenseSplitsForGroup(groupId),
-        settlementDao.getSettlementsForGroup(groupId),
+        settlementDao.getSettlementsForGroup(groupId)
+    ) { group: Group?, members: List<User>, expenses: List<Expense>, splits: List<ExpenseSplit>, settlements: List<com.splitease.data.local.entities.Settlement> ->
+        GroupData(group, members, expenses, splits, settlements)
+    }
+
+    // Combine sync state
+    private data class SyncState(
+        val pendingExpenseIds: Set<String>,
+        val pendingSettlementIds: Set<String>
+    )
+
+    private val syncState = combine(
+        pendingExpenseIds,
+        pendingSettlementIds
+    ) { expenseIds: Set<String>, settlementIds: Set<String> ->
+        SyncState(expenseIds, settlementIds)
+    }
+
+    val uiState: StateFlow<GroupDetailUiState> = combine(
+        groupData,
+        syncState,
         _executingSettlements,
         _retryTrigger
-    ) { args ->
-        val group = args[0] as? Group
-        val members = args[1] as List<User>
-        val expenses = args[2] as List<Expense>
-        val splits = args[3] as List<ExpenseSplit>
-        val persistedSettlements = args[4] as List<com.splitease.data.local.entities.Settlement>
-        val executingSettlements = args[5] as Set<String>
+    ) { data: GroupData, sync: SyncState, executingSettlements: Set<String>, _: Int ->
+        val group = data.group
+        val members = data.members
+        val expenses = data.expenses
+        val splits = data.splits
+        val persistedSettlements = data.settlements
 
         if (group == null) {
             GroupDetailUiState.Error("Group not found")
@@ -97,13 +137,23 @@ class GroupDetailViewModel @Inject constructor(
             // Always recomputed—no local mutation of suggestion list
             val settlements = SettlementCalculator.calculate(balances)
 
+            // Compute group-scoped pending count
+            val groupExpenseIds = expenses.map { it.id }.toSet()
+            val groupSettlementIds = persistedSettlements.map { it.id }.toSet()
+            val pendingGroupSyncCount = 
+                (sync.pendingExpenseIds intersect groupExpenseIds).size + 
+                (sync.pendingSettlementIds intersect groupSettlementIds).size
+
             GroupDetailUiState.Success(
-                group,
-                sortedMembers,
-                expenses,
-                balances,
-                settlements,
-                executingSettlements
+                group = group,
+                members = sortedMembers,
+                expenses = expenses,
+                balances = balances,
+                settlements = settlements,
+                executingSettlements = executingSettlements,
+                pendingExpenseIds = sync.pendingExpenseIds,
+                pendingSettlementIds = sync.pendingSettlementIds,
+                pendingGroupSyncCount = pendingGroupSyncCount
             )
         }
     }.stateIn(
