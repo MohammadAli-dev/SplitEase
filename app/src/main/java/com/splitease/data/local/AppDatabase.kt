@@ -59,4 +59,20 @@ abstract class AppDatabase : RoomDatabase() {
         expenseDao().deleteExpense(expenseId)
         syncDao().insertSyncOp(syncOp)
     }
+
+    /**
+     * Atomic transaction for group creation.
+     * This is the ONLY place where Group, GroupMember, and SyncOperation
+     * are written together. No DAO-to-DAO injection allowed.
+     */
+    @androidx.room.Transaction
+    open suspend fun insertGroupWithMembersAndSync(
+        group: Group,
+        members: List<GroupMember>,
+        syncOp: SyncOperation
+    ) {
+        groupDao().insertGroup(group)
+        groupDao().insertMembers(members)
+        syncDao().insertSyncOp(syncOp)
+    }
 }

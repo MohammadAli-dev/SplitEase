@@ -7,6 +7,7 @@ import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.Group
+import com.splitease.data.local.entities.User
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,7 +19,11 @@ import javax.inject.Inject
 
 sealed interface GroupDetailUiState {
     data object Loading : GroupDetailUiState
-    data class Success(val group: Group, val expenses: List<Expense>) : GroupDetailUiState
+    data class Success(
+        val group: Group,
+        val members: List<User>,
+        val expenses: List<Expense>
+    ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
 
@@ -35,13 +40,18 @@ class GroupDetailViewModel @Inject constructor(
 
     val uiState: StateFlow<GroupDetailUiState> = combine(
         groupDao.getGroup(groupId),
+        groupDao.getGroupMembersWithDetails(groupId),
         expenseDao.getExpensesForGroup(groupId),
         _retryTrigger
-    ) { group, expenses, _ ->
+    ) { group, members, expenses, _ ->
         if (group == null) {
             GroupDetailUiState.Error("Group not found")
         } else {
-            GroupDetailUiState.Success(group, expenses)
+            // Sort members: creator first, then alphabetically
+            val sortedMembers = members.sortedWith(
+                compareBy<User> { it.id != group.createdBy }.thenBy { it.name }
+            )
+            GroupDetailUiState.Success(group, sortedMembers, expenses)
         }
     }.stateIn(
         scope = viewModelScope,

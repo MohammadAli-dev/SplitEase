@@ -7,6 +7,7 @@ sealed class Screen(val route: String) {
     object Groups : Screen("groups")
     object Activity : Screen("activity")
     object Account : Screen("account")
+    object CreateGroup : Screen("create_group")
 
     data class GroupDetail(val groupId: String) : Screen("group_detail/{groupId}") {
         companion object {

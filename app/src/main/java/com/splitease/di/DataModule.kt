@@ -4,6 +4,8 @@ import com.splitease.data.repository.AuthRepository
 import com.splitease.data.repository.AuthRepositoryImpl
 import com.splitease.data.repository.ExpenseRepository
 import com.splitease.data.repository.ExpenseRepositoryImpl
+import com.splitease.data.repository.GroupRepository
+import com.splitease.data.repository.GroupRepositoryImpl
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.repository.SyncRepositoryImpl
 import com.splitease.data.sync.SyncWriteService
@@ -29,6 +31,12 @@ abstract class DataModule {
     abstract fun bindExpenseRepository(
         expenseRepositoryImpl: ExpenseRepositoryImpl
     ): ExpenseRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindGroupRepository(
+        groupRepositoryImpl: GroupRepositoryImpl
+    ): GroupRepository
 
     @Binds
     @Singleton
