@@ -86,7 +86,12 @@ class SyncRepositoryImpl @Inject constructor(
             return@withContext false
         } catch (e: HttpException) {
             val code = e.code()
-            if (code in 400..499) {
+            if (code == 429) {
+                // Transient Failure (Rate Limit) -> Retry
+                // WorkManager will handle backoff automatically
+                Log.w("SyncRepository", "Sync rate limited (429): ${e.message()}")
+                return@withContext false
+            } else if (code in 400..499) {
                 // Permanent Failure (HTTP 4xx)
                 val msg = "$code ${e.message()}"
                 Log.e("SyncRepository", "Sync PERMANENT HTTP FAILURE: $msg")

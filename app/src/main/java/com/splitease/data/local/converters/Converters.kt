@@ -50,7 +50,7 @@ class Converters {
         return try {
             SyncEntityType.valueOf(value)
         } catch (e: IllegalArgumentException) {
-            throw IllegalStateException("Unknown SyncEntityType: $value")
+            throw IllegalStateException("Unknown SyncEntityType: $value", e)
         }
     }
 }
