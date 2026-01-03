@@ -155,8 +155,7 @@ fun AddExpenseScreen(
                     IconButton(onClick = { showDatePicker = true }) {
                         Icon(Icons.Default.DateRange, contentDescription = "Select Date")
                     }
-                },
-                enabled = false
+                }
             )
 
             if (showDatePicker) {

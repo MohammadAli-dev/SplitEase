@@ -135,8 +135,7 @@ fun CreateGroupScreen(
                             IconButton(onClick = { showStartDatePicker = true }) {
                                 Icon(Icons.Default.DateRange, contentDescription = "Select")
                             }
-                        },
-                        enabled = false
+                        }
                     )
 
                     // End Date
@@ -152,8 +151,7 @@ fun CreateGroupScreen(
                             IconButton(onClick = { showEndDatePicker = true }) {
                                 Icon(Icons.Default.DateRange, contentDescription = "Select")
                             }
-                        },
-                        enabled = false
+                        }
                     )
 
                     // Start Date Picker Dialog

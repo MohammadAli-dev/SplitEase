@@ -30,6 +30,19 @@ enum class SplitType {
 }
 
 /**
+ * Normalizes a timestamp to the start of the day (00:00:00.000) in the user's local timezone.
+ */
+private fun normalizeToStartOfDay(millis: Long): Long {
+    val calendar = java.util.Calendar.getInstance()
+    calendar.timeInMillis = millis
+    calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    calendar.set(java.util.Calendar.MINUTE, 0)
+    calendar.set(java.util.Calendar.SECOND, 0)
+    calendar.set(java.util.Calendar.MILLISECOND, 0)
+    return calendar.timeInMillis
+}
+
+/**
  * UI state for Add Expense screen.
  * splitPreview is derived state, recalculated on any input change.
  */
@@ -52,7 +65,7 @@ data class AddExpenseUiState(
     val errorMessage: String? = null,
     val isEditMode: Boolean = false,
     /** Logical date of expense, normalized to start-of-day */
-    val expenseDate: Long = System.currentTimeMillis()
+    val expenseDate: Long = normalizeToStartOfDay(System.currentTimeMillis())
 )
 
 @HiltViewModel
@@ -126,16 +139,16 @@ class AddExpenseViewModel @Inject constructor(
     }
 
     fun updateTitle(title: String) {
-        _uiState.value = _uiState.value.copy(title = title)
+        _uiState.update { it.copy(title = title) }
     }
 
     fun updateAmount(amountText: String) {
-        _uiState.value = _uiState.value.copy(amountText = amountText)
+        _uiState.update { it.copy(amountText = amountText) }
         recalculateSplits()
     }
 
     fun updateSplitType(splitType: SplitType) {
-        _uiState.value = _uiState.value.copy(splitType = splitType)
+        _uiState.update { it.copy(splitType = splitType) }
         recalculateSplits()
     }
 
@@ -150,45 +163,43 @@ class AddExpenseViewModel @Inject constructor(
         _uiState.update { it.copy(expenseDate = normalizeToStartOfDay(dateMillis)) }
     }
 
-    private fun normalizeToStartOfDay(millis: Long): Long {
-        val calendar = java.util.Calendar.getInstance()
-        calendar.timeInMillis = millis
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        calendar.set(java.util.Calendar.MINUTE, 0)
-        calendar.set(java.util.Calendar.SECOND, 0)
-        calendar.set(java.util.Calendar.MILLISECOND, 0)
-        return calendar.timeInMillis
-    }
-
     fun toggleParticipant(userId: String) {
-        val current = _uiState.value.selectedParticipants.toMutableList()
-        if (userId in current) {
-            current.remove(userId)
-        } else {
-            current.add(userId)
+        _uiState.update { state ->
+            val current = state.selectedParticipants.toMutableList()
+            if (userId in current) {
+                current.remove(userId)
+            } else {
+                current.add(userId)
+            }
+            state.copy(selectedParticipants = current.sorted())
         }
-        _uiState.value = _uiState.value.copy(selectedParticipants = current.sorted())
         recalculateSplits()
     }
 
     fun updateExactAmount(userId: String, amountText: String) {
-        val updated = _uiState.value.exactAmounts.toMutableMap()
-        updated[userId] = amountText
-        _uiState.value = _uiState.value.copy(exactAmounts = updated)
+        _uiState.update { state ->
+            val updated = state.exactAmounts.toMutableMap()
+            updated[userId] = amountText
+            state.copy(exactAmounts = updated)
+        }
         recalculateSplits()
     }
 
     fun updatePercentage(userId: String, percentageText: String) {
-        val updated = _uiState.value.percentages.toMutableMap()
-        updated[userId] = percentageText
-        _uiState.value = _uiState.value.copy(percentages = updated)
+        _uiState.update { state ->
+            val updated = state.percentages.toMutableMap()
+            updated[userId] = percentageText
+            state.copy(percentages = updated)
+        }
         recalculateSplits()
     }
 
     fun updateShares(userId: String, shareCount: Int) {
-        val updated = _uiState.value.shares.toMutableMap()
-        updated[userId] = shareCount.coerceAtLeast(1)
-        _uiState.value = _uiState.value.copy(shares = updated)
+        _uiState.update { state ->
+            val updated = state.shares.toMutableMap()
+            updated[userId] = shareCount.coerceAtLeast(1)
+            state.copy(shares = updated)
+        }
         recalculateSplits()
     }
 
