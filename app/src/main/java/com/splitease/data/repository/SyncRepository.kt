@@ -67,16 +67,23 @@ class SyncRepositoryImpl @Inject constructor(
             val response = api.sync(request)
             
             if (response.success) {
-                // Delete operation ONLY after confirmed success
+                // Happy Path: Delete operation only after confirmed success
                 syncDao.deleteSyncOp(operation.id)
                 Log.d("SyncRepository", "Sync success: ${operation.entityType}/${operation.entityId}")
                 return@withContext true
             } else {
-                Log.e("SyncRepository", "Sync failed: ${response.message}")
-                return@withContext false
+                // Permanent Failure (Logical/Server Validation)
+                // Mark as FAILED (Terminated); do not retry.
+                // Allow queue to continue processing next items.
+                Log.e("SyncRepository", "Sync PERMANENT FAILURE: ${response.message}")
+                syncDao.markAsFailed(operation.id, response.message)
+                return@withContext true
             }
         } catch (e: Exception) {
-            Log.e("SyncRepository", "Sync error: ${e.message}")
+            // Transient Failure (Network/Timeout)
+            // Log warning, keep PENDING state.
+            // STOP processing queue (implicit backoff via WorkManager retry policy).
+            Log.w("SyncRepository", "Sync transient error: ${e.message}")
             return@withContext false
         }
     }

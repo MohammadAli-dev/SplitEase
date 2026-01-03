@@ -3,6 +3,7 @@ package com.splitease.ui.groups
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitease.data.local.dao.UserDao
+import com.splitease.data.local.entities.User
 import com.splitease.data.repository.AuthRepository
 import com.splitease.data.repository.GroupRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,14 +17,22 @@ import javax.inject.Inject
 data class CreateGroupUiState(
     val name: String = "",
     val type: GroupType = GroupType.OTHER,
-    val availableUsers: List<String> = emptyList(),
+    val availableUsers: List<User> = emptyList(),
     val selectedMemberIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    // Trip date fields (only relevant for TRIP type)
+    val hasTripDates: Boolean = false,
+    val tripStartDate: Long? = null,
+    val tripEndDate: Long? = null
 ) {
     val isValid: Boolean
-        get() = name.isNotBlank() && selectedMemberIds.size >= 2
+        get() = name.isNotBlank() && selectedMemberIds.size >= 2 && isTripDatesValid
+    
+    /** Trip dates are valid if disabled, or if enabled with valid range */
+    private val isTripDatesValid: Boolean
+        get() = !hasTripDates || (tripStartDate != null && tripEndDate != null && tripStartDate <= tripEndDate)
 }
 
 @HiltViewModel
@@ -45,7 +54,7 @@ class CreateGroupViewModel @Inject constructor(
         viewModelScope.launch {
             userDao.getAllUsers().collect { users ->
                 _uiState.update { state ->
-                    state.copy(availableUsers = users.map { it.id }.sorted())
+                    state.copy(availableUsers = users.sortedBy { it.name.ifBlank { it.id } })
                 }
             }
         }
@@ -78,6 +87,30 @@ class CreateGroupViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Toggle trip dates enabled/disabled.
+     * INVARIANT: When disabled, both dates are reset to null.
+     */
+    fun toggleTripDates(enabled: Boolean) {
+        _uiState.update { state ->
+            if (enabled) {
+                state.copy(hasTripDates = true)
+            } else {
+                // Reset guard: clear dates when disabled
+                state.copy(hasTripDates = false, tripStartDate = null, tripEndDate = null)
+            }
+        }
+    }
+
+    fun updateTripStartDate(dateMillis: Long) {
+        _uiState.update { it.copy(tripStartDate = dateMillis) }
+    }
+
+    fun updateTripEndDate(dateMillis: Long) {
+        _uiState.update { it.copy(tripEndDate = dateMillis) }
+    }
+
+
     fun saveGroup() {
         val state = _uiState.value
 
@@ -101,7 +134,10 @@ class CreateGroupViewModel @Inject constructor(
                 groupRepository.createGroup(
                     name = state.name,
                     type = state.type.name,
-                    memberIds = state.selectedMemberIds.toList()
+                    memberIds = state.selectedMemberIds.toList(),
+                    hasTripDates = state.hasTripDates,
+                    tripStartDate = state.tripStartDate,
+                    tripEndDate = state.tripEndDate
                 )
                 _uiState.update { it.copy(isSaved = true, isLoading = false) }
             } catch (e: Exception) {

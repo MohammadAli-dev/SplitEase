@@ -29,8 +29,18 @@ interface GroupRepository {
      * @param name The display name of the group.
      * @param type The group type (e.g., TRIP, HOME, COUPLE, OTHER).
      * @param memberIds List of user IDs to add as members.
+     * @param hasTripDates Whether trip dates are enabled.
+     * @param tripStartDate Trip start date (epoch millis), null if not applicable.
+     * @param tripEndDate Trip end date (epoch millis), null if not applicable.
      */
-    suspend fun createGroup(name: String, type: String, memberIds: List<String>)
+    suspend fun createGroup(
+        name: String,
+        type: String,
+        memberIds: List<String>,
+        hasTripDates: Boolean = false,
+        tripStartDate: Long? = null,
+        tripEndDate: Long? = null
+    )
 }
 
 @Singleton
@@ -39,8 +49,14 @@ class GroupRepositoryImpl @Inject constructor(
     private val syncWriteService: SyncWriteService
 ) : GroupRepository {
 
-    override suspend fun createGroup(name: String, type: String, memberIds: List<String>) =
-        withContext(Dispatchers.IO) {
+    override suspend fun createGroup(
+        name: String,
+        type: String,
+        memberIds: List<String>,
+        hasTripDates: Boolean,
+        tripStartDate: Long?,
+        tripEndDate: Long?
+    ) = withContext(Dispatchers.IO) {
             val groupId = UUID.randomUUID().toString()
             val now = Date()
 
@@ -49,7 +65,10 @@ class GroupRepositoryImpl @Inject constructor(
                 name = name,
                 type = type,
                 coverUrl = null,
-                createdBy = memberIds.firstOrNull() ?: "" // First member as creator
+                createdBy = memberIds.firstOrNull() ?: "",
+                hasTripDates = hasTripDates,
+                tripStartDate = tripStartDate,
+                tripEndDate = tripEndDate
             )
 
             val members = memberIds.sortedBy { it }.map { userId ->
