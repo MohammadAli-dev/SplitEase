@@ -13,12 +13,10 @@ INSERT OR IGNORE INTO users (id, name, email, profileUrl) VALUES
 ('user_3', 'Bob', 'Bob@test.com', NULL),
 ('user_4', 'Charlie', 'Charlie@test.com', NULL);
 
--- 2. Insert a Test Group with trip dates
+-- 2. Insert a Test Group
+-- with trip dates
 INSERT OR IGNORE INTO expense_groups (id, name, type, coverUrl, createdBy, hasTripDates, tripStartDate, tripEndDate) VALUES 
-('group_hawaii', 'Hawaii Trip 🌴', 'TRIP', NULL, 'user_1', 1, 1704067200000, 1704153600000);
-
--- 3. Add Members to Group
--- Timestamp roughly corresponds to Jan 1, 2024
+('group_hawaii', 'Hawaii Trip 🌴', 'TRIP', NULL, 'user_1', 1, 1704067200000, 1704153600000);-- Timestamp roughly corresponds to Jan 1, 2024
 INSERT OR IGNORE INTO group_members (groupId, userId, joinedAt) VALUES 
 ('group_hawaii', 'user_1', 1704067200000),
 ('group_hawaii', 'user_2', 1704067200000),
