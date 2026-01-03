@@ -2,6 +2,7 @@ package com.splitease.data.local.converters
 
 import androidx.room.TypeConverter
 import com.splitease.data.local.entities.SyncStatus
+import com.splitease.data.local.entities.SyncEntityType
 import java.math.BigDecimal
 import java.util.Date
 
@@ -37,6 +38,19 @@ class Converters {
             SyncStatus.valueOf(value)
         } catch (e: Exception) {
             SyncStatus.PENDING
+        }
+    }
+    @TypeConverter
+    fun fromSyncEntityType(type: SyncEntityType): String {
+        return type.name
+    }
+
+    @TypeConverter
+    fun toSyncEntityType(value: String): SyncEntityType {
+        return try {
+            SyncEntityType.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalStateException("Unknown SyncEntityType: $value", e)
         }
     }
 }

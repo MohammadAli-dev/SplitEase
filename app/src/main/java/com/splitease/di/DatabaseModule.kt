@@ -42,6 +42,21 @@ object DatabaseModule {
             db.execSQL("ALTER TABLE sync_operations ADD COLUMN failureReason TEXT")
         }
     }
+    
+    /**
+     * Migration from version 3 to 4:
+     * - sync_operations: entityType column changed from String to Enum (Logic change only, DB remains TEXT)
+     * 
+     * Since we are using TypeConverters to store Enums as Strings, the underlying
+     * database schema for 'TEXT' columns doesn't change. We just need to
+     * acknowledge the version bump.
+     */
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // No-op migration: Column type remains TEXT.
+            // Data integrity: Existing values (EXPENSE, GROUP, SETTLEMENT) match Enum names.
+        }
+    }
 
     @Provides
     @Singleton
@@ -52,6 +67,8 @@ object DatabaseModule {
             "splitease.db"
         )
             .addMigrations(MIGRATION_2_3)
+            .addMigrations(MIGRATION_3_4)
+            .fallbackToDestructiveMigration()
             .build()
     }
 

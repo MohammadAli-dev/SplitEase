@@ -13,7 +13,7 @@ enum class SyncStatus {
 data class SyncOperation(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val operationType: String, // CREATE, UPDATE, DELETE
-    val entityType: String, // EXPENSE, GROUP, MEMBER
+    val entityType: SyncEntityType,
     val entityId: String,
     val payload: String, // JSON payload
     val timestamp: Long = System.currentTimeMillis(),

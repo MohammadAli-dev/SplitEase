@@ -8,12 +8,15 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.gson.Gson
 import com.splitease.data.local.dao.SyncDao
+import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.remote.SplitEaseApi
 import com.splitease.data.remote.SyncRequest
 import com.splitease.worker.SyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -59,7 +62,7 @@ class SyncRepositoryImpl @Inject constructor(
         try {
             val request = SyncRequest(
                 operationId = operation.id.toString(),
-                entityType = operation.entityType,
+                entityType = operation.entityType.name,
                 operationType = operation.operationType,
                 payload = operation.payload
             )
@@ -67,30 +70,50 @@ class SyncRepositoryImpl @Inject constructor(
             val response = api.sync(request)
             
             if (response.success) {
-                // Happy Path: Delete operation only after confirmed success
+                // Happy Path
                 syncDao.deleteSyncOp(operation.id)
                 Log.d("SyncRepository", "Sync success: ${operation.entityType}/${operation.entityId}")
                 return@withContext true
             } else {
-                // Permanent Failure (Logical/Server Validation)
-                // Mark as FAILED (Terminated); do not retry.
-                // Allow queue to continue processing next items.
+                // Permanent Failure (Logical)
                 Log.e("SyncRepository", "Sync PERMANENT FAILURE: ${response.message}")
                 syncDao.markAsFailed(operation.id, response.message)
                 return@withContext true
             }
-        } catch (e: Exception) {
-            // Transient Failure (Network/Timeout)
-            // Log warning, keep PENDING state.
-            // STOP processing queue (implicit backoff via WorkManager retry policy).
-            Log.w("SyncRepository", "Sync transient error: ${e.message}")
+        } catch (e: IOException) {
+            // Transient Failure (Network)
+            Log.w("SyncRepository", "Sync transient network error: ${e.message}")
             return@withContext false
+        } catch (e: HttpException) {
+            val code = e.code()
+            if (code == 429) {
+                // Transient Failure (Rate Limit) -> Retry
+                // WorkManager will handle backoff automatically
+                Log.w("SyncRepository", "Sync rate limited (429): ${e.message()}")
+                return@withContext false
+            } else if (code in 400..499) {
+                // Permanent Failure (HTTP 4xx)
+                val msg = "$code ${e.message()}"
+                Log.e("SyncRepository", "Sync PERMANENT HTTP FAILURE: $msg")
+                syncDao.markAsFailed(operation.id, msg)
+                return@withContext true
+            } else {
+                // Transient Failure (HTTP 5xx)
+                Log.w("SyncRepository", "Sync transient server error: $code ${e.message()}")
+                return@withContext false
+            }
+        } catch (e: Exception) {
+            // Unknown Failure -> Permanent
+            val msg = "${e.javaClass.simpleName}: ${e.message}"
+            Log.e("SyncRepository", "Sync PERMANENT UNKNOWN FAILURE: $msg")
+            syncDao.markAsFailed(operation.id, msg)
+            return@withContext true
         }
     }
 
     override suspend fun processAllPending() = withContext(Dispatchers.IO) {
         while (processNextOperation()) {
-            // Continue processing until queue is empty
+            // Loop until empty or explicit false return
         }
     }
 }
