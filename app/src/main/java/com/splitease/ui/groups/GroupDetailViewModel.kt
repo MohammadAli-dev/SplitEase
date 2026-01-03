@@ -1,5 +1,7 @@
 package com.splitease.ui.groups
 
+import com.splitease.data.local.entities.SyncEntityType
+
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -22,6 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -76,9 +80,9 @@ class GroupDetailViewModel @Inject constructor(
     private val _settlementMode = MutableStateFlow(SettlementMode.SIMPLIFIED)
 
     // Derive pending IDs from sync_operations (source of truth)
-    private val pendingExpenseIds = syncDao.getPendingEntityIds("EXPENSE")
+    private val pendingExpenseIds = syncDao.getPendingEntityIds(SyncEntityType.EXPENSE)
         .map { it.toSet() }
-    private val pendingSettlementIds = syncDao.getPendingEntityIds("SETTLEMENT")
+    private val pendingSettlementIds = syncDao.getPendingEntityIds(SyncEntityType.SETTLEMENT)
         .map { it.toSet() }
 
     // Combine data sources

@@ -6,6 +6,7 @@ import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.SyncOperation
+import com.splitease.data.local.entities.SyncEntityType
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -51,7 +52,7 @@ class SyncWriteServiceImpl @Inject constructor(
         )
         return SyncOperation(
             operationType = SyncOperationType.CREATE.name,
-            entityType = SyncEntityType.EXPENSE.name,
+            entityType = SyncEntityType.EXPENSE,
             entityId = expense.id,
             payload = gson.toJson(payload),
             timestamp = System.currentTimeMillis()
@@ -66,7 +67,7 @@ class SyncWriteServiceImpl @Inject constructor(
         )
         return SyncOperation(
             operationType = SyncOperationType.UPDATE.name,
-            entityType = SyncEntityType.EXPENSE.name,
+            entityType = SyncEntityType.EXPENSE,
             entityId = expense.id,
             payload = gson.toJson(payload),
             timestamp = System.currentTimeMillis()
@@ -76,7 +77,7 @@ class SyncWriteServiceImpl @Inject constructor(
     override fun createDeleteExpenseSyncOp(expenseId: String): SyncOperation {
         return SyncOperation(
             operationType = SyncOperationType.DELETE.name,
-            entityType = SyncEntityType.EXPENSE.name,
+            entityType = SyncEntityType.EXPENSE,
             entityId = expenseId,
             payload = "", // No payload for delete, ID is enough
             timestamp = System.currentTimeMillis()
@@ -91,7 +92,7 @@ class SyncWriteServiceImpl @Inject constructor(
         )
         return SyncOperation(
             operationType = SyncOperationType.CREATE.name,
-            entityType = SyncEntityType.GROUP.name,
+            entityType = SyncEntityType.GROUP,
             entityId = group.id,
             payload = gson.toJson(payload),
             timestamp = System.currentTimeMillis()
@@ -109,7 +110,7 @@ class SyncWriteServiceImpl @Inject constructor(
         )
         return SyncOperation(
             operationType = SyncOperationType.CREATE.name,
-            entityType = SyncEntityType.SETTLEMENT.name,
+            entityType = SyncEntityType.SETTLEMENT,
             entityId = settlement.id,
             payload = gson.toJson(payload),
             timestamp = System.currentTimeMillis()

@@ -9,12 +9,4 @@ enum class SyncOperationType {
     DELETE
 }
 
-/**
- * Entity types that support sync operations.
- */
-enum class SyncEntityType {
-    EXPENSE,
-    GROUP,
-    MEMBER,
-    SETTLEMENT
-}
+

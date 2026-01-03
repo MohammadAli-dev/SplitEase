@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.splitease.data.local.entities.SyncOperation
+import com.splitease.data.local.entities.SyncEntityType
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -36,7 +37,7 @@ interface SyncDao {
      * Used for deriving sync status in UI — source of truth for "isPending".
      */
     @Query("SELECT DISTINCT entityId FROM sync_operations WHERE entityType = :entityType AND status = 'PENDING'")
-    fun getPendingEntityIds(entityType: String): Flow<List<String>>
+    fun getPendingEntityIds(entityType: SyncEntityType): Flow<List<String>>
 
     /**
      * Get total count of pending sync operations.

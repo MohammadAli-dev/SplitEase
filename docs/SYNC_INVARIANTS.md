@@ -108,16 +108,35 @@ This ensures UI indicators disappear immediately when sync completes (operation 
 
 ---
 
-## Terminal Failures
+## Failure Semantics & Lifecycle
 
-> **FAILED sync operations are dead-letter items.**
+### SyncOperation Lifecycle
+The `SyncOperation` state machine is strictly unidirectional:
 
-They are never retried and require explicit user or system intervention to resolve.
+1. **PENDING**: Initial state. Queue picks these up in timestamp order.
+2. **Terminal States**:
+    - **SYNCED** (Implicit): Operation succeeded and is DELETED from `sync_operations`.
+    - **FAILED**: Permanent error encountered. Dead-letter; requires manual intervention.
 
-**Queue Liveness Guarantee:**
-One permanently failing operation must NOT block unrelated valid operations behind it.
-- **Transient Failures** (Network): Stop queue (Backoff).
-- **Permanent Failures** (Logic/Validation): Mark FAILED, continue queue.
+> **Note**: There is no "SYNCED" status stored in the DB. Success = Deletion.
+
+### Failure Classification
+The Sync Repository classifies errors to protect queue liveness:
+
+1. **Transient Failures** (Retry Safe)
+   - *Examples*: `IOException`, `SocketTimeoutException`, HTTP 5xx.
+   - *Action*: Log warning, return failure (false).
+   - *Outcome*: Queue stops processing (WorkManager handles backoff). Operation remains **PENDING**.
+
+2. **Permanent Failures** (Terminal)
+   - *Examples*: HTTP 4xx (Client Error), Business Logic Violations, Serialization Errors.
+   - *Action*: Mark status = **FAILED** with reason, return success (true) to skip.
+   - *Outcome*: Queue proceeds to next operation.
+
+3. **Unknown Failures** (Safety Bias)
+   - *Examples*: `NullPointerException`, `ClassCastException`, Unknown Exceptions.
+   - *Invariant*: **Unknown exceptions are treated as permanent failures.**
+   - *Outcome*: Mark **FAILED**. This prevents a crashing operation from creating an infinite retry loop that blocks all user data sync.
 
 ---
 
