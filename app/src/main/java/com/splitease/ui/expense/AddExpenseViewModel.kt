@@ -121,11 +121,11 @@ class AddExpenseViewModel @Inject constructor(
         viewModelScope.launch {
             groupDao.getGroupMembers(groupId).collectLatest { members ->
                 val sortedMemberIds = members.map { it.userId }.sorted()
-                _uiState.value = _uiState.value.copy(
+                _uiState.update { it.copy(
                     groupMembers = sortedMemberIds,
                     selectedParticipants = sortedMemberIds,
                     shares = sortedMemberIds.associateWith { 1 } // Default 1 share each
-                )
+                )}
                 recalculateSplits()
             }
         }
@@ -134,7 +134,7 @@ class AddExpenseViewModel @Inject constructor(
     private fun setDefaultPayer() {
         val currentUserId = authRepository.getCurrentUserId()
         if (currentUserId != null) {
-            _uiState.value = _uiState.value.copy(payerId = currentUserId)
+            _uiState.update { it.copy(payerId = currentUserId) }
         }
     }
 
@@ -213,38 +213,38 @@ class AddExpenseViewModel @Inject constructor(
         // Validate participants
         val participantValidation = SplitValidator.validateParticipants(state.selectedParticipants)
         if (participantValidation is SplitValidationResult.Invalid) {
-            _uiState.value = state.copy(
+            _uiState.update { it.copy(
                 validationResult = participantValidation,
                 splitPreview = emptyMap()
-            )
+            )}
             return
         }
 
         // Parse amount
         val amount = try {
             if (state.amountText.isBlank()) {
-                _uiState.value = state.copy(
+                _uiState.update { it.copy(
                     validationResult = SplitValidationResult.Valid,
                     splitPreview = emptyMap()
-                )
+                )}
                 return
             }
             BigDecimal(state.amountText).setScale(2, RoundingMode.HALF_UP)
         } catch (e: NumberFormatException) {
-            _uiState.value = state.copy(
+            _uiState.update { it.copy(
                 validationResult = SplitValidationResult.Invalid("Invalid amount format"),
                 splitPreview = emptyMap()
-            )
+            )}
             return
         }
 
         // Validate amount
         val amountValidation = SplitValidator.validateAmount(amount)
         if (amountValidation is SplitValidationResult.Invalid) {
-            _uiState.value = state.copy(
+            _uiState.update { it.copy(
                 validationResult = amountValidation,
                 splitPreview = emptyMap()
-            )
+            )}
             return
         }
 
@@ -271,10 +271,10 @@ class AddExpenseViewModel @Inject constructor(
             }
         }
 
-        _uiState.value = state.copy(
+        _uiState.update { it.copy(
             splitPreview = preview,
             validationResult = validation
-        )
+        )}
     }
 
     private fun parseExactAmounts(
@@ -311,34 +311,34 @@ class AddExpenseViewModel @Inject constructor(
 
         // Hard validation
         if (state.validationResult is SplitValidationResult.Invalid) {
-            _uiState.value = state.copy(errorMessage = "Please fix validation errors before saving")
+            _uiState.update { it.copy(errorMessage = "Please fix validation errors before saving") }
             return
         }
 
         if (state.title.isBlank()) {
-            _uiState.value = state.copy(errorMessage = "Title is required")
+            _uiState.update { it.copy(errorMessage = "Title is required") }
             return
         }
 
         if (state.selectedParticipants.isEmpty()) {
-            _uiState.value = state.copy(errorMessage = "Select at least one participant")
+            _uiState.update { it.copy(errorMessage = "Select at least one participant") }
             return
         }
 
         val amount = try {
             BigDecimal(state.amountText).setScale(2, RoundingMode.HALF_UP)
         } catch (e: NumberFormatException) {
-            _uiState.value = state.copy(errorMessage = "Invalid amount")
+            _uiState.update { it.copy(errorMessage = "Invalid amount") }
             return
         }
 
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-            _uiState.value = state.copy(errorMessage = "Amount must be greater than 0")
+            _uiState.update { it.copy(errorMessage = "Amount must be greater than 0") }
             return
         }
 
         viewModelScope.launch {
-            _uiState.value = state.copy(isLoading = true)
+            _uiState.update { it.copy(isLoading = true) }
             
             try {
                 // Use existing ID if editing, else generate new
@@ -371,9 +371,9 @@ class AddExpenseViewModel @Inject constructor(
                     expenseRepository.addExpense(expense, splits)
                 }
                 
-                _uiState.value = state.copy(isSaved = true, isLoading = false)
+                _uiState.update { it.copy(isSaved = true, isLoading = false) }
             } catch (e: Exception) {
-                _uiState.value = state.copy(errorMessage = e.message, isLoading = false)
+                _uiState.update { it.copy(errorMessage = e.message, isLoading = false) }
             }
         }
     }
