@@ -156,7 +156,7 @@ object SettlementCalculator {
             }
         }
 
-        // Zero-sum invariant check (within rounding tolerance)
+        // Zero-sum invariant assertion (within rounding tolerance)
         // Total outgoing from debtors should equal total incoming to creditors
         val totalSettled = suggestions.sumOf { it.amount }
         val totalDebt = debtors.sumOf { it.second }
@@ -165,10 +165,8 @@ object SettlementCalculator {
         val diff = (totalSettled.subtract(totalDebt)).abs()
         if (diff > tolerance) {
             // Log warning but don't crash - rounding edge cases may occur
-            android.util.Log.w(
-                "SettlementCalculator",
-                "Zero-sum invariant warning: settled=$totalSettled, debt=$totalDebt, diff=$diff"
-            )
+            android.util.Log.w("SettlementCalculator", 
+                "Zero-sum invariant warning: settled=$totalSettled, debt=$totalDebt, diff=$diff")
         }
 
         return suggestions
