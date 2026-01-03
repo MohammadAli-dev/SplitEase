@@ -26,7 +26,9 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "splitease.db"
-        ).build()
+        )
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides

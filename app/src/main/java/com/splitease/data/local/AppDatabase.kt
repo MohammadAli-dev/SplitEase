@@ -26,7 +26,7 @@ import com.splitease.data.local.entities.User
         Settlement::class,
         SyncOperation::class
     ],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

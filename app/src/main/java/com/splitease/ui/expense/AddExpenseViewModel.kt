@@ -50,7 +50,9 @@ data class AddExpenseUiState(
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
     val errorMessage: String? = null,
-    val isEditMode: Boolean = false
+    val isEditMode: Boolean = false,
+    /** Logical date of expense, normalized to start-of-day */
+    val expenseDate: Long = System.currentTimeMillis()
 )
 
 @HiltViewModel
@@ -138,7 +140,24 @@ class AddExpenseViewModel @Inject constructor(
     }
 
     fun updatePayer(payerId: String) {
-        _uiState.value = _uiState.value.copy(payerId = payerId)
+        _uiState.update { it.copy(payerId = payerId) }
+    }
+
+    /**
+     * Update expense date, normalized to start-of-day.
+     */
+    fun updateExpenseDate(dateMillis: Long) {
+        _uiState.update { it.copy(expenseDate = normalizeToStartOfDay(dateMillis)) }
+    }
+
+    private fun normalizeToStartOfDay(millis: Long): Long {
+        val calendar = java.util.Calendar.getInstance()
+        calendar.timeInMillis = millis
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
     }
 
     fun toggleParticipant(userId: String) {
@@ -323,7 +342,8 @@ class AddExpenseViewModel @Inject constructor(
                     date = Date(System.currentTimeMillis()),
                     payerId = authRepository.getCurrentUserId() ?: "",
                     createdBy = authRepository.getCurrentUserId() ?: "",
-                    syncStatus = "PENDING"
+                    syncStatus = "PENDING",
+                    expenseDate = state.expenseDate
                 )
 
                 val splits = state.splitPreview.map { (userId, splitAmount) ->

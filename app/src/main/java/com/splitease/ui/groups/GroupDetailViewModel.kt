@@ -14,6 +14,7 @@ import com.splitease.data.local.entities.User
 import com.splitease.data.repository.SettlementRepository
 import com.splitease.domain.BalanceCalculator
 import com.splitease.domain.SettlementCalculator
+import com.splitease.domain.SettlementMode
 import com.splitease.domain.SettlementSuggestion
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
@@ -40,7 +41,8 @@ sealed interface GroupDetailUiState {
         val executingSettlements: Set<String> = emptySet(),
         val pendingExpenseIds: Set<String> = emptySet(),
         val pendingSettlementIds: Set<String> = emptySet(),
-        val pendingGroupSyncCount: Int = 0
+        val pendingGroupSyncCount: Int = 0,
+        val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
@@ -66,6 +68,12 @@ class GroupDetailViewModel @Inject constructor(
 
     private val _eventChannel = Channel<GroupDetailEvent>()
     val events = _eventChannel.receiveAsFlow()
+
+    /**
+     * Settlement mode is UI-only and not persisted.
+     * Defaults to SIMPLIFIED on every screen entry.
+     */
+    private val _settlementMode = MutableStateFlow(SettlementMode.SIMPLIFIED)
 
     // Derive pending IDs from sync_operations (source of truth)
     private val pendingExpenseIds = syncDao.getPendingEntityIds("EXPENSE")
@@ -109,8 +117,9 @@ class GroupDetailViewModel @Inject constructor(
         groupData,
         syncState,
         _executingSettlements,
-        _retryTrigger
-    ) { data: GroupData, sync: SyncState, executingSettlements: Set<String>, _: Int ->
+        _retryTrigger,
+        _settlementMode
+    ) { data: GroupData, sync: SyncState, executingSettlements: Set<String>, _: Int, settlementMode: SettlementMode ->
         val group = data.group
         val members = data.members
         val expenses = data.expenses
@@ -134,8 +143,8 @@ class GroupDetailViewModel @Inject constructor(
             }
 
             // Compute settlements as derived state from balances
-            // Always recomputed—no local mutation of suggestion list
-            val settlements = SettlementCalculator.calculate(balances)
+            // Uses current settlement mode (UI-only, defaults to SIMPLIFIED)
+            val settlements = SettlementCalculator.calculate(balances, settlementMode)
 
             // Compute group-scoped pending count
             val groupExpenseIds = expenses.map { it.id }.toSet()
@@ -153,7 +162,8 @@ class GroupDetailViewModel @Inject constructor(
                 executingSettlements = executingSettlements,
                 pendingExpenseIds = sync.pendingExpenseIds,
                 pendingSettlementIds = sync.pendingSettlementIds,
-                pendingGroupSyncCount = pendingGroupSyncCount
+                pendingGroupSyncCount = pendingGroupSyncCount,
+                settlementMode = settlementMode
             )
         }
     }.stateIn(
@@ -167,6 +177,15 @@ class GroupDetailViewModel @Inject constructor(
             _retryTrigger.value++
         }
     }
+
+    /**
+     * Toggle settlement mode between SIMPLIFIED and PROPORTIONAL.
+     * This is UI-only and resets on screen re-entry.
+     */
+    fun toggleSettlementMode(simplify: Boolean) {
+        _settlementMode.value = if (simplify) SettlementMode.SIMPLIFIED else SettlementMode.PROPORTIONAL
+    }
+
 
     /**
      * Executes a settlement with optional custom amount.

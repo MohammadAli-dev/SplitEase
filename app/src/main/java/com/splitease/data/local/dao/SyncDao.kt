@@ -15,22 +15,32 @@ interface SyncDao {
     @Query("SELECT * FROM sync_operations ORDER BY timestamp ASC")
     suspend fun getAllSyncOps(): List<SyncOperation>
 
-    @Query("SELECT * FROM sync_operations ORDER BY timestamp ASC LIMIT 1")
+    @Query("SELECT * FROM sync_operations WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1")
     suspend fun getNextPendingOperation(): SyncOperation?
 
     @Query("DELETE FROM sync_operations WHERE id = :id")
     suspend fun deleteSyncOp(id: Int)
 
     /**
+     * Mark operation as permanently FAILED.
+     * Dead-letter queue item; will not be picked up by getNextPendingOperation.
+     */
+    @Query("UPDATE sync_operations SET status = 'FAILED', failureReason = :reason WHERE id = :id")
+    suspend fun markAsFailed(id: Int, reason: String)
+
+    @Query("SELECT * FROM sync_operations WHERE status = 'FAILED'")
+    fun getFailedOperations(): Flow<List<SyncOperation>>
+
+    /**
      * Get distinct pending entity IDs for a given entity type.
      * Used for deriving sync status in UI — source of truth for "isPending".
      */
-    @Query("SELECT DISTINCT entityId FROM sync_operations WHERE entityType = :entityType")
+    @Query("SELECT DISTINCT entityId FROM sync_operations WHERE entityType = :entityType AND status = 'PENDING'")
     fun getPendingEntityIds(entityType: String): Flow<List<String>>
 
     /**
      * Get total count of pending sync operations.
      */
-    @Query("SELECT COUNT(*) FROM sync_operations")
+    @Query("SELECT COUNT(*) FROM sync_operations WHERE status = 'PENDING'")
     fun getPendingSyncCount(): Flow<Int>
 }

@@ -9,5 +9,11 @@ data class Group(
     val name: String,
     val type: String,
     val coverUrl: String? = null,
-    val createdBy: String
+    val createdBy: String,
+    /** Whether trip date range is enabled (TRIP type only) */
+    val hasTripDates: Boolean = false,
+    /** Trip start date (epoch millis), null if hasTripDates = false */
+    val tripStartDate: Long? = null,
+    /** Trip end date (epoch millis), null if hasTripDates = false */
+    val tripEndDate: Long? = null
 )

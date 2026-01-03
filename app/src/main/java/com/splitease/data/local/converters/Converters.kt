@@ -1,6 +1,7 @@
 package com.splitease.data.local.converters
 
 import androidx.room.TypeConverter
+import com.splitease.data.local.entities.SyncStatus
 import java.math.BigDecimal
 import java.util.Date
 
@@ -23,5 +24,19 @@ class Converters {
     @TypeConverter
     fun dateToTimestamp(date: Date?): Long? {
         return date?.time
+    }
+
+    @TypeConverter
+    fun fromSyncStatus(status: SyncStatus): String {
+        return status.name
+    }
+
+    @TypeConverter
+    fun toSyncStatus(value: String): SyncStatus {
+        return try {
+            SyncStatus.valueOf(value)
+        } catch (e: Exception) {
+            SyncStatus.PENDING
+        }
     }
 }

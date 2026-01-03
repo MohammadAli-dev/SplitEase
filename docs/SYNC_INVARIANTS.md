@@ -105,3 +105,30 @@ val isPending = expense.id in state.pendingExpenseIds
 ```
 
 This ensures UI indicators disappear immediately when sync completes (operation deleted from queue).
+
+---
+
+## Terminal Failures
+
+> **FAILED sync operations are dead-letter items.**
+
+They are never retried and require explicit user or system intervention to resolve.
+
+**Queue Liveness Guarantee:**
+One permanently failing operation must NOT block unrelated valid operations behind it.
+- **Transient Failures** (Network): Stop queue (Backoff).
+- **Permanent Failures** (Logic/Validation): Mark FAILED, continue queue.
+
+---
+
+## Backward-Compatible Schema Evolution
+
+> New entity fields MUST be additive and safe for replay.
+
+**Requirements:**
+- **Have defaults**: All new fields must have default values
+- **Never required for replay**: Old sync payloads without new fields must still apply correctly
+- **Never affect idempotency**: Adding new fields must not change the outcome of replaying the same operation
+
+This protects future migrations and ensures backward compatibility with existing `SyncOperation` payloads.
+

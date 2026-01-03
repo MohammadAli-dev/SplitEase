@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -55,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.User
+import com.splitease.domain.SettlementMode
 import com.splitease.domain.SettlementSuggestion
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
@@ -263,11 +265,30 @@ fun GroupDetailScreen(
 
                         // Settle Up Section
                         item {
-                            Text(
-                                text = "Settle Up",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.padding(top = 16.dp)
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Settle Up",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Simplify",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Switch(
+                                        checked = state.settlementMode == SettlementMode.SIMPLIFIED,
+                                        onCheckedChange = { viewModel.toggleSettlementMode(it) }
+                                    )
+                                }
+                            }
                         }
 
                         item {
