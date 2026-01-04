@@ -28,7 +28,7 @@ fun SyncStatusIcon(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .clickable(onClick = onNavigateToSyncIssues)
-                .padding(8.dp)
+                .padding(12.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Warning,
@@ -41,8 +41,7 @@ fun SyncStatusIcon(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error
             )
-        }
-    } else if (pendingSyncCount > 0) {
+        }    } else if (pendingSyncCount > 0) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
