@@ -98,13 +98,13 @@ class SyncIssuesViewModel @Inject constructor(
                 // Parallel batch fetch (max 3 queries)
                 val (expenseNames, groupNames, settlementAmounts) = coroutineScope {
                     val expenseDeferred = async { 
-                        if (expenseIds.isNotEmpty()) expenseDao.getTitlesByIds(expenseIds) else emptyMap() 
+                        if (expenseIds.isNotEmpty()) expenseDao.getTitlesByIds(expenseIds).associate { it.id to it.value } else emptyMap() 
                     }
                     val groupDeferred = async { 
-                        if (groupIds.isNotEmpty()) groupDao.getNamesByIds(groupIds) else emptyMap() 
+                        if (groupIds.isNotEmpty()) groupDao.getNamesByIds(groupIds).associate { it.id to it.value } else emptyMap() 
                     }
                     val settlementDeferred = async { 
-                        if (settlementIds.isNotEmpty()) settlementDao.getAmountsByIds(settlementIds) else emptyMap() 
+                        if (settlementIds.isNotEmpty()) settlementDao.getAmountsByIds(settlementIds).associate { it.id to it.value } else emptyMap() 
                     }
                     Triple(expenseDeferred.await(), groupDeferred.await(), settlementDeferred.await())
                 }

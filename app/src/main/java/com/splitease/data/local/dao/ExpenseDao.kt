@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import com.splitease.data.local.entities.Expense
+import com.splitease.data.local.entities.IdValuePair
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.SyncOperation
 import kotlinx.coroutines.flow.Flow
@@ -87,9 +88,8 @@ interface ExpenseDao {
 
     /**
      * Batch fetch expense titles by IDs.
-     * Returns Map<expenseId, title> for efficient N+1 prevention.
+     * Returns List<IdValuePair> for efficient N+1 prevention.
      */
-    @androidx.room.MapInfo(keyColumn = "id", valueColumn = "title")
-    @Query("SELECT id, title FROM expenses WHERE id IN (:ids)")
-    suspend fun getTitlesByIds(ids: List<String>): Map<String, String>
+    @Query("SELECT id, title AS value FROM expenses WHERE id IN (:ids)")
+    suspend fun getTitlesByIds(ids: List<String>): List<IdValuePair>
 }

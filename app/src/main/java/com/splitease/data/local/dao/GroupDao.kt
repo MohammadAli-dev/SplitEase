@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.splitease.data.local.entities.Group
+import com.splitease.data.local.entities.IdValuePair
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.User
 import kotlinx.coroutines.flow.Flow
@@ -51,9 +52,8 @@ interface GroupDao {
 
     /**
      * Batch fetch group names by IDs.
-     * Returns Map<groupId, name> for efficient N+1 prevention.
+     * Returns List<IdValuePair> for efficient N+1 prevention.
      */
-    @androidx.room.MapInfo(keyColumn = "id", valueColumn = "name")
-    @Query("SELECT id, name FROM expense_groups WHERE id IN (:ids)")
-    suspend fun getNamesByIds(ids: List<String>): Map<String, String>
+    @Query("SELECT id, name AS value FROM expense_groups WHERE id IN (:ids)")
+    suspend fun getNamesByIds(ids: List<String>): List<IdValuePair>
 }

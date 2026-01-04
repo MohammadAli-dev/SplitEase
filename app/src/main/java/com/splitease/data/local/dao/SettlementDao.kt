@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import com.splitease.data.local.entities.IdValuePair
 import com.splitease.data.local.entities.Settlement
 import kotlinx.coroutines.flow.Flow
 
@@ -32,10 +33,9 @@ interface SettlementDao {
 
     /**
      * Batch fetch settlement amounts by IDs.
-     * Returns Map<settlementId, amount> for efficient N+1 prevention.
+     * Returns List<IdValuePair> for efficient N+1 prevention.
      * Note: Amount is stored as TEXT (BigDecimal.toPlainString()).
      */
-    @androidx.room.MapInfo(keyColumn = "id", valueColumn = "amount")
-    @Query("SELECT id, amount FROM settlements WHERE id IN (:ids)")
-    suspend fun getAmountsByIds(ids: List<String>): Map<String, String>
+    @Query("SELECT id, amount AS value FROM settlements WHERE id IN (:ids)")
+    suspend fun getAmountsByIds(ids: List<String>): List<IdValuePair>
 }
