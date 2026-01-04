@@ -14,6 +14,9 @@ import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.User
 import com.splitease.data.repository.SettlementRepository
+import com.splitease.data.repository.SyncRepository
+import com.splitease.data.local.entities.SyncFailureType
+import com.splitease.data.local.entities.SyncOperation
 import com.splitease.domain.BalanceCalculator
 import com.splitease.domain.SettlementCalculator
 import com.splitease.domain.SettlementMode
@@ -44,6 +47,7 @@ sealed interface GroupDetailUiState {
         val pendingExpenseIds: Set<String> = emptySet(),
         val pendingSettlementIds: Set<String> = emptySet(),
         val pendingGroupSyncCount: Int = 0,
+        val groupHasSyncFailures: Boolean, // Derived from filtered failures
         val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
@@ -60,7 +64,8 @@ class GroupDetailViewModel @Inject constructor(
     private val expenseDao: ExpenseDao,
     private val settlementDao: SettlementDao,
     private val settlementRepository: SettlementRepository,
-    private val syncDao: SyncDao
+    private val syncDao: SyncDao,
+    private val syncRepository: SyncRepository
 ) : ViewModel() {
 
     private val groupId: String = savedStateHandle.get<String>("groupId") ?: ""
@@ -105,14 +110,16 @@ class GroupDetailViewModel @Inject constructor(
     // Combine sync state
     private data class SyncState(
         val pendingExpenseIds: Set<String>,
-        val pendingSettlementIds: Set<String>
+        val pendingSettlementIds: Set<String>,
+        val failedOperations: List<SyncOperation>
     )
 
     private val syncState = combine(
         pendingExpenseIds,
-        pendingSettlementIds
-    ) { expenseIds: Set<String>, settlementIds: Set<String> ->
-        SyncState(expenseIds, settlementIds)
+        pendingSettlementIds,
+        syncRepository.failedOperations
+    ) { expenseIds: Set<String>, settlementIds: Set<String>, failedOps: List<SyncOperation> ->
+        SyncState(expenseIds, settlementIds, failedOps.filter { it.failureType != SyncFailureType.AUTH })
     }
 
     val uiState: StateFlow<GroupDetailUiState> = combine(
@@ -155,6 +162,15 @@ class GroupDetailViewModel @Inject constructor(
                 (sync.pendingExpenseIds intersect groupExpenseIds).size + 
                 (sync.pendingSettlementIds intersect groupSettlementIds).size
 
+            // Compute group-scoped failure status
+            val groupHasSyncFailures = sync.failedOperations.any { op ->
+                 when (op.entityType) {
+                     SyncEntityType.GROUP -> op.entityId == group.id
+                     SyncEntityType.EXPENSE -> groupExpenseIds.contains(op.entityId)
+                     SyncEntityType.SETTLEMENT -> groupSettlementIds.contains(op.entityId)
+                 }
+            }
+
             GroupDetailUiState.Success(
                 group = group,
                 members = sortedMembers,
@@ -165,6 +181,7 @@ class GroupDetailViewModel @Inject constructor(
                 pendingExpenseIds = sync.pendingExpenseIds,
                 pendingSettlementIds = sync.pendingSettlementIds,
                 pendingGroupSyncCount = pendingGroupSyncCount,
+                groupHasSyncFailures = groupHasSyncFailures,
                 settlementMode = settlementMode
             )
         }

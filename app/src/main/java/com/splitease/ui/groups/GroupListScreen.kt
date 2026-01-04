@@ -30,24 +30,107 @@ import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Group
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TopAppBar
+import androidx.lifecycle.viewModelScope
+import com.splitease.data.local.dao.SyncDao
+import com.splitease.data.local.entities.SyncFailureType
+import com.splitease.data.repository.SyncRepository
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 @HiltViewModel
 class GroupListViewModel @Inject constructor(
-    groupDao: GroupDao
+    groupDao: GroupDao,
+    syncDao: SyncDao,
+    syncRepository: SyncRepository
 ) : ViewModel() {
-    val groups: Flow<List<Group>> = groupDao.getAllGroups()
+
+    // Derived sync state
+    private val hasSyncFailures: Flow<Boolean> = syncRepository.failedOperations
+        .map { ops -> ops.any { it.failureType != SyncFailureType.AUTH } }
+
+    private val pendingSyncCount: Flow<Int> = syncDao.getPendingSyncCount()
+
+    // Combined UI state
+    val uiState: StateFlow<GroupListUiState> = combine(
+        groupDao.getAllGroups(),
+        hasSyncFailures,
+        pendingSyncCount
+    ) { groups, hasFailures, pendingCount ->
+        GroupListUiState(
+            groups = groups,
+            hasSyncFailures = hasFailures,
+            pendingSyncCount = pendingCount
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = GroupListUiState()
+    )
 }
 
+data class GroupListUiState(
+    val groups: List<Group> = emptyList(),
+    val hasSyncFailures: Boolean = false,
+    val pendingSyncCount: Int = 0
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupListScreen(
     onNavigateToGroupDetail: (groupId: String) -> Unit,
     onNavigateToCreateGroup: () -> Unit,
+    onNavigateToSyncIssues: () -> Unit,
     viewModel: GroupListViewModel = hiltViewModel()
 ) {
-    val groups by viewModel.groups.collectAsState(initial = emptyList())
+    val uiState by viewModel.uiState.collectAsState()
+    val groups = uiState.groups
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("SplitEase") },
+                actions = {
+                    if (uiState.hasSyncFailures) {
+                        IconButton(onClick = onNavigateToSyncIssues) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Sync Failures",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    } else if (uiState.pendingSyncCount > 0) {
+                        IconButton(onClick = onNavigateToSyncIssues) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Info, // Using Info as "Sync Pending" standard icon
+                                    contentDescription = "Pending Sync",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "${uiState.pendingSyncCount}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onNavigateToCreateGroup) {
                 Icon(Icons.Default.Add, contentDescription = "Create Group")
