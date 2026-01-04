@@ -149,13 +149,18 @@ private fun SyncIssueCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                // Display human-readable name
+                val nameText = when (val name = issue.displayName) {
+                    is DisplayName.Text -> name.value
+                    is DisplayName.Resource -> androidx.compose.ui.res.stringResource(name.resId)
+                }
                 Text(
-                    text = "${issue.operationType} ${issue.entityType}",
+                    text = nameText,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "ID: ${issue.entityId}",
+                    text = "${issue.operationType} ${issue.entityType}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

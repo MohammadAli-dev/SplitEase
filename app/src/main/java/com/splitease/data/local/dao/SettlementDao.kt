@@ -29,4 +29,13 @@ interface SettlementDao {
      */
     @Query("DELETE FROM settlements WHERE id = :id")
     suspend fun deleteSettlement(id: String)
+
+    /**
+     * Batch fetch settlement amounts by IDs.
+     * Returns Map<settlementId, amount> for efficient N+1 prevention.
+     * Note: Amount is stored as TEXT (BigDecimal.toPlainString()).
+     */
+    @androidx.room.MapInfo(keyColumn = "id", valueColumn = "amount")
+    @Query("SELECT id, amount FROM settlements WHERE id IN (:ids)")
+    suspend fun getAmountsByIds(ids: List<String>): Map<String, String>
 }

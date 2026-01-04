@@ -48,4 +48,12 @@ interface GroupDao {
      */
     @Query("DELETE FROM expense_groups WHERE id = :groupId")
     suspend fun deleteGroup(groupId: String)
+
+    /**
+     * Batch fetch group names by IDs.
+     * Returns Map<groupId, name> for efficient N+1 prevention.
+     */
+    @androidx.room.MapInfo(keyColumn = "id", valueColumn = "name")
+    @Query("SELECT id, name FROM expense_groups WHERE id IN (:ids)")
+    suspend fun getNamesByIds(ids: List<String>): Map<String, String>
 }

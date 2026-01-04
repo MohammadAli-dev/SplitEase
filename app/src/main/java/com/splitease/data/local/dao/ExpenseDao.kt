@@ -84,4 +84,12 @@ interface ExpenseDao {
      */
     @Query("SELECT EXISTS(SELECT 1 FROM expenses WHERE id = :id)")
     suspend fun existsById(id: String): Boolean
+
+    /**
+     * Batch fetch expense titles by IDs.
+     * Returns Map<expenseId, title> for efficient N+1 prevention.
+     */
+    @androidx.room.MapInfo(keyColumn = "id", valueColumn = "title")
+    @Query("SELECT id, title FROM expenses WHERE id IN (:ids)")
+    suspend fun getTitlesByIds(ids: List<String>): Map<String, String>
 }
