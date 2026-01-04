@@ -7,13 +7,18 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.gson.Gson
+import com.splitease.data.local.dao.ExpenseDao
+import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.SyncEntityType
+import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.remote.SplitEaseApi
 import com.splitease.data.remote.SyncRequest
 import com.splitease.worker.SyncWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
@@ -25,6 +30,19 @@ interface SyncRepository {
     suspend fun processNextOperation(): Boolean
     suspend fun processAllPending()
     fun triggerImmediateSync()
+    
+    /** Flow of failed sync operations (excludes AUTH failures for UI) */
+    val failedOperations: Flow<List<SyncOperation>>
+    
+    /** Reset operation to PENDING and trigger immediate sync */
+    suspend fun retryOperation(id: Int)
+    
+    /**
+     * Acknowledge a failed operation by deleting it.
+     * For INSERT operations, also deletes the local entity (zombie elimination).
+     * For UPDATE/DELETE, no local entity changes (document divergence risk).
+     */
+    suspend fun acknowledgeFailure(id: Int)
 }
 
 @Singleton
@@ -32,8 +50,13 @@ class SyncRepositoryImpl @Inject constructor(
     private val syncDao: SyncDao,
     private val api: SplitEaseApi,
     private val gson: Gson,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val groupDao: GroupDao,
+    private val expenseDao: ExpenseDao,
+    private val settlementDao: SettlementDao
 ) : SyncRepository {
+
+    override val failedOperations: Flow<List<SyncOperation>> = syncDao.getFailedOperations()
 
     override suspend fun enqueueOperation(operation: SyncOperation) = withContext(Dispatchers.IO) {
         syncDao.insertSyncOp(operation)
@@ -49,11 +72,45 @@ class SyncRepositoryImpl @Inject constructor(
             .setConstraints(constraints)
             .build()
 
+        // Use REPLACE for user-initiated actions to ensure immediate execution
         workManager.enqueueUniqueWork(
             "sync_now",
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            ExistingWorkPolicy.REPLACE,
             request
         )
+    }
+
+    override suspend fun retryOperation(id: Int) {
+        withContext(Dispatchers.IO) {
+            syncDao.retryOperation(id)
+            triggerImmediateSync()
+            Log.d("SyncRepository", "Retry triggered for operation: $id")
+        }
+    }
+
+    override suspend fun acknowledgeFailure(id: Int) {
+        withContext(Dispatchers.IO) {
+            val operation = syncDao.getOperationById(id) ?: run {
+                Log.w("SyncRepository", "acknowledgeFailure: operation $id not found")
+                return@withContext
+            }
+
+            // Zombie elimination: Delete local entity for INSERT operations
+            if (operation.operationType == "INSERT") {
+                Log.w("SyncRepository", "Deleting unsynced INSERT entity: ${operation.entityType}/${operation.entityId}")
+                when (operation.entityType) {
+                    SyncEntityType.EXPENSE -> expenseDao.deleteExpense(operation.entityId)
+                    SyncEntityType.GROUP -> groupDao.deleteGroup(operation.entityId)
+                    SyncEntityType.SETTLEMENT -> settlementDao.deleteSettlement(operation.entityId)
+                }
+            } else {
+                // UPDATE/DELETE: Document divergence risk, but no local entity changes
+                Log.w("SyncRepository", "Acknowledging ${operation.operationType} failure for ${operation.entityType}/${operation.entityId}. Local data may diverge from server.")
+            }
+
+            // Delete the sync operation row
+            syncDao.deleteOperation(id)
+        }
     }
 
     override suspend fun processNextOperation(): Boolean = withContext(Dispatchers.IO) {
@@ -75,9 +132,9 @@ class SyncRepositoryImpl @Inject constructor(
                 Log.d("SyncRepository", "Sync success: ${operation.entityType}/${operation.entityId}")
                 return@withContext true
             } else {
-                // Permanent Failure (Logical)
+                // Permanent Failure (Logical/Validation)
                 Log.e("SyncRepository", "Sync PERMANENT FAILURE: ${response.message}")
-                syncDao.markAsFailed(operation.id, response.message)
+                syncDao.markAsFailed(operation.id, response.message, SyncFailureType.VALIDATION.name)
                 return@withContext true
             }
         } catch (e: IOException) {
@@ -86,27 +143,37 @@ class SyncRepositoryImpl @Inject constructor(
             return@withContext false
         } catch (e: HttpException) {
             val code = e.code()
-            if (code == 429) {
-                // Transient Failure (Rate Limit) -> Retry
-                // WorkManager will handle backoff automatically
-                Log.w("SyncRepository", "Sync rate limited (429): ${e.message()}")
-                return@withContext false
-            } else if (code in 400..499) {
-                // Permanent Failure (HTTP 4xx)
-                val msg = "$code ${e.message()}"
-                Log.e("SyncRepository", "Sync PERMANENT HTTP FAILURE: $msg")
-                syncDao.markAsFailed(operation.id, msg)
-                return@withContext true
-            } else {
-                // Transient Failure (HTTP 5xx)
-                Log.w("SyncRepository", "Sync transient server error: $code ${e.message()}")
-                return@withContext false
+            val msg = "$code ${e.message()}"
+            
+            when {
+                code == 429 -> {
+                    // Transient Failure (Rate Limit)
+                    Log.w("SyncRepository", "Sync rate limited (429): ${e.message()}")
+                    return@withContext false
+                }
+                code == 401 || code == 403 -> {
+                    // AUTH failure - Mark as FAILED but bypass per-item UI
+                    Log.e("SyncRepository", "Sync AUTH FAILURE: $msg")
+                    syncDao.markAsFailed(operation.id, msg, SyncFailureType.AUTH.name)
+                    return@withContext true
+                }
+                code in 400..499 -> {
+                    // Permanent Failure (HTTP 4xx - Validation)
+                    Log.e("SyncRepository", "Sync PERMANENT HTTP FAILURE: $msg")
+                    syncDao.markAsFailed(operation.id, msg, SyncFailureType.VALIDATION.name)
+                    return@withContext true
+                }
+                else -> {
+                    // Transient Failure (HTTP 5xx - Server)
+                    Log.w("SyncRepository", "Sync transient server error: $msg")
+                    return@withContext false
+                }
             }
         } catch (e: Exception) {
-            // Unknown Failure -> Permanent
+            // Unknown Failure -> Permanent (safety bias)
             val msg = "${e.javaClass.simpleName}: ${e.message}"
             Log.e("SyncRepository", "Sync PERMANENT UNKNOWN FAILURE: $msg")
-            syncDao.markAsFailed(operation.id, msg)
+            syncDao.markAsFailed(operation.id, msg, SyncFailureType.UNKNOWN.name)
             return@withContext true
         }
     }

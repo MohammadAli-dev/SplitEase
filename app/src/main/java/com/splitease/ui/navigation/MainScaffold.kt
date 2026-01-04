@@ -27,6 +27,7 @@ import com.splitease.ui.expense.AddExpenseScreen
 import com.splitease.ui.groups.CreateGroupScreen
 import com.splitease.ui.groups.GroupDetailScreen
 import com.splitease.ui.groups.GroupListScreen
+import com.splitease.ui.sync.SyncIssuesScreen
 
 data class BottomNavItem(
     val route: String,
@@ -140,6 +141,11 @@ fun MainScaffold() {
             }
             composable(Screen.CreateGroup.route) {
                 CreateGroupScreen(
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.SyncIssues.route) {
+                SyncIssuesScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

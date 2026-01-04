@@ -18,5 +18,6 @@ data class SyncOperation(
     val payload: String, // JSON payload
     val timestamp: Long = System.currentTimeMillis(),
     val status: SyncStatus = SyncStatus.PENDING,
-    val failureReason: String? = null
+    val failureReason: String? = null,
+    val failureType: SyncFailureType? = null
 )

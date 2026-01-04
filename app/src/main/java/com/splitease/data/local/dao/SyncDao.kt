@@ -23,14 +23,35 @@ interface SyncDao {
     suspend fun deleteSyncOp(id: Int)
 
     /**
-     * Mark operation as permanently FAILED.
+     * Mark operation as permanently FAILED with categorized failure type.
      * Dead-letter queue item; will not be picked up by getNextPendingOperation.
      */
-    @Query("UPDATE sync_operations SET status = 'FAILED', failureReason = :reason WHERE id = :id")
-    suspend fun markAsFailed(id: Int, reason: String)
+    @Query("UPDATE sync_operations SET status = 'FAILED', failureReason = :reason, failureType = :failureType WHERE id = :id")
+    suspend fun markAsFailed(id: Int, reason: String, failureType: String)
 
     @Query("SELECT * FROM sync_operations WHERE status = 'FAILED'")
     fun getFailedOperations(): Flow<List<SyncOperation>>
+
+    /**
+     * Fetch a single sync operation by ID.
+     * Used for acknowledge/delete logic.
+     */
+    @Query("SELECT * FROM sync_operations WHERE id = :id")
+    suspend fun getOperationById(id: Int): SyncOperation?
+
+    /**
+     * Reset a FAILED operation back to PENDING for retry.
+     * Clears failureReason and failureType.
+     */
+    @Query("UPDATE sync_operations SET status = 'PENDING', failureReason = NULL, failureType = NULL WHERE id = :id")
+    suspend fun retryOperation(id: Int)
+
+    /**
+     * Delete a sync operation row.
+     * Called after zombie elimination for INSERT failures.
+     */
+    @Query("DELETE FROM sync_operations WHERE id = :id")
+    suspend fun deleteOperation(id: Int)
 
     /**
      * Get distinct pending entity IDs for a given entity type.

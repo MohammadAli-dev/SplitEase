@@ -42,4 +42,10 @@ interface GroupDao {
         WHERE group_members.groupId = :groupId
     """)
     fun getGroupMembersWithDetails(groupId: String): Flow<List<User>>
+
+    /**
+     * Delete a group by ID. Used for zombie elimination on failed INSERT sync.
+     */
+    @Query("DELETE FROM expense_groups WHERE id = :groupId")
+    suspend fun deleteGroup(groupId: String)
 }

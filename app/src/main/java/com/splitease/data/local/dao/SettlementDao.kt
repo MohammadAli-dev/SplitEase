@@ -23,4 +23,10 @@ interface SettlementDao {
      */
     @Query("SELECT EXISTS(SELECT 1 FROM settlements WHERE id = :id)")
     suspend fun existsById(id: String): Boolean
+
+    /**
+     * Delete a settlement by ID. Used for zombie elimination on failed INSERT sync.
+     */
+    @Query("DELETE FROM settlements WHERE id = :id")
+    suspend fun deleteSettlement(id: String)
 }
