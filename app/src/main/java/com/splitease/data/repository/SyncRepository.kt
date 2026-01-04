@@ -33,6 +33,9 @@ interface SyncRepository {
     
     /** Flow of failed sync operations (excludes AUTH failures for UI) */
     val failedOperations: Flow<List<SyncOperation>>
+
+    /** Flow of pending sync operations */
+    val pendingOperations: Flow<List<SyncOperation>>
     
     /** Reset operation to PENDING and trigger immediate sync */
     suspend fun retryOperation(id: Int)
@@ -57,6 +60,7 @@ class SyncRepositoryImpl @Inject constructor(
 ) : SyncRepository {
 
     override val failedOperations: Flow<List<SyncOperation>> = syncDao.getFailedOperations()
+    override val pendingOperations: Flow<List<SyncOperation>> = syncDao.getPendingOperations()
 
     override suspend fun enqueueOperation(operation: SyncOperation) = withContext(Dispatchers.IO) {
         syncDao.insertSyncOp(operation)

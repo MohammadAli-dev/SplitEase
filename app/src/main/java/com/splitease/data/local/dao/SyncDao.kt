@@ -19,6 +19,9 @@ interface SyncDao {
     @Query("SELECT * FROM sync_operations WHERE status = 'PENDING' ORDER BY timestamp ASC LIMIT 1")
     suspend fun getNextPendingOperation(): SyncOperation?
 
+    @Query("SELECT * FROM sync_operations WHERE status = 'PENDING' ORDER BY timestamp ASC")
+    fun getPendingOperations(): Flow<List<SyncOperation>>
+
     @Query("DELETE FROM sync_operations WHERE id = :id")
     suspend fun deleteSyncOp(id: Int)
 

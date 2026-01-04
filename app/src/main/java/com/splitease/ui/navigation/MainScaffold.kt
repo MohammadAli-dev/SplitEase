@@ -91,6 +91,9 @@ fun MainScaffold() {
                     },
                     onNavigateToCreateGroup = {
                         navController.navigate(Screen.CreateGroup.route)
+                    },
+                    onNavigateToSyncIssues = {
+                        navController.navigate(Screen.SyncIssues.route)
                     }
                 )
             }
@@ -113,6 +116,9 @@ fun MainScaffold() {
                     },
                     onNavigateToEditExpense = { groupId, expenseId ->
                         navController.navigate(Screen.EditExpense.createRoute(groupId, expenseId))
+                    },
+                    onNavigateToSyncIssues = {
+                        navController.navigate(Screen.SyncIssues.route)
                     }
                 )
             }

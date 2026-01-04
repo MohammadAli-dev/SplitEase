@@ -10,6 +10,7 @@ import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
+import com.splitease.data.local.entities.SyncStatus
 import com.splitease.data.repository.SyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -35,6 +36,7 @@ data class SyncIssueUiModel(
     val failureReason: String,
     val failureType: SyncFailureType?,
     val canRetry: Boolean,
+    val isError: Boolean, // True for failures, false for pending
     val displayName: DisplayName
 )
 
@@ -80,20 +82,27 @@ class SyncIssuesViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            syncRepository.failedOperations.collect { operations ->
+            combine(
+                syncRepository.failedOperations,
+                syncRepository.pendingOperations
+            ) { failed, pending ->
+                val filteredFailed = failed.filter { it.failureType != SyncFailureType.AUTH }
+                filteredFailed to pending
+            }.collect { (filteredFailed, pending) ->
                 _isLoading.value = true
-                val filteredOps = operations.filter { it.failureType != SyncFailureType.AUTH }
                 
-                if (filteredOps.isEmpty()) {
+                val allOps = filteredFailed + pending
+                
+                if (allOps.isEmpty()) {
                     _issues.value = emptyList()
                     _isLoading.value = false
                     return@collect
                 }
 
                 // Partition by entity type for batched queries
-                val expenseIds = filteredOps.filter { it.entityType == SyncEntityType.EXPENSE }.map { it.entityId }
-                val groupIds = filteredOps.filter { it.entityType == SyncEntityType.GROUP }.map { it.entityId }
-                val settlementIds = filteredOps.filter { it.entityType == SyncEntityType.SETTLEMENT }.map { it.entityId }
+                val expenseIds = allOps.filter { it.entityType == SyncEntityType.EXPENSE }.map { it.entityId }
+                val groupIds = allOps.filter { it.entityType == SyncEntityType.GROUP }.map { it.entityId }
+                val settlementIds = allOps.filter { it.entityType == SyncEntityType.SETTLEMENT }.map { it.entityId }
 
                 // Parallel batch fetch (max 3 queries)
                 val (expenseNames, groupNames, settlementAmounts) = coroutineScope {
@@ -110,7 +119,7 @@ class SyncIssuesViewModel @Inject constructor(
                 }
 
                 // Map with display names
-                _issues.value = filteredOps.map { op ->
+                _issues.value = allOps.map { op ->
                     val displayName = when (op.entityType) {
                         SyncEntityType.EXPENSE -> expenseNames[op.entityId]?.let { DisplayName.Text(it) }
                             ?: DisplayName.Resource(R.string.deleted_expense)
@@ -121,14 +130,17 @@ class SyncIssuesViewModel @Inject constructor(
                         } ?: DisplayName.Resource(R.string.deleted_settlement)
                     }
                     
+                    val isError = op.status == SyncStatus.FAILED
+                    
                     SyncIssueUiModel(
                         id = op.id,
                         entityType = op.entityType.name,
                         entityId = op.entityId,
                         operationType = op.operationType,
-                        failureReason = op.failureReason ?: "Unknown error",
+                        failureReason = if (isError) (op.failureReason ?: "Unknown error") else "Sync in progress...",
                         failureType = op.failureType,
-                        canRetry = op.failureType != SyncFailureType.VALIDATION,
+                        canRetry = isError && op.failureType != SyncFailureType.VALIDATION,
+                        isError = isError,
                         displayName = displayName
                     )
                 }
