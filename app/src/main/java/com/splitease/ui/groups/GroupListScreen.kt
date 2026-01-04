@@ -40,9 +40,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBar
 import androidx.lifecycle.viewModelScope
-// import com.splitease.data.local.dao.SyncDao
-import com.splitease.ui.common.SyncStatusIcon
-// import com.splitease.data.local.dao.SyncDao // kept via wildcard or specific
 import com.splitease.ui.common.SyncStatusIcon
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.SyncFailureType
