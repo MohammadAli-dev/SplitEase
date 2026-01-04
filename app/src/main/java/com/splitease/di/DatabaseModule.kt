@@ -58,6 +58,16 @@ object DatabaseModule {
         }
     }
 
+    /**
+     * Migration from version 4 to 5:
+     * - sync_operations: Add failureType column for categorized failure handling.
+     */
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE sync_operations ADD COLUMN failureType TEXT DEFAULT NULL")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -68,6 +78,7 @@ object DatabaseModule {
         )
             .addMigrations(MIGRATION_2_3)
             .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_4_5)
             .fallbackToDestructiveMigration()
             .build()
     }

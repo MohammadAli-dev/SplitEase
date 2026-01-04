@@ -3,6 +3,7 @@ package com.splitease.data.local.converters
 import androidx.room.TypeConverter
 import com.splitease.data.local.entities.SyncStatus
 import com.splitease.data.local.entities.SyncEntityType
+import com.splitease.data.local.entities.SyncFailureType
 import java.math.BigDecimal
 import java.util.Date
 
@@ -51,6 +52,22 @@ class Converters {
             SyncEntityType.valueOf(value)
         } catch (e: IllegalArgumentException) {
             throw IllegalStateException("Unknown SyncEntityType: $value", e)
+        }
+    }
+
+    @TypeConverter
+    fun fromSyncFailureType(type: SyncFailureType?): String? {
+        return type?.name
+    }
+
+    @TypeConverter
+    fun toSyncFailureType(value: String?): SyncFailureType? {
+        return value?.let {
+            try {
+                SyncFailureType.valueOf(it)
+            } catch (e: IllegalArgumentException) {
+                throw IllegalStateException("Unknown SyncFailureType: $it", e)
+            }
         }
     }
 }

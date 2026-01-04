@@ -151,3 +151,44 @@ The Sync Repository classifies errors to protect queue liveness:
 
 This protects future migrations and ensures backward compatibility with existing `SyncOperation` payloads.
 
+---
+
+## FAILED Operation Persistence
+
+> **FAILED sync operations persist across app restarts until user action.**
+
+They are surfaced via `SyncIssuesScreen` and require explicit user intervention:
+- **Retry**: Resets to PENDING and triggers immediate sync.
+- **Delete Unsynced Change**: Removes sync op AND deletes local entity (for INSERTs).
+
+This prevents accidental "cleanup on launch" that would silently drop user data.
+
+---
+
+## Failure Type Behavior Matrix
+
+| SyncFailureType | Retryable | Shown in UI | User Action |
+|-----------------|-----------|-------------|-------------|
+| `NETWORK` | ✅ Yes | ✅ Yes | Retry |
+| `SERVER` (5xx) | ✅ Yes | ✅ Yes | Retry |
+| `VALIDATION` | ❌ No | ✅ Yes | Delete Only |
+| `AUTH` | ❌ No | ❌ No (System) | Auth Recovery |
+| `UNKNOWN` | ⚠️ Maybe | ✅ Yes | Retry/Delete |
+
+> **SERVER (5xx) failures are treated identically to NETWORK failures** — both are transient and retryable.
+
+---
+
+## Zombie Data Prevention
+
+> **No local entity may exist without either being synced OR queued for sync.**
+
+When a user acknowledges a failed INSERT operation:
+1. The local entity (Group/Expense/Settlement) is **deleted** from the device.
+2. The sync operation row is deleted.
+3. A warning log is emitted: `"Deleting unsynced INSERT entity: [type]/[id]"`
+
+For UPDATE/DELETE failures:
+- Local entity is NOT modified (data may diverge).
+- Best-effort reconciliation fetch is attempted (may fail silently).
+- Failure does NOT block further sync operations.

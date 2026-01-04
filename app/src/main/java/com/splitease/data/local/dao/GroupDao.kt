@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.splitease.data.local.entities.Group
+import com.splitease.data.local.entities.IdValuePair
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.User
 import kotlinx.coroutines.flow.Flow
@@ -42,4 +43,17 @@ interface GroupDao {
         WHERE group_members.groupId = :groupId
     """)
     fun getGroupMembersWithDetails(groupId: String): Flow<List<User>>
+
+    /**
+     * Delete a group by ID. Used for zombie elimination on failed INSERT sync.
+     */
+    @Query("DELETE FROM expense_groups WHERE id = :groupId")
+    suspend fun deleteGroup(groupId: String)
+
+    /**
+     * Batch fetch group names by IDs.
+     * Returns List<IdValuePair> for efficient N+1 prevention.
+     */
+    @Query("SELECT id, name AS value FROM expense_groups WHERE id IN (:ids)")
+    suspend fun getNamesByIds(ids: List<String>): List<IdValuePair>
 }
