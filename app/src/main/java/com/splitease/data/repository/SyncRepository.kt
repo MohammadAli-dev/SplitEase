@@ -103,14 +103,41 @@ class SyncRepositoryImpl @Inject constructor(
                     SyncEntityType.GROUP -> groupDao.deleteGroup(operation.entityId)
                     SyncEntityType.SETTLEMENT -> settlementDao.deleteSettlement(operation.entityId)
                 }
+            } else if (operation.operationType == "UPDATE") {
+                // UPDATE reconciliation: Attempt to fetch fresh data from server
+                // This is best-effort - failure is logged but does not block
+                Log.w("SyncRepository", "Attempting reconciliation fetch for UPDATE failure: ${operation.entityType}/${operation.entityId}")
+                try {
+                    attemptReconciliationFetch(operation.entityType, operation.entityId)
+                } catch (e: Exception) {
+                    // Best-effort: Log and continue, do not block
+                    Log.w("SyncRepository", "Reconciliation fetch failed (non-blocking): ${e.message}")
+                }
             } else {
-                // UPDATE/DELETE: Document divergence risk, but no local entity changes
-                Log.w("SyncRepository", "Acknowledging ${operation.operationType} failure for ${operation.entityType}/${operation.entityId}. Local data may diverge from server.")
+                // DELETE failures: No action needed, local data is already deleted
+                Log.w("SyncRepository", "Acknowledging DELETE failure for ${operation.entityType}/${operation.entityId}. No reconciliation needed.")
             }
 
             // Delete the sync operation row
             syncDao.deleteOperation(id)
         }
+    }
+
+    /**
+     * Best-effort reconciliation fetch for UPDATE failures.
+     * Attempts to fetch the latest entity data from server to overwrite stale local data.
+     * 
+     * Currently a no-op as API fetch endpoints are not implemented.
+     * TODO: Implement when GET /expense/{id}, GET /group/{id}, GET /settlement/{id} are added.
+     */
+    private suspend fun attemptReconciliationFetch(entityType: SyncEntityType, entityId: String) {
+        // TODO: When API supports entity fetch, implement:
+        // when (entityType) {
+        //     SyncEntityType.EXPENSE -> api.getExpense(entityId)?.let { expenseDao.insertExpense(it) }
+        //     SyncEntityType.GROUP -> api.getGroup(entityId)?.let { groupDao.insertGroup(it) }
+        //     SyncEntityType.SETTLEMENT -> api.getSettlement(entityId)?.let { settlementDao.insertSettlement(it) }
+        // }
+        Log.d("SyncRepository", "Reconciliation fetch not yet implemented for $entityType/$entityId (API pending)")
     }
 
     override suspend fun processNextOperation(): Boolean = withContext(Dispatchers.IO) {
