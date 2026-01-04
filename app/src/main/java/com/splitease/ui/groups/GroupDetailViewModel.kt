@@ -47,7 +47,7 @@ sealed interface GroupDetailUiState {
         val pendingExpenseIds: Set<String> = emptySet(),
         val pendingSettlementIds: Set<String> = emptySet(),
         val pendingGroupSyncCount: Int = 0,
-        val groupHasSyncFailures: Boolean, // Derived from filtered failures
+        val groupFailedSyncCount: Int, // Derived from filtered failures
         val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
@@ -163,7 +163,7 @@ class GroupDetailViewModel @Inject constructor(
                 (sync.pendingSettlementIds intersect groupSettlementIds).size
 
             // Compute group-scoped failure status
-            val groupHasSyncFailures = sync.failedOperations.any { op ->
+            val groupFailedSyncCount = sync.failedOperations.count { op ->
                  when (op.entityType) {
                      SyncEntityType.GROUP -> op.entityId == group.id
                      SyncEntityType.EXPENSE -> groupExpenseIds.contains(op.entityId)
@@ -181,7 +181,7 @@ class GroupDetailViewModel @Inject constructor(
                 pendingExpenseIds = sync.pendingExpenseIds,
                 pendingSettlementIds = sync.pendingSettlementIds,
                 pendingGroupSyncCount = pendingGroupSyncCount,
-                groupHasSyncFailures = groupHasSyncFailures,
+                groupFailedSyncCount = groupFailedSyncCount,
                 settlementMode = settlementMode
             )
         }

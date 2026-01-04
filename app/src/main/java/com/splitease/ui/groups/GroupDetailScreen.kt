@@ -21,9 +21,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Refresh
 // import androidx.compose.material.icons.filled.Sync
+import com.splitease.ui.common.SyncStatusIcon
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -107,35 +107,11 @@ fun GroupDetailScreen(
                     if (uiState is GroupDetailUiState.Success) {
                         val state = uiState as GroupDetailUiState.Success
                         
-                        if (state.groupHasSyncFailures) {
-                            IconButton(onClick = onNavigateToSyncIssues) {
-                                Icon(
-                                    imageVector = Icons.Default.Warning,
-                                    contentDescription = "Sync Failures",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        } else if (state.pendingGroupSyncCount > 0) {
-                            IconButton(onClick = onNavigateToSyncIssues) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Info,
-                                        contentDescription = "Pending sync",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "${state.pendingGroupSyncCount}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+                        SyncStatusIcon(
+                            failedSyncCount = state.groupFailedSyncCount,
+                            pendingSyncCount = state.pendingGroupSyncCount,
+                            onNavigateToSyncIssues = onNavigateToSyncIssues
+                        )
                     }
                     
                     IconButton(onClick = { viewModel.retry() }) {

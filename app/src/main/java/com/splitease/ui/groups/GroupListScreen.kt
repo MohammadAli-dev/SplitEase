@@ -40,6 +40,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBar
 import androidx.lifecycle.viewModelScope
+// import com.splitease.data.local.dao.SyncDao
+import com.splitease.ui.common.SyncStatusIcon
+// import com.splitease.data.local.dao.SyncDao // kept via wildcard or specific
+import com.splitease.ui.common.SyncStatusIcon
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.repository.SyncRepository
@@ -58,20 +62,20 @@ class GroupListViewModel @Inject constructor(
 ) : ViewModel() {
 
     // Derived sync state
-    private val hasSyncFailures: Flow<Boolean> = syncRepository.failedOperations
-        .map { ops -> ops.any { it.failureType != SyncFailureType.AUTH } }
+    private val failedSyncCount: Flow<Int> = syncRepository.failedOperations
+        .map { ops -> ops.count { it.failureType != SyncFailureType.AUTH } }
 
     private val pendingSyncCount: Flow<Int> = syncDao.getPendingSyncCount()
 
     // Combined UI state
     val uiState: StateFlow<GroupListUiState> = combine(
         groupDao.getAllGroups(),
-        hasSyncFailures,
+        failedSyncCount,
         pendingSyncCount
-    ) { groups, hasFailures, pendingCount ->
+    ) { groups, failedCount, pendingCount ->
         GroupListUiState(
             groups = groups,
-            hasSyncFailures = hasFailures,
+            failedSyncCount = failedCount,
             pendingSyncCount = pendingCount
         )
     }.stateIn(
@@ -83,7 +87,7 @@ class GroupListViewModel @Inject constructor(
 
 data class GroupListUiState(
     val groups: List<Group> = emptyList(),
-    val hasSyncFailures: Boolean = false,
+    val failedSyncCount: Int = 0,
     val pendingSyncCount: Int = 0
 )
 
@@ -103,31 +107,11 @@ fun GroupListScreen(
             TopAppBar(
                 title = { Text("SplitEase") },
                 actions = {
-                    if (uiState.hasSyncFailures) {
-                        IconButton(onClick = onNavigateToSyncIssues) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = "Sync Failures",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    } else if (uiState.pendingSyncCount > 0) {
-                        IconButton(onClick = onNavigateToSyncIssues) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Info, // Using Info as "Sync Pending" standard icon
-                                    contentDescription = "Pending Sync",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "${uiState.pendingSyncCount}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+                    SyncStatusIcon(
+                        failedSyncCount = uiState.failedSyncCount,
+                        pendingSyncCount = uiState.pendingSyncCount,
+                        onNavigateToSyncIssues = onNavigateToSyncIssues
+                    )
                 }
             )
         },
