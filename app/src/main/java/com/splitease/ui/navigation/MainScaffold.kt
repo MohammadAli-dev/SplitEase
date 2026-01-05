@@ -27,7 +27,9 @@ import com.splitease.ui.expense.AddExpenseScreen
 import com.splitease.ui.groups.CreateGroupScreen
 import com.splitease.ui.groups.GroupDetailScreen
 import com.splitease.ui.groups.GroupListScreen
+import com.splitease.ui.sync.ReconciliationScreen
 import com.splitease.ui.sync.SyncIssuesScreen
+import androidx.navigation.NavType
 
 data class BottomNavItem(
     val route: String,
@@ -152,6 +154,20 @@ fun MainScaffold() {
             }
             composable(Screen.SyncIssues.route) {
                 SyncIssuesScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToReconciliation = { expenseId, syncOpId ->
+                        navController.navigate(Screen.Reconciliation.createRoute(expenseId, syncOpId))
+                    }
+                )
+            }
+            composable(
+                route = Screen.Reconciliation.route,
+                arguments = listOf(
+                    androidx.navigation.navArgument("expenseId") { type = NavType.StringType },
+                    androidx.navigation.navArgument("syncOpId") { type = NavType.IntType }
+                )
+            ) {
+                ReconciliationScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

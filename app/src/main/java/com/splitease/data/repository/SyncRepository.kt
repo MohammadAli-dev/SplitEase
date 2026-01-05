@@ -15,9 +15,13 @@ import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.remote.SplitEaseApi
+import androidx.room.withTransaction
+import com.splitease.data.local.AppDatabase
 import com.splitease.data.remote.SyncRequest
 import com.splitease.worker.SyncWorker
 import com.splitease.data.sync.SyncHealth
+import com.splitease.data.local.entities.Expense
+import com.splitease.data.local.entities.ExpenseSplit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -54,6 +58,27 @@ interface SyncRepository {
     
     /** Trigger manual sync (safe to spam - uses REPLACE policy) */
     fun triggerManualSync()
+    
+    // --- Reconciliation (EXPENSE UPDATE Only) ---
+    
+    /**
+     * Fetch expense and splits from remote server (one-shot).
+     * Returns null if entity not found (404).
+     * Throws on network/other errors.
+     */
+    suspend fun fetchRemoteExpense(expenseId: String): Pair<Expense, List<ExpenseSplit>>?
+    
+    /**
+     * Replace local expense+splits with server version.
+     * Transactional: deletes old splits, inserts new data, removes sync op.
+     */
+    suspend fun applyServerExpense(expense: Expense, splits: List<ExpenseSplit>, syncOpId: Int)
+    
+    /**
+     * Re-queue failed sync op as PENDING and trigger ordered sync.
+     * Full queue processing, NOT single-op, to preserve ordering.
+     */
+    suspend fun retryLocalVersion(syncOpId: Int)
 }
 
 @Singleton
@@ -64,7 +89,8 @@ class SyncRepositoryImpl @Inject constructor(
     private val workManager: WorkManager,
     private val groupDao: GroupDao,
     private val expenseDao: ExpenseDao,
-    private val settlementDao: SettlementDao
+    private val settlementDao: SettlementDao,
+    private val db: AppDatabase
 ) : SyncRepository {
 
     override val failedOperations: Flow<List<SyncOperation>> = syncDao.getFailedOperations()
@@ -240,6 +266,64 @@ class SyncRepositoryImpl @Inject constructor(
     override suspend fun processAllPending() = withContext(Dispatchers.IO) {
         while (processNextOperation()) {
             // Loop until empty or explicit false return
+        }
+    }
+
+    // --- Reconciliation Implementation (EXPENSE UPDATE Only) ---
+
+    override suspend fun fetchRemoteExpense(expenseId: String): Pair<Expense, List<ExpenseSplit>>? {
+        return withContext(Dispatchers.IO) {
+            try {
+                // TODO: When real API exists, call api.getExpense(expenseId)
+                // For now, simulate with mock response
+                Log.d("SyncRepository", "Fetching remote expense: $expenseId")
+                
+                // Mock: Return null to simulate "not found on server" scenario
+                // In real implementation, this would parse API response
+                null
+            } catch (e: HttpException) {
+                if (e.code() == 404) {
+                    Log.w("SyncRepository", "Remote expense not found: $expenseId")
+                    null
+                } else {
+                    throw e
+                }
+            }
+        }
+    }
+
+    override suspend fun applyServerExpense(
+        expense: Expense,
+        splits: List<ExpenseSplit>,
+        syncOpId: Int
+    ) {
+        withContext(Dispatchers.IO) {
+            Log.d("SyncRepository", "Applying server version for expense: ${expense.id}, syncOpId: $syncOpId")
+            
+            // Transactional: Replace expense + splits + delete sync op
+            // Using REPLACE strategy ensures idempotency
+            db.withTransaction {
+                expenseDao.deleteSplitsForExpense(expense.id)
+                expenseDao.insertExpense(expense)
+                expenseDao.insertSplits(splits)
+                syncDao.deleteOperation(syncOpId)
+            }
+            
+            Log.d("SyncRepository", "Server version applied, sync op $syncOpId deleted")
+        }
+    }
+
+    override suspend fun retryLocalVersion(syncOpId: Int) {
+        withContext(Dispatchers.IO) {
+            Log.d("SyncRepository", "Retrying local version for sync op: $syncOpId")
+            
+            // Reset to PENDING (full queue ordering preserved)
+            syncDao.retryOperation(syncOpId)
+            
+            // Trigger full queue processing (NOT single-op)
+            triggerImmediateSync()
+            
+            Log.d("SyncRepository", "Local version retry queued, full sync triggered")
         }
     }
 }

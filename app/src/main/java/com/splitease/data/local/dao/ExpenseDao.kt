@@ -92,4 +92,16 @@ interface ExpenseDao {
      */
     @Query("SELECT id, title AS value FROM expenses WHERE id IN (:ids)")
     suspend fun getTitlesByIds(ids: List<String>): List<IdValuePair>
+
+    /**
+     * One-shot suspend query for expense by ID (for reconciliation).
+     */
+    @Query("SELECT * FROM expenses WHERE id = :id")
+    suspend fun getExpenseById(id: String): Expense?
+
+    /**
+     * One-shot suspend query for splits by expense ID (for reconciliation).
+     */
+    @Query("SELECT * FROM expense_splits WHERE expenseId = :expenseId")
+    suspend fun getSplitsSync(expenseId: String): List<ExpenseSplit>
 }

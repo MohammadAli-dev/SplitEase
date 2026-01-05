@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -49,6 +50,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SyncIssuesScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToReconciliation: (expenseId: String, syncOpId: Int) -> Unit,
     viewModel: SyncIssuesViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -111,7 +113,10 @@ fun SyncIssuesScreen(
                         issue = issue,
                         isActionInProgress = uiState.pendingActionId == issue.id,
                         onRetry = { viewModel.retry(issue.id) },
-                        onDelete = { deleteConfirmationId = issue.id }
+                        onDelete = { deleteConfirmationId = issue.id },
+                        onReviewDiff = { 
+                            onNavigateToReconciliation(issue.entityId, issue.id)
+                        }
                     )
                 }
                 
@@ -156,7 +161,8 @@ private fun SyncIssueCard(
     issue: SyncIssueUiModel,
     isActionInProgress: Boolean,
     onRetry: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onReviewDiff: () -> Unit
 ) {
     val containerColor = if (issue.isError) {
         MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
@@ -215,17 +221,30 @@ private fun SyncIssueCard(
                             )
                         }
                     }
-                    IconButton(
-                        onClick = onDelete,
-                        enabled = !isActionInProgress
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                        IconButton(
+                            onClick = onDelete,
+                            enabled = !isActionInProgress
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        // Review Difference button (EXPENSE UPDATE only)
+                        if (issue.canReviewDiff) {
+                            IconButton(
+                                onClick = onReviewDiff,
+                                enabled = !isActionInProgress
+                            ) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = "Review Difference",
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
                     }
-                }
             } else {
                  // For pending, logic is read-only. Maybe show spinner? 
                  // For now just empty.

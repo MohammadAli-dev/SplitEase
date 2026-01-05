@@ -102,6 +102,11 @@ fun GroupDetailScreen(
                         }
                     )
                 },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
                 actions = {
                     // Contextual sync status: Failure (⚠️) overrides Pending (⏳)
                     if (uiState is GroupDetailUiState.Success) {

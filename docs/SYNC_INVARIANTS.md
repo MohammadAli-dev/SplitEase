@@ -192,3 +192,30 @@ For UPDATE/DELETE failures:
 - Local entity is NOT modified (data may diverge).
 - Best-effort reconciliation fetch is attempted (may fail silently).
 - Failure does NOT block further sync operations.
+
+---
+
+## Reconciliation Principles (Sprint 10C)
+
+This section defines strict guardrails for resolving data divergence in UPDATE failures.
+
+### Scope & Constraints
+- **Supported Entity**: `EXPENSE` (UPDATE operations only)
+- **Unsupported**: `GROUP`, `SETTLEMENT`, `INSERT`, `DELETE`
+- **Concurrency**: Operations are atomic and transactional.
+
+### Guarantees
+1. **Explicit User Intent**: No reconciliation action is taken without a direct button press ("Keep Server" or "Keep Local").
+2. **No Auto-Merge**: Safe field-level merging is impossible without vector clocks. We force a choice between two complete versions.
+3. **Read-Only Diff**: The diff view is purely for decision making; it does not mutate state.
+4. **Ordering Preservation**:
+    - "Keep Local" resets the operation to PENDING and triggers a full sync of the pending queue. It does NOT prioritize the single operation out of order.
+5. **Atomic Replacement**:
+    - "Keep Server" performs a single transaction: `delete old splits` -> `insert new expense` -> `insert new splits` -> `delete sync op`.
+    - This ensures no partial state exists if the app crashes during application.
+
+### Divergence Resolution
+| User Choice | Invariant |
+|-------------|-----------|
+| **Keep Server** | Local state == Server state. Sync op is removed. User accepts loss of local offline edits. |
+| **Keep Local** | Local state is preserved. Sync op is re-queued at its original valid position (by retaining ID/timestamp) for retry. |
