@@ -1,5 +1,7 @@
 package com.splitease.di
 
+import com.splitease.data.identity.IdentityConstants
+
 import android.content.Context
 import androidx.room.Room
 import androidx.room.migration.Migration
@@ -68,6 +70,29 @@ object DatabaseModule {
         }
     }
 
+    /**
+     * Migration from version 5 to 6:
+     * - Add createdByUserId and lastModifiedByUserId to expenses, expense_groups, settlements.
+     * - Default value: IdentityConstants.LEGACY_USER_ID
+     */
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            val legacyId = IdentityConstants.LEGACY_USER_ID
+
+            // Expense
+            db.execSQL("ALTER TABLE expenses ADD COLUMN createdByUserId TEXT NOT NULL DEFAULT '$legacyId'")
+            db.execSQL("ALTER TABLE expenses ADD COLUMN lastModifiedByUserId TEXT NOT NULL DEFAULT '$legacyId'")
+
+            // Group
+            db.execSQL("ALTER TABLE expense_groups ADD COLUMN createdByUserId TEXT NOT NULL DEFAULT '$legacyId'")
+            db.execSQL("ALTER TABLE expense_groups ADD COLUMN lastModifiedByUserId TEXT NOT NULL DEFAULT '$legacyId'")
+
+            // Settlement
+            db.execSQL("ALTER TABLE settlements ADD COLUMN createdByUserId TEXT NOT NULL DEFAULT '$legacyId'")
+            db.execSQL("ALTER TABLE settlements ADD COLUMN lastModifiedByUserId TEXT NOT NULL DEFAULT '$legacyId'")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -79,6 +104,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_2_3)
             .addMigrations(MIGRATION_3_4)
             .addMigrations(MIGRATION_4_5)
+            .addMigrations(MIGRATION_5_6)
             .fallbackToDestructiveMigration()
             .build()
     }

@@ -25,7 +25,8 @@ interface SettlementRepository {
         groupId: String,
         fromUserId: String,
         toUserId: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        creatorUserId: String
     )
 }
 
@@ -39,7 +40,8 @@ class SettlementRepositoryImpl @Inject constructor(
         groupId: String,
         fromUserId: String,
         toUserId: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        creatorUserId: String
     ) = withContext(Dispatchers.IO) {
         // Domain Guard: No self-settlement
         require(fromUserId != toUserId) {
@@ -57,7 +59,9 @@ class SettlementRepositoryImpl @Inject constructor(
             fromUserId = fromUserId,
             toUserId = toUserId,
             amount = amount,
-            date = Date()
+            date = Date(),
+            createdByUserId = creatorUserId,
+            lastModifiedByUserId = creatorUserId
         )
 
         val syncOp = syncWriteService.createSettlementCreateSyncOp(settlement)

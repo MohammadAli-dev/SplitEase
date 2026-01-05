@@ -12,11 +12,13 @@ import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
+import com.splitease.data.identity.UserContext
 import com.splitease.data.local.entities.User
 import com.splitease.data.repository.SettlementRepository
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
+import kotlinx.coroutines.flow.first
 import com.splitease.domain.BalanceCalculator
 import com.splitease.domain.SettlementCalculator
 import com.splitease.domain.SettlementMode
@@ -54,7 +56,8 @@ sealed interface GroupDetailUiState {
         val pendingGroupSyncCount: Int = 0,
         val groupFailedSyncCount: Int,
         val groupSyncState: SyncState = SyncState.IDLE,
-        val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED
+        val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED,
+        val currentUserId: String = "" // Default empty, populated by VM
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
@@ -71,7 +74,8 @@ class GroupDetailViewModel @Inject constructor(
     private val settlementDao: SettlementDao,
     private val settlementRepository: SettlementRepository,
     private val syncDao: SyncDao,
-    private val syncRepository: SyncRepository
+    private val syncRepository: SyncRepository,
+    private val userContext: UserContext
 ) : ViewModel() {
 
     private val groupId: String = savedStateHandle.get<String>("groupId") ?: ""
@@ -157,7 +161,8 @@ class GroupDetailViewModel @Inject constructor(
         _executingSettlements,
         _retryTrigger,
         _settlementMode,
-        syncDao.getOldestPendingTimestamp()
+        syncDao.getOldestPendingTimestamp(),
+        userContext.userId
     ) { values ->
         val data = values[0] as GroupData
         val sync = values[1] as GroupSyncContext
@@ -165,6 +170,7 @@ class GroupDetailViewModel @Inject constructor(
         @Suppress("UNUSED_VARIABLE") val retryTrigger = values[3] as Int
         val settlementMode = values[4] as SettlementMode
         val oldestTimestamp = values[5] as Long?
+        val currentUserId = values[6] as String
         val group = data.group
         val members = data.members
         val expenses = data.expenses
@@ -227,7 +233,8 @@ class GroupDetailViewModel @Inject constructor(
                 pendingGroupSyncCount = pendingGroupSyncCount,
                 groupFailedSyncCount = groupFailedSyncCount,
                 groupSyncState = groupSyncState,
-                settlementMode = settlementMode
+                settlementMode = settlementMode,
+                currentUserId = currentUserId
             )
         }
     }.stateIn(
@@ -269,7 +276,8 @@ class GroupDetailViewModel @Inject constructor(
                     groupId = groupId,
                     fromUserId = suggestion.fromUserId,
                     toUserId = suggestion.toUserId,
-                    amount = normalized
+                    amount = normalized,
+                    creatorUserId = userContext.userId.first()
                 )
                 _eventChannel.send(GroupDetailEvent.ShowSnackbar("Settlement recorded"))
             } catch (e: Exception) {

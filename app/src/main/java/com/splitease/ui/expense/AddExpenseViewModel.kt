@@ -3,10 +3,10 @@ package com.splitease.ui.expense
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.splitease.data.identity.UserContext
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
-import com.splitease.data.repository.AuthRepository
 import com.splitease.data.repository.ExpenseRepository
 import com.splitease.domain.SplitValidationResult
 import com.splitease.domain.SplitValidator
@@ -65,14 +65,15 @@ data class AddExpenseUiState(
     val errorMessage: String? = null,
     val isEditMode: Boolean = false,
     /** Logical date of expense, normalized to start-of-day */
-    val expenseDate: Long = normalizeToStartOfDay(System.currentTimeMillis())
+    val expenseDate: Long = normalizeToStartOfDay(System.currentTimeMillis()),
+    val createdByUserId: String? = null
 )
 
 @HiltViewModel
 class AddExpenseViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val expenseRepository: ExpenseRepository,
-    private val authRepository: AuthRepository,
+    private val userContext: UserContext,
     private val groupDao: GroupDao
 ) : ViewModel() {
 
@@ -110,7 +111,8 @@ class AddExpenseViewModel @Inject constructor(
                     payerId = expense.payerId,
                     selectedParticipants = splits.map { it.userId }.sorted(),
                     exactAmounts = exactAmounts,
-                    isEditMode = true
+                    isEditMode = true,
+                    createdByUserId = expense.createdByUserId
                 )
             }
             recalculateSplits()
@@ -132,8 +134,8 @@ class AddExpenseViewModel @Inject constructor(
     }
 
     private fun setDefaultPayer() {
-        val currentUserId = authRepository.getCurrentUserId()
-        if (currentUserId != null) {
+        viewModelScope.launch {
+            val currentUserId = userContext.userId.first()
             _uiState.update { it.copy(payerId = currentUserId) }
         }
     }
@@ -344,6 +346,9 @@ class AddExpenseViewModel @Inject constructor(
                 // Use existing ID if editing, else generate new
                 val finalExpenseId = expenseId ?: UUID.randomUUID().toString()
                 
+                val currentUserId = userContext.userId.first()
+                val creatorId = state.createdByUserId ?: currentUserId
+                
                 val expense = Expense(
                     id = finalExpenseId,
                     groupId = groupId,
@@ -351,8 +356,10 @@ class AddExpenseViewModel @Inject constructor(
                     amount = amount,
                     currency = "INR",
                     date = Date(System.currentTimeMillis()),
-                    payerId = authRepository.getCurrentUserId() ?: "",
-                    createdBy = authRepository.getCurrentUserId() ?: "",
+                    payerId = state.payerId.ifBlank { currentUserId },
+                    createdBy = creatorId,
+                    createdByUserId = creatorId,
+                    lastModifiedByUserId = currentUserId,
                     syncStatus = "PENDING",
                     expenseDate = state.expenseDate
                 )

@@ -4,12 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.User
-import com.splitease.data.repository.AuthRepository
+import com.splitease.data.identity.UserContext
 import com.splitease.data.repository.GroupRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -38,7 +39,7 @@ data class CreateGroupUiState(
 @HiltViewModel
 class CreateGroupViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
-    private val authRepository: AuthRepository,
+    private val userContext: UserContext,
     private val userDao: UserDao
 ) : ViewModel() {
 
@@ -61,8 +62,8 @@ class CreateGroupViewModel @Inject constructor(
     }
 
     private fun addCurrentUserAsDefault() {
-        val currentUserId = authRepository.getCurrentUserId()
-        if (currentUserId != null) {
+        viewModelScope.launch {
+            val currentUserId = userContext.userId.first()
             _uiState.update { it.copy(selectedMemberIds = setOf(currentUserId)) }
         }
     }
@@ -137,7 +138,8 @@ class CreateGroupViewModel @Inject constructor(
                     memberIds = state.selectedMemberIds.toList(),
                     hasTripDates = state.hasTripDates,
                     tripStartDate = state.tripStartDate,
-                    tripEndDate = state.tripEndDate
+                    tripEndDate = state.tripEndDate,
+                    creatorUserId = userContext.userId.first()
                 )
                 _uiState.update { it.copy(isSaved = true, isLoading = false) }
             } catch (e: Exception) {

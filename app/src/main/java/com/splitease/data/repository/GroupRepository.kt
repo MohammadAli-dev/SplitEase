@@ -39,7 +39,8 @@ interface GroupRepository {
         memberIds: List<String>,
         hasTripDates: Boolean = false,
         tripStartDate: Long? = null,
-        tripEndDate: Long? = null
+        tripEndDate: Long? = null,
+        creatorUserId: String
     )
 }
 
@@ -55,7 +56,8 @@ class GroupRepositoryImpl @Inject constructor(
         memberIds: List<String>,
         hasTripDates: Boolean,
         tripStartDate: Long?,
-        tripEndDate: Long?
+        tripEndDate: Long?,
+        creatorUserId: String
     ) = withContext(Dispatchers.IO) {
             val groupId = UUID.randomUUID().toString()
             val now = Date()
@@ -65,10 +67,12 @@ class GroupRepositoryImpl @Inject constructor(
                 name = name,
                 type = type,
                 coverUrl = null,
-                createdBy = memberIds.firstOrNull() ?: "",
+                createdBy = creatorUserId,
                 hasTripDates = hasTripDates,
                 tripStartDate = tripStartDate,
-                tripEndDate = tripEndDate
+                tripEndDate = tripEndDate,
+                createdByUserId = creatorUserId,
+                lastModifiedByUserId = creatorUserId
             )
 
             val members = memberIds.sortedBy { it }.map { userId ->
