@@ -50,21 +50,19 @@ fun ReconciliationScreen(
     viewModel: ReconciliationViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val event by viewModel.event.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Handle events
-    LaunchedEffect(event) {
-        when (val e = event) {
-            is ReconciliationEvent.ShowSnackbar -> {
-                snackbarHostState.showSnackbar(e.message)
-                viewModel.clearEvent()
+    LaunchedEffect(Unit) {
+        viewModel.event.collect { event ->
+            when (event) {
+                is ReconciliationEvent.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+                ReconciliationEvent.NavigateBack -> {
+                    onNavigateBack()
+                }
             }
-            ReconciliationEvent.NavigateBack -> {
-                viewModel.clearEvent()
-                onNavigateBack()
-            }
-            null -> {}
         }
     }
 

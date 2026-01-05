@@ -14,8 +14,11 @@ import com.splitease.data.sync.ExpenseSnapshotAdapter
 import com.splitease.data.sync.FieldSection
 import com.splitease.data.sync.SnapshotField
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -48,8 +51,8 @@ class ReconciliationViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<ReconciliationUiState>(ReconciliationUiState.Loading)
     val uiState: StateFlow<ReconciliationUiState> = _uiState.asStateFlow()
 
-    private val _event = MutableStateFlow<ReconciliationEvent?>(null)
-    val event: StateFlow<ReconciliationEvent?> = _event.asStateFlow()
+    private val _event = MutableSharedFlow<ReconciliationEvent>()
+    val event: SharedFlow<ReconciliationEvent> = _event.asSharedFlow()
 
     private var localExpense: Expense? = null
     private var localSplits: List<ExpenseSplit> = emptyList()
@@ -116,8 +119,8 @@ class ReconciliationViewModel @Inject constructor(
             try {
                 syncRepository.applyServerExpense(expense, splits, syncOpId)
                 Log.d("ReconciliationVM", "Kept server version for $expenseId")
-                _event.value = ReconciliationEvent.ShowSnackbar("Local changes replaced")
-                _event.value = ReconciliationEvent.NavigateBack
+                _event.emit(ReconciliationEvent.ShowSnackbar("Local changes replaced"))
+                _event.emit(ReconciliationEvent.NavigateBack)
             } catch (e: Exception) {
                 Log.e("ReconciliationVM", "Failed to apply server version", e)
                 _uiState.value = ReconciliationUiState.Error("Failed to apply: ${e.message}")
@@ -130,8 +133,8 @@ class ReconciliationViewModel @Inject constructor(
             try {
                 syncRepository.retryLocalVersion(syncOpId)
                 Log.d("ReconciliationVM", "Kept local version, retrying sync for $expenseId")
-                _event.value = ReconciliationEvent.ShowSnackbar("Retrying your changes")
-                _event.value = ReconciliationEvent.NavigateBack
+                _event.emit(ReconciliationEvent.ShowSnackbar("Retrying your changes"))
+                _event.emit(ReconciliationEvent.NavigateBack)
             } catch (e: Exception) {
                 Log.e("ReconciliationVM", "Failed to retry local version", e)
                 _uiState.value = ReconciliationUiState.Error("Failed to retry: ${e.message}")
@@ -139,9 +142,7 @@ class ReconciliationViewModel @Inject constructor(
         }
     }
 
-    fun clearEvent() {
-        _event.value = null
-    }
+
 
     private fun logTelemetry(stats: DiffStats) {
         Log.d("ReconciliationTelemetry", "Expense $expenseId: ${stats.changedFields}/${stats.totalFields} fields changed, sections: ${stats.sectionsChanged}")
