@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -63,8 +64,12 @@ class CreateGroupViewModel @Inject constructor(
 
     private fun addCurrentUserAsDefault() {
         viewModelScope.launch {
-            val currentUserId = userContext.userId.first()
-            _uiState.update { it.copy(selectedMemberIds = setOf(currentUserId)) }
+            // Idiomatic: firstOrNull() returns null if flow is empty, no exceptions
+            val currentUserId = userContext.userId.firstOrNull()
+            if (currentUserId != null) {
+                _uiState.update { it.copy(selectedMemberIds = setOf(currentUserId)) }
+            }
+            // If null, gracefully leave selectedMemberIds empty
         }
     }
 
@@ -132,6 +137,9 @@ class CreateGroupViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
             try {
+                // Ensure we have a valid user ID before attempting to save
+                val creatorUserId = userContext.userId.first()
+
                 groupRepository.createGroup(
                     name = state.name,
                     type = state.type.name,
@@ -139,11 +147,11 @@ class CreateGroupViewModel @Inject constructor(
                     hasTripDates = state.hasTripDates,
                     tripStartDate = state.tripStartDate,
                     tripEndDate = state.tripEndDate,
-                    creatorUserId = userContext.userId.first()
+                    creatorUserId = creatorUserId
                 )
                 _uiState.update { it.copy(isSaved = true, isLoading = false) }
             } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = e.message, isLoading = false) }
+                _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save group", isLoading = false) }
             }
         }
     }
