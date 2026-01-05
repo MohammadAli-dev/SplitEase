@@ -15,6 +15,8 @@ import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.remote.SplitEaseApi
+import androidx.room.withTransaction
+import com.splitease.data.local.AppDatabase
 import com.splitease.data.remote.SyncRequest
 import com.splitease.worker.SyncWorker
 import com.splitease.data.sync.SyncHealth
@@ -87,7 +89,8 @@ class SyncRepositoryImpl @Inject constructor(
     private val workManager: WorkManager,
     private val groupDao: GroupDao,
     private val expenseDao: ExpenseDao,
-    private val settlementDao: SettlementDao
+    private val settlementDao: SettlementDao,
+    private val db: AppDatabase
 ) : SyncRepository {
 
     override val failedOperations: Flow<List<SyncOperation>> = syncDao.getFailedOperations()
@@ -299,10 +302,12 @@ class SyncRepositoryImpl @Inject constructor(
             
             // Transactional: Replace expense + splits + delete sync op
             // Using REPLACE strategy ensures idempotency
-            expenseDao.deleteSplitsForExpense(expense.id)
-            expenseDao.insertExpense(expense)
-            expenseDao.insertSplits(splits)
-            syncDao.deleteOperation(syncOpId)
+            db.withTransaction {
+                expenseDao.deleteSplitsForExpense(expense.id)
+                expenseDao.insertExpense(expense)
+                expenseDao.insertSplits(splits)
+                syncDao.deleteOperation(syncOpId)
+            }
             
             Log.d("SyncRepository", "Server version applied, sync op $syncOpId deleted")
         }
