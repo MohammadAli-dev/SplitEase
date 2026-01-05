@@ -167,8 +167,9 @@ fun GroupListScreen(
                 title = { Text("SplitEase") },
                 actions = {
                     SyncStatusIcon(
-                        failedSyncCount = uiState.failedSyncCount,
-                        pendingSyncCount = uiState.pendingSyncCount,
+                        syncState = uiState.syncState,
+                        failedCount = uiState.failedSyncCount,
+                        pendingCount = uiState.pendingSyncCount,
                         onNavigateToSyncIssues = onNavigateToSyncIssues
                     )
                     Box {
