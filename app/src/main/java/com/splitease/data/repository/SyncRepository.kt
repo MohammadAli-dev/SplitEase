@@ -17,8 +17,10 @@ import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.remote.SplitEaseApi
 import com.splitease.data.remote.SyncRequest
 import com.splitease.worker.SyncWorker
+import com.splitease.data.sync.SyncHealth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
@@ -46,6 +48,12 @@ interface SyncRepository {
      * For UPDATE/DELETE, no local entity changes (document divergence risk).
      */
     suspend fun acknowledgeFailure(id: Int)
+    
+    /** Observe derived sync health (pendingCount, failedCount, oldestPendingAge) */
+    fun observeSyncHealth(): Flow<SyncHealth>
+    
+    /** Trigger manual sync (safe to spam - uses REPLACE policy) */
+    fun triggerManualSync()
 }
 
 @Singleton
@@ -82,6 +90,26 @@ class SyncRepositoryImpl @Inject constructor(
             ExistingWorkPolicy.REPLACE,
             request
         )
+    }
+
+    override fun observeSyncHealth(): Flow<SyncHealth> {
+        return combine(
+            syncDao.getPendingSyncCount(),
+            syncDao.getFailedCount(),
+            syncDao.getOldestPendingTimestamp()
+        ) { pendingCount, failedCount, oldestTimestamp ->
+            val ageMillis = oldestTimestamp?.let { System.currentTimeMillis() - it }
+            SyncHealth(
+                pendingCount = pendingCount,
+                failedCount = failedCount,
+                oldestPendingAgeMillis = ageMillis
+            )
+        }
+    }
+
+    override fun triggerManualSync() {
+        // Same as triggerImmediateSync but exposed for manual UI control
+        triggerImmediateSync()
     }
 
     override suspend fun retryOperation(id: Int) {

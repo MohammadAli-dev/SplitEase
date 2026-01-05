@@ -21,12 +21,17 @@ import com.splitease.domain.BalanceCalculator
 import com.splitease.domain.SettlementCalculator
 import com.splitease.domain.SettlementMode
 import com.splitease.domain.SettlementSuggestion
+import com.splitease.data.sync.SyncConstants
+import com.splitease.data.sync.SyncHealth
+import com.splitease.data.sync.SyncState
+import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -47,7 +52,8 @@ sealed interface GroupDetailUiState {
         val pendingExpenseIds: Set<String> = emptySet(),
         val pendingSettlementIds: Set<String> = emptySet(),
         val pendingGroupSyncCount: Int = 0,
-        val groupFailedSyncCount: Int, // Derived from filtered failures
+        val groupFailedSyncCount: Int,
+        val groupSyncState: SyncState = SyncState.IDLE,
         val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
@@ -107,28 +113,58 @@ class GroupDetailViewModel @Inject constructor(
         GroupData(group, members, expenses, splits, settlements)
     }
 
-    // Combine sync state
-    private data class SyncState(
+    // Combine sync context (renamed to avoid conflict with SyncState enum)
+    private data class GroupSyncContext(
         val pendingExpenseIds: Set<String>,
         val pendingSettlementIds: Set<String>,
         val failedOperations: List<SyncOperation>
     )
 
-    private val syncState = combine(
+    private val groupSyncContext = combine(
         pendingExpenseIds,
         pendingSettlementIds,
         syncRepository.failedOperations
     ) { expenseIds: Set<String>, settlementIds: Set<String>, failedOps: List<SyncOperation> ->
-        SyncState(expenseIds, settlementIds, failedOps.filter { it.failureType != SyncFailureType.AUTH })
+        GroupSyncContext(expenseIds, settlementIds, failedOps.filter { it.failureType != SyncFailureType.AUTH })
+    }
+
+    // Derive group-scoped SyncState with telemetry
+    private var previousGroupSyncState = SyncState.IDLE
+
+    private fun deriveGroupSyncState(
+        failedCount: Int,
+        pendingCount: Int,
+        oldestPendingAgeMillis: Long?
+    ): SyncState {
+        val state = when {
+            failedCount > 0 -> SyncState.FAILED
+            pendingCount > 0 && (oldestPendingAgeMillis ?: 0) > SyncConstants.PAUSED_THRESHOLD_MS -> SyncState.PAUSED
+            pendingCount > 0 -> SyncState.SYNCING
+            else -> SyncState.IDLE
+        }
+        
+        // Telemetry: Log when PAUSED state first appears
+        if (previousGroupSyncState != SyncState.PAUSED && state == SyncState.PAUSED) {
+            Log.w("SyncHealth", "Group $groupId sync paused: oldest pending age = ${oldestPendingAgeMillis}ms")
+        }
+        previousGroupSyncState = state
+        return state
     }
 
     val uiState: StateFlow<GroupDetailUiState> = combine(
         groupData,
-        syncState,
+        groupSyncContext,
         _executingSettlements,
         _retryTrigger,
-        _settlementMode
-    ) { data: GroupData, sync: SyncState, executingSettlements: Set<String>, _: Int, settlementMode: SettlementMode ->
+        _settlementMode,
+        syncDao.getOldestPendingTimestamp()
+    ) { values ->
+        val data = values[0] as GroupData
+        val sync = values[1] as GroupSyncContext
+        val executingSettlements = values[2] as Set<String>
+        @Suppress("UNUSED_VARIABLE") val retryTrigger = values[3] as Int
+        val settlementMode = values[4] as SettlementMode
+        val oldestTimestamp = values[5] as Long?
         val group = data.group
         val members = data.members
         val expenses = data.expenses
@@ -162,7 +198,7 @@ class GroupDetailViewModel @Inject constructor(
                 (sync.pendingExpenseIds intersect groupExpenseIds).size + 
                 (sync.pendingSettlementIds intersect groupSettlementIds).size
 
-            // Compute group-scoped failure status
+            // Compute group-scoped failure count
             val groupFailedSyncCount = sync.failedOperations.count { op ->
                  when (op.entityType) {
                      SyncEntityType.GROUP -> op.entityId == group.id
@@ -170,6 +206,14 @@ class GroupDetailViewModel @Inject constructor(
                      SyncEntityType.SETTLEMENT -> groupSettlementIds.contains(op.entityId)
                  }
             }
+
+            // Derive group-scoped SyncState (only considers this group's operations)
+            val groupOldestPendingAge = oldestTimestamp?.let { System.currentTimeMillis() - it }
+            val groupSyncState = deriveGroupSyncState(
+                failedCount = groupFailedSyncCount,
+                pendingCount = pendingGroupSyncCount,
+                oldestPendingAgeMillis = groupOldestPendingAge
+            )
 
             GroupDetailUiState.Success(
                 group = group,
@@ -182,6 +226,7 @@ class GroupDetailViewModel @Inject constructor(
                 pendingSettlementIds = sync.pendingSettlementIds,
                 pendingGroupSyncCount = pendingGroupSyncCount,
                 groupFailedSyncCount = groupFailedSyncCount,
+                groupSyncState = groupSyncState,
                 settlementMode = settlementMode
             )
         }

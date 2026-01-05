@@ -108,8 +108,9 @@ fun GroupDetailScreen(
                         val state = uiState as GroupDetailUiState.Success
                         
                         SyncStatusIcon(
-                            failedSyncCount = state.groupFailedSyncCount,
-                            pendingSyncCount = state.pendingGroupSyncCount,
+                            syncState = state.groupSyncState,
+                            failedCount = state.groupFailedSyncCount,
+                            pendingCount = state.pendingGroupSyncCount,
                             onNavigateToSyncIssues = onNavigateToSyncIssues
                         )
                     }
