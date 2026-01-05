@@ -19,6 +19,7 @@ import com.splitease.data.repository.SyncRepository
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import com.splitease.domain.BalanceCalculator
 import com.splitease.domain.SettlementCalculator
 import com.splitease.domain.SettlementMode
@@ -269,6 +270,13 @@ class GroupDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _executingSettlements.value = _executingSettlements.value + key
             try {
+                // Idiomatic: firstOrNull() with early return if identity unavailable
+                val creatorUserId = userContext.userId.firstOrNull()
+                if (creatorUserId == null) {
+                    _eventChannel.send(GroupDetailEvent.ShowSnackbar("Failed to record settlement"))
+                    return@launch
+                }
+                
                 // Normalize amount to 2 decimals (defensive against weird inputs)
                 val normalized = amount.setScale(2, RoundingMode.HALF_UP)
                 
@@ -277,7 +285,7 @@ class GroupDetailViewModel @Inject constructor(
                     fromUserId = suggestion.fromUserId,
                     toUserId = suggestion.toUserId,
                     amount = normalized,
-                    creatorUserId = userContext.userId.first()
+                    creatorUserId = creatorUserId
                 )
                 _eventChannel.send(GroupDetailEvent.ShowSnackbar("Settlement recorded"))
             } catch (e: Exception) {

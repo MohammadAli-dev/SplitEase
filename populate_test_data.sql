@@ -27,13 +27,13 @@ INSERT OR IGNORE INTO group_members (groupId, userId, joinedAt) VALUES
 --Insert a mock expense (Paid by Alice, split equally) (OPTIONAL:)
 -- Only run this if you want pre-filled expenses.
 
-INSERT OR IGNORE INTO expenses (id, groupId, title, amount, currency, paidBy, date, createdBy, createdByUserId, lastModifiedByUserId) VALUES
-('exp_1', 'group_hawaii', 'Dinner', 120.00, 'USD', 'user_2', 1704153600000, 'user_2', 'user_2', 'user_2');
+INSERT OR IGNORE INTO expenses (id, groupId, title, amount, currency, payerId, date, createdBy, createdByUserId, lastModifiedByUserId) VALUES
+('exp_1', 'group_hawaii', 'Dinner', 1200.00, 'INR', 'user_2', 1704153600000, 'user_2', 'user_2', 'user_2');
 
 INSERT OR IGNORE INTO expense_splits (expenseId, userId, amount) VALUES
-('exp_1', 'user_1', 30.00),
-('exp_1', 'user_2', 30.00),
-('exp_1', 'user_3', 30.00),
-('exp_1', 'user_4', 30.00);
+('exp_1', 'user_1', 300.00),
+('exp_1', 'user_2', 300.00),
+('exp_1', 'user_3', 300.00),
+('exp_1', 'user_4', 300.00);
 
 

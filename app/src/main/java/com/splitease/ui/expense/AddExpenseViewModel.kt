@@ -135,8 +135,12 @@ class AddExpenseViewModel @Inject constructor(
 
     private fun setDefaultPayer() {
         viewModelScope.launch {
-            val currentUserId = userContext.userId.first()
-            _uiState.update { it.copy(payerId = currentUserId) }
+            // Idiomatic: firstOrNull() handles empty flow gracefully
+            val currentUserId = userContext.userId.firstOrNull()
+            if (currentUserId != null) {
+                _uiState.update { it.copy(payerId = currentUserId) }
+            }
+            // If null, leave payerId as default (empty string)
         }
     }
 
@@ -346,7 +350,13 @@ class AddExpenseViewModel @Inject constructor(
                 // Use existing ID if editing, else generate new
                 val finalExpenseId = expenseId ?: UUID.randomUUID().toString()
                 
-                val currentUserId = userContext.userId.first()
+                // Idiomatic: firstOrNull() with explicit error handling
+                val currentUserId = userContext.userId.firstOrNull()
+                if (currentUserId == null) {
+                    _uiState.update { it.copy(errorMessage = "Unable to identify user", isLoading = false) }
+                    return@launch
+                }
+                
                 val creatorId = state.createdByUserId ?: currentUserId
                 
                 val expense = Expense(
@@ -380,7 +390,7 @@ class AddExpenseViewModel @Inject constructor(
                 
                 _uiState.update { it.copy(isSaved = true, isLoading = false) }
             } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = e.message, isLoading = false) }
+                _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save expense", isLoading = false) }
             }
         }
     }
