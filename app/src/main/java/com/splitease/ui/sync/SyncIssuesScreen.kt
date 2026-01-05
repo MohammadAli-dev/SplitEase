@@ -85,7 +85,7 @@ fun SyncIssuesScreen(
                 items(uiState.issues, key = { it.id }) { issue ->
                     SyncIssueCard(
                         issue = issue,
-                        isPending = uiState.pendingActionId == issue.id,
+                        isActionInProgress = uiState.pendingActionId == issue.id,
                         onRetry = { viewModel.retry(issue.id) },
                         onDelete = { deleteConfirmationId = issue.id }
                     )
@@ -130,16 +130,20 @@ fun SyncIssuesScreen(
 @Composable
 private fun SyncIssueCard(
     issue: SyncIssueUiModel,
-    isPending: Boolean,
+    isActionInProgress: Boolean,
     onRetry: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val containerColor = if (issue.isError) {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-        )
+        colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
         Row(
             modifier = Modifier
@@ -168,33 +172,39 @@ private fun SyncIssueCard(
                 Text(
                     text = issue.failureReason,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
+                    color = if (issue.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 )
             }
             
-            Row {
-                if (issue.canRetry) {
+            // Only show actions for errors
+            if (issue.isError) {
+                Row {
+                    if (issue.canRetry) {
+                        IconButton(
+                            onClick = onRetry,
+                            enabled = !isActionInProgress
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Retry",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     IconButton(
-                        onClick = onRetry,
-                        enabled = !isPending
+                        onClick = onDelete,
+                        enabled = !isActionInProgress
                     ) {
                         Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = "Retry",
-                            tint = MaterialTheme.colorScheme.primary
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 }
-                IconButton(
-                    onClick = onDelete,
-                    enabled = !isPending
-                ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
+            } else {
+                 // For pending, logic is read-only. Maybe show spinner? 
+                 // For now just empty.
             }
         }
     }

@@ -21,7 +21,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 // import androidx.compose.material.icons.filled.Sync
+import com.splitease.ui.common.SyncStatusIcon
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,6 +70,7 @@ fun GroupDetailScreen(
     onNavigateBack: () -> Unit,
     onNavigateToAddExpense: (groupId: String) -> Unit,
     onNavigateToEditExpense: (groupId: String, expenseId: String) -> Unit,
+    onNavigateToSyncIssues: () -> Unit,
     viewModel: GroupDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -100,33 +103,19 @@ fun GroupDetailScreen(
                     )
                 },
                 actions = {
-                    // Show pending sync badge if there are pending items for this group
+                    // Contextual sync status: Failure (⚠️) overrides Pending (⏳)
                     if (uiState is GroupDetailUiState.Success) {
-                        val count = (uiState as GroupDetailUiState.Success).pendingGroupSyncCount
-                        if (count > 0) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(end = 8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Info,
-                                    contentDescription = "Pending sync",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "$count",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        val state = uiState as GroupDetailUiState.Success
+                        
+                        SyncStatusIcon(
+                            failedSyncCount = state.groupFailedSyncCount,
+                            pendingSyncCount = state.pendingGroupSyncCount,
+                            onNavigateToSyncIssues = onNavigateToSyncIssues
+                        )
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    
+                    IconButton(onClick = { viewModel.retry() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 }
             )
