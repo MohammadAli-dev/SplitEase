@@ -5,8 +5,9 @@ import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.domain.MoneyFormatter
 import java.math.BigDecimal
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
@@ -15,7 +16,7 @@ import java.util.Locale
  */
 object ExpenseSnapshotAdapter {
 
-    private val dateFormatter = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    private val dateFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
 
     /**
      * Compare local and remote expense data to produce diff fields.
@@ -101,7 +102,9 @@ object ExpenseSnapshotAdapter {
     }
 
     private fun formatDate(timestamp: Long): String {
-        return dateFormatter.format(Date(timestamp))
+        return Instant.ofEpochMilli(timestamp)
+            .atZone(ZoneId.systemDefault())
+            .format(dateFormatter)
     }
 
     /**
