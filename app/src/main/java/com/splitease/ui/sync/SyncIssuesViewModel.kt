@@ -38,7 +38,8 @@ data class SyncIssueUiModel(
     val failureReason: String,
     val failureType: SyncFailureType?,
     val canRetry: Boolean,
-    val isError: Boolean, // True for failures, false for pending
+    val canReviewDiff: Boolean, // true IFF: UPDATE + EXPENSE (Sprint 10C)
+    val isError: Boolean,
     val displayName: DisplayName
 )
 
@@ -146,6 +147,7 @@ class SyncIssuesViewModel @Inject constructor(
                         failureReason = if (isError) (op.failureReason ?: "Unknown error") else "Sync in progress...",
                         failureType = op.failureType,
                         canRetry = isError && op.failureType != SyncFailureType.VALIDATION,
+                        canReviewDiff = isError && op.operationType == "UPDATE" && op.entityType == SyncEntityType.EXPENSE,
                         isError = isError,
                         displayName = displayName
                     )
