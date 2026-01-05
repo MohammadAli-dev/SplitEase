@@ -79,13 +79,39 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **Authentication** | ✅ Mocked | Login/Signup screens work, but use a mock backend |
-| **Groups** | ✅ Complete | Create and view groups for expense sharing |
-| **Expenses** | ✅ Complete | Add expenses with title, amount, payer |
+| **Authentication** | ✅ Mocked | Login/Signup screens with mock backend |
+| **Groups** | ✅ Complete | Create, view, and manage expense groups |
+| **Group Creation** | ✅ Complete | Create new groups with name, type, and member selection |
+| **Expenses** | ✅ Complete | Add expenses with title, amount, payer, date |
+| **Expense Editing** | ✅ Complete | Edit existing expenses |
+| **Expense Deletion** | ✅ Complete | Delete expenses with sync support |
 | **Equal Splits** | ✅ Complete | Automatically split expenses equally |
+| **Percentage Splits** | ✅ Complete | Split by custom percentages |
+| **Exact Amount Splits** | ✅ Complete | Split by specific amounts per person |
+| **Split Type Inference** | ✅ Complete | Smart detection of EQUAL/PERCENTAGE/EXACT splits |
+| **Settlements** | ✅ Complete | Record payments between users |
+| **Partial Settlements** | ✅ Complete | Pay any amount (full or partial) |
+| **Multi-Settlement** | ✅ Complete | Multiple settlements per debtor pair |
+| **Debt Simplification** | ✅ Complete | Toggle between simplified and proportional view |
+| **Balance Calculation** | ✅ Complete | Real-time "who owes whom" calculations |
+| **Expense Date Support** | ✅ Complete | Custom date picker for expenses |
+| **Trip Date Range** | ✅ Complete | Groups support start/end dates |
 | **Offline Mode** | ✅ Complete | Full functionality without internet |
 | **Background Sync** | ✅ Complete | WorkManager-based reliable sync |
-| **Group Details** | ✅ Complete | View expenses within a group |
+| **Sync Failure Handling** | ✅ Complete | Categorized failures (VALIDATION, AUTH, NETWORK, UNKNOWN) |
+| **Sync Issues Screen** | ✅ Complete | View, retry, and manage failed sync operations |
+| **Sync Status Visibility** | ✅ Complete | Global and group-scoped sync indicators |
+| **Manual Sync Control** | ✅ Complete | "Sync Now" button with debounce protection |
+| **Sync Health Telemetry** | ✅ Complete | PAUSED state detection for stuck operations |
+
+### 🎯 Sync Status Indicators
+
+| State | Icon | Meaning |
+|-------|------|--------|
+| FAILED | ⚠️ | Some changes couldn't be synced |
+| PAUSED | 💤 | Sync paused — waiting for network (pending > 5 min) |
+| SYNCING | ⏳ | Syncing changes... |
+| IDLE | — | Everything synced |
 
 ### ⚠️ Intentionally Mocked
 
@@ -97,11 +123,11 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 
 ### 🚧 Future Features (Not Implemented)
 
-- Percentage-based splits
-- Exact amount splits
-- Settlements recording
-- Expense editing/deletion
-- Group creation UI
+- Real authentication (OAuth, JWT)
+- Push notifications for expense updates
+- Currency conversion
+- Receipt image attachments
+- Export to CSV/PDF
 
 ---
 
@@ -139,8 +165,11 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 ┌─────────────────────────────────────────────────────────────────┐
 │                       DOMAIN LAYER                              │
 │  ┌─────────────────────┐    ┌─────────────────────────────────┐│
-│  │   SplitValidator    │    │   SimplifyDebtUseCase           ││
-│  │   (Equal splits)    │    │   (Debt minimization)           ││
+│  │   SplitValidator    │    │   SettlementCalculator          ││
+│  │   (Split types)     │    │   (Debt simplification)         ││
+│  ├─────────────────────┤    ├─────────────────────────────────┤│
+│  │   BalanceCalculator │    │   MoneyFormatter                ││
+│  │   (Who owes whom)   │    │   (Display formatting)          ││
 │  └─────────────────────┘    └─────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
                              │
@@ -195,8 +224,11 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 #### Domain Layer (`domain/`)
 - **Technology**: Pure Kotlin (no Android dependencies)
 - **Components**:
-  - `SplitValidator`: Validates and calculates expense splits
-  - `SimplifyDebtUseCase`: Minimizes transactions between users
+  - `SplitValidator`: Validates expense splits (EQUAL, PERCENTAGE, EXACT)
+  - `SplitTypeInferrer`: Smart detection of split type from data
+  - `BalanceCalculator`: Computes net balances from expenses and settlements
+  - `SettlementCalculator`: Generates payment suggestions (simplified or proportional)
+  - `MoneyFormatter`: Currency formatting utilities
 - **Rules**:
   - ✅ Pure functions, deterministic
   - ✅ Unit testable without Android
@@ -214,7 +246,12 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 - **Repository** (`data/repository/`):
   - `AuthRepository`: Login/logout, token storage
   - `ExpenseRepository`: Expense CRUD with sync
-  - `SyncRepository`: Sync queue management
+  - `SettlementRepository`: Settlement recording with sync
+  - `SyncRepository`: Sync queue, health monitoring, manual triggers
+- **Sync** (`data/sync/`):
+  - `SyncHealth`: Derived sync state model
+  - `SyncState`: State enum (FAILED, PAUSED, SYNCING, IDLE)
+  - `SyncConstants`: Thresholds and timing constants
 
 #### Background Layer (`worker/`)
 - **Technology**: WorkManager + Hilt
@@ -296,7 +333,9 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `entityType` | TEXT | "EXPENSE", "GROUP", "MEMBER" |
 | `entityId` | TEXT | Entity UUID |
 | `payload` | TEXT | JSON serialization |
-| `timestamp` | INTEGER | Creation time |
+| `status` | TEXT | "PENDING", "SYNCED", "FAILED" |
+| `failureReason` | TEXT? | Error message if failed |
+| `failureType` | TEXT? | "VALIDATION", "AUTH", "NETWORK", "UNKNOWN" |
 
 ### How Write-Ahead Sync Works
 
@@ -345,9 +384,19 @@ Each `SyncOperation` has a unique `operationId`. The (mocked) API accepts duplic
 | Scenario | Behavior |
 |----------|----------|
 | No network | WorkManager waits for connectivity |
-| API error | Retry up to 3 times, then fail |
+| HTTP 4xx | Marked as FAILED (VALIDATION type), user can retry or delete |
+| HTTP 401/403 | Marked as FAILED (AUTH type), filtered from UI |
+| HTTP 5xx | Transient, WorkManager retries automatically |
 | App killed | WorkManager resumes on restart |
-| Phone restart | WorkManager resumes automatically |
+
+### Sync Health States
+
+| State | Condition | UI |
+|-------|-----------|----|
+| FAILED | `failedCount > 0` | ⚠️ Red warning icon |
+| PAUSED | `pendingCount > 0 AND age > 5 min` | 💤 Tertiary icon |
+| SYNCING | `pendingCount > 0` | ⏳ Neutral icon |
+| IDLE | No pending operations | No indicator |
 
 ---
 
@@ -477,15 +526,16 @@ ROOT NavHost
     │   ├── LoginScreen
     │   └── SignupScreen
     │
-    └── Main Graph (Dashboard = start)
-        ├── Dashboard (Bottom Nav visible)
+    └── Main Graph (Groups = start)
         ├── Groups (Bottom Nav visible)
         ├── Activity (Bottom Nav visible)
         ├── Account (Bottom Nav visible)
         │
         └── Detail Sub-Graph (Bottom Nav HIDDEN)
             ├── GroupDetailScreen
-            └── AddExpenseScreen
+            ├── AddExpenseScreen
+            ├── CreateGroupScreen
+            └── SyncIssuesScreen
 ```
 
 ### Navigation Arguments
@@ -494,11 +544,15 @@ ROOT NavHost
 |-------|-----------|------------|
 | `group_detail/{groupId}` | `groupId: String` | `SavedStateHandle` |
 | `add_expense/{groupId}` | `groupId: String` | `SavedStateHandle` |
+| `add_expense/{groupId}/{expenseId}` | `groupId`, `expenseId` | `SavedStateHandle` |
+| `create_group` | None | — |
+| `sync_issues` | None | — |
 
 ### Backstack Rules
 
-- Login success → Clear backstack, go to Dashboard
+- Login success → Clear backstack, go to Groups
 - AddExpense success → Pop back to GroupDetail
+- CreateGroup success → Pop back to Groups
 - Logout → Clear everything, go to Login
 
 ---
