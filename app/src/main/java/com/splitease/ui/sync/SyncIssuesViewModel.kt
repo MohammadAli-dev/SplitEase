@@ -12,9 +12,11 @@ import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.local.entities.SyncStatus
 import com.splitease.data.repository.SyncRepository
+import com.splitease.data.sync.SyncConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -43,7 +45,8 @@ data class SyncIssueUiModel(
 data class SyncIssuesUiState(
     val issues: List<SyncIssueUiModel> = emptyList(),
     val isLoading: Boolean = true,
-    val pendingActionId: Int? = null
+    val pendingActionId: Int? = null,
+    val isSyncEnabled: Boolean = true
 )
 
 /**
@@ -63,16 +66,19 @@ class SyncIssuesViewModel @Inject constructor(
     private val _pendingActionId = MutableStateFlow<Int?>(null)
     private val _issues = MutableStateFlow<List<SyncIssueUiModel>>(emptyList())
     private val _isLoading = MutableStateFlow(true)
+    private val _isSyncEnabled = MutableStateFlow(true)
 
     val uiState: StateFlow<SyncIssuesUiState> = combine(
         _issues,
         _pendingActionId,
-        _isLoading
-    ) { issues, actionId, loading ->
+        _isLoading,
+        _isSyncEnabled
+    ) { issues, actionId, loading, syncEnabled ->
         SyncIssuesUiState(
             issues = issues,
             isLoading = loading,
-            pendingActionId = actionId
+            pendingActionId = actionId,
+            isSyncEnabled = syncEnabled
         )
     }.stateIn(
         scope = viewModelScope,
@@ -172,6 +178,21 @@ class SyncIssuesViewModel @Inject constructor(
             } finally {
                 _pendingActionId.value = null
             }
+        }
+    }
+
+    /**
+     * Trigger manual sync with debounce protection.
+     * Disables button for MANUAL_SYNC_DEBOUNCE_MS after trigger.
+     */
+    fun triggerManualSync() {
+        if (!_isSyncEnabled.value) return
+        
+        viewModelScope.launch {
+            _isSyncEnabled.value = false
+            syncRepository.triggerManualSync()
+            delay(SyncConstants.MANUAL_SYNC_DEBOUNCE_MS)
+            _isSyncEnabled.value = true
         }
     }
 }

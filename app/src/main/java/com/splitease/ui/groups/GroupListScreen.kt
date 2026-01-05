@@ -21,10 +21,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.splitease.R
+import kotlinx.coroutines.launch as coroutineLaunch
 import androidx.lifecycle.ViewModel
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Group
@@ -38,42 +45,91 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.lifecycle.viewModelScope
 import com.splitease.ui.common.SyncStatusIcon
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.repository.SyncRepository
+import com.splitease.data.sync.SyncConstants
+import com.splitease.data.sync.SyncHealth
+import com.splitease.data.sync.SyncState
+import android.util.Log
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class GroupListViewModel @Inject constructor(
     groupDao: GroupDao,
-    syncDao: SyncDao,
-    syncRepository: SyncRepository
+    private val syncRepository: SyncRepository
 ) : ViewModel() {
 
-    // Derived sync state
-    private val failedSyncCount: Flow<Int> = syncRepository.failedOperations
-        .map { ops -> ops.count { it.failureType != SyncFailureType.AUTH } }
+    // Observe derived sync health
+    private val syncHealth: StateFlow<SyncHealth> = syncRepository.observeSyncHealth()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = SyncHealth(0, 0, null)
+        )
 
-    private val pendingSyncCount: Flow<Int> = syncDao.getPendingSyncCount()
+    // Derive SyncState from SyncHealth (FAILED > PAUSED > SYNCING > IDLE)
+    val syncState: StateFlow<SyncState> = syncHealth
+        .map { health -> deriveSyncState(health) }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = SyncState.IDLE
+        )
+
+    init {
+        // Telemetry: Log when PAUSED state first appears
+        viewModelScope.launch {
+            var previousState = SyncState.IDLE
+            syncState.collect { currentState ->
+                if (previousState != SyncState.PAUSED && currentState == SyncState.PAUSED) {
+                    val age = syncHealth.value.oldestPendingAgeMillis
+                    Log.w("SyncHealth", "Sync paused: oldest pending age = ${age}ms")
+                }
+                previousState = currentState
+            }
+        }
+    }
+
+    private fun deriveSyncState(health: SyncHealth): SyncState {
+        return when {
+            health.failedCount > 0 -> SyncState.FAILED
+            health.pendingCount > 0 && (health.oldestPendingAgeMillis ?: 0) > SyncConstants.PAUSED_THRESHOLD_MS -> SyncState.PAUSED
+            health.pendingCount > 0 -> SyncState.SYNCING
+            else -> SyncState.IDLE
+        }
+    }
+
+    fun triggerManualSync() {
+        syncRepository.triggerManualSync()
+    }
 
     // Combined UI state
     val uiState: StateFlow<GroupListUiState> = combine(
         groupDao.getAllGroups(),
-        failedSyncCount,
-        pendingSyncCount
-    ) { groups, failedCount, pendingCount ->
+        syncHealth
+    ) { groups, health ->
         GroupListUiState(
             groups = groups,
-            failedSyncCount = failedCount,
-            pendingSyncCount = pendingCount
+            failedSyncCount = health.failedCount,
+            pendingSyncCount = health.pendingCount,
+            syncState = deriveSyncState(health)
         )
     }.stateIn(
         scope = viewModelScope,
@@ -85,7 +141,8 @@ class GroupListViewModel @Inject constructor(
 data class GroupListUiState(
     val groups: List<Group> = emptyList(),
     val failedSyncCount: Int = 0,
-    val pendingSyncCount: Int = 0
+    val pendingSyncCount: Int = 0,
+    val syncState: SyncState = SyncState.IDLE
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -98,8 +155,13 @@ fun GroupListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val groups = uiState.groups
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val syncStartedMessage = stringResource(R.string.sync_started)
+    var showMenu by remember { mutableStateOf(false) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("SplitEase") },
@@ -109,6 +171,26 @@ fun GroupListScreen(
                         pendingSyncCount = uiState.pendingSyncCount,
                         onNavigateToSyncIssues = onNavigateToSyncIssues
                     )
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Sync Now") },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.triggerManualSync()
+                                    scope.coroutineLaunch {
+                                        snackbarHostState.showSnackbar(syncStartedMessage)
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             )
         },

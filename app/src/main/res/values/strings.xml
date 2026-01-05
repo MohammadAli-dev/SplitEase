@@ -5,4 +5,10 @@
     <string name="deleted_expense">Deleted expense</string>
     <string name="deleted_group">Deleted group</string>
     <string name="deleted_settlement">Deleted settlement</string>
+    
+    <!-- Sync state strings (used for tooltip, contentDescription, snackbar) -->
+    <string name="sync_state_paused">Sync paused — waiting for network</string>
+    <string name="sync_state_failed">Some changes couldn\'t be synced</string>
+    <string name="sync_state_syncing">Syncing changes…</string>
+    <string name="sync_started">Sync started</string>
 </resources>

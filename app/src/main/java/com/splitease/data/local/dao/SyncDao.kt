@@ -68,4 +68,17 @@ interface SyncDao {
      */
     @Query("SELECT COUNT(*) FROM sync_operations WHERE status = 'PENDING'")
     fun getPendingSyncCount(): Flow<Int>
+
+    /**
+     * Get total count of failed sync operations (for SyncHealth).
+     */
+    @Query("SELECT COUNT(*) FROM sync_operations WHERE status = 'FAILED'")
+    fun getFailedCount(): Flow<Int>
+
+    /**
+     * Get the oldest pending operation timestamp (for age calculation).
+     * Returns null if no pending operations exist.
+     */
+    @Query("SELECT MIN(timestamp) FROM sync_operations WHERE status = 'PENDING'")
+    fun getOldestPendingTimestamp(): Flow<Long?>
 }
