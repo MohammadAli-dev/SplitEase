@@ -17,7 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
@@ -155,7 +155,7 @@ fun AddExpenseScreen(
                     onClick = { viewModel.togglePersonalExpense(false) },
                     label = { Text("Group Split") },
                     leadingIcon = { 
-                         if (!uiState.isPersonalExpense) Icon(Icons.Default.Group, null) 
+                         if (!uiState.isPersonalExpense) Icon(Icons.Default.Home, null) 
                     }
                 )
                 FilterChip(

@@ -7,10 +7,10 @@ import java.math.BigDecimal
  */
 object GroupExitValidator {
 
-    /**
+
      /**
       * Checks if a user is eligible to leave a group.
-      * Rule: User must have a balance close to 0 (within safe floating point epsilon).     * Rule: User must have a balance close to 0 (within safe floating point epsilon).
+      * Rule: User must have a balance close to 0 (within safe floating point epsilon).
      *
      * @param userId The ID of the user trying to leave.
      * @param balances The map of userId -> Balance (BigDecimal).
