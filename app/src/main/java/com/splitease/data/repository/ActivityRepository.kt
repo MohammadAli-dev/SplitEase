@@ -60,12 +60,14 @@ constructor(
 
             // Group creation timestamp heuristic:
             // Group entity doesn't store creation time.
-            // Use earliest expense time as a proxy, or 0 if empty.
+            // Use earliest activity (expense or settlement) time as a proxy, or 0 if empty.
             // This preserves the invariant: Activity feed is strict-ish chronological.
             val groupItems =
                 groups.map { group ->
-                    val earliestExpense = expenses.filter { it.groupId == group.id }.minByOrNull { it.date }
-                    val timestamp = earliestExpense?.date?.time ?: 0L 
+                    val earliestExpenseDate = expenses.filter { it.groupId == group.id }.minByOrNull { it.date }?.date?.time
+                    val earliestSettlementDate = settlements.filter { it.groupId == group.id }.minByOrNull { it.date }?.date?.time
+                    
+                    val timestamp = listOfNotNull(earliestExpenseDate, earliestSettlementDate).minOrNull() ?: 0L
                     // Note: If timestamp is 0, it appears at bottom of feed.
 
                     ActivityItem.GroupCreated(

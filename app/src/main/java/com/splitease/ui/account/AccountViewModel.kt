@@ -22,7 +22,10 @@ class AccountViewModel @Inject constructor(
     private val dataStore: DataStore<Preferences>
 ) : ViewModel() {
 
-    private val FRIEND_SUGGESTION_KEY = booleanPreferencesKey("friend_suggestion_enabled")
+
+    companion object {
+        private val FRIEND_SUGGESTION_KEY = booleanPreferencesKey("friend_suggestion_enabled")
+    }
 
     val currentUser: Flow<User?> = authRepository.getCurrentUser()
 
