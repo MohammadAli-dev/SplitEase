@@ -1,5 +1,7 @@
 package com.splitease.di
 
+import com.splitease.data.repository.ActivityRepository
+import com.splitease.data.repository.ActivityRepositoryImpl
 import com.splitease.data.repository.AuthRepository
 import com.splitease.data.repository.AuthRepositoryImpl
 import com.splitease.data.repository.ExpenseRepository
@@ -22,37 +24,35 @@ abstract class DataModule {
 
     @Binds
     @Singleton
-    abstract fun bindAuthRepository(
-        authRepositoryImpl: AuthRepositoryImpl
-    ): AuthRepository
+    abstract fun bindAuthRepository(authRepositoryImpl: AuthRepositoryImpl): AuthRepository
 
     @Binds
     @Singleton
     abstract fun bindExpenseRepository(
-        expenseRepositoryImpl: ExpenseRepositoryImpl
+            expenseRepositoryImpl: ExpenseRepositoryImpl
     ): ExpenseRepository
 
     @Binds
     @Singleton
-    abstract fun bindGroupRepository(
-        groupRepositoryImpl: GroupRepositoryImpl
-    ): GroupRepository
+    abstract fun bindGroupRepository(groupRepositoryImpl: GroupRepositoryImpl): GroupRepository
 
     @Binds
     @Singleton
-    abstract fun bindSyncRepository(
-        syncRepositoryImpl: SyncRepositoryImpl
-    ): SyncRepository
+    abstract fun bindSyncRepository(syncRepositoryImpl: SyncRepositoryImpl): SyncRepository
 
     @Binds
     @Singleton
-    abstract fun bindSyncWriteService(
-        syncWriteServiceImpl: SyncWriteServiceImpl
-    ): SyncWriteService
+    abstract fun bindSyncWriteService(syncWriteServiceImpl: SyncWriteServiceImpl): SyncWriteService
 
     @Binds
     @Singleton
     abstract fun bindSettlementRepository(
-        settlementRepositoryImpl: com.splitease.data.repository.SettlementRepositoryImpl
+            settlementRepositoryImpl: com.splitease.data.repository.SettlementRepositoryImpl
     ): com.splitease.data.repository.SettlementRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindActivityRepository(
+            activityRepositoryImpl: ActivityRepositoryImpl
+    ): ActivityRepository
 }
