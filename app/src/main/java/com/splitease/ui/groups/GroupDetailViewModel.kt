@@ -58,6 +58,7 @@ sealed interface GroupDetailUiState {
         val groupFailedSyncCount: Int,
         val groupSyncState: SyncState = SyncState.IDLE,
         val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED,
+        val canLeaveGroup: Boolean = false, // Derived, checks balances
         val currentUserId: String = "" // Default empty, populated by VM
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
@@ -65,6 +66,7 @@ sealed interface GroupDetailUiState {
 
 sealed interface GroupDetailEvent {
     data class ShowSnackbar(val message: String) : GroupDetailEvent
+    data class ShowLeaveGroupDialog(val canLeave: Boolean) : GroupDetailEvent
 }
 
 @HiltViewModel
@@ -86,6 +88,9 @@ class GroupDetailViewModel @Inject constructor(
 
     private val _eventChannel = Channel<GroupDetailEvent>()
     val events = _eventChannel.receiveAsFlow()
+
+    // ... (rest of file) ...
+
 
     /**
      * Settlement mode is UI-only and not persisted.
@@ -235,7 +240,12 @@ class GroupDetailViewModel @Inject constructor(
                 groupFailedSyncCount = groupFailedSyncCount,
                 groupSyncState = groupSyncState,
                 settlementMode = settlementMode,
-                currentUserId = currentUserId
+
+                currentUserId = currentUserId,
+                canLeaveGroup = com.splitease.domain.GroupExitValidator.canLeaveGroup(
+                    userId = currentUserId,
+                    balances = balances
+                )
             )
         }
     }.stateIn(
@@ -292,6 +302,21 @@ class GroupDetailViewModel @Inject constructor(
                 _eventChannel.send(GroupDetailEvent.ShowSnackbar("Failed to record settlement"))
             } finally {
                 _executingSettlements.value = _executingSettlements.value - key
+            }
+        }
+    }
+
+
+    fun onLeaveGroupClicked() {
+        val state = uiState.value
+        if (state is GroupDetailUiState.Success) {
+            viewModelScope.launch {
+                if (state.canLeaveGroup) {
+                    Log.d("GroupExit", "Leave group allowed (simulation only)")
+                    _eventChannel.send(GroupDetailEvent.ShowLeaveGroupDialog(canLeave = true))
+                } else {
+                    _eventChannel.send(GroupDetailEvent.ShowLeaveGroupDialog(canLeave = false))
+                }
             }
         }
     }

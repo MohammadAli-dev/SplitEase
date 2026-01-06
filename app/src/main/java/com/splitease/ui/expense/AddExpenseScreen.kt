@@ -24,6 +24,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -144,6 +145,27 @@ fun AddExpenseScreen(
                     modifier = Modifier.fillMaxWidth()
             )
 
+            // Expense Type Toggle
+            Text("Expense Type", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !uiState.isPersonalExpense,
+                    onClick = { viewModel.togglePersonalExpense(false) },
+                    label = { Text("Group Split") },
+                    leadingIcon = { 
+                         if (!uiState.isPersonalExpense) Icon(Icons.Default.DateRange, null) 
+                    }
+                )
+                FilterChip(
+                    selected = uiState.isPersonalExpense,
+                    onClick = { viewModel.togglePersonalExpense(true) },
+                    label = { Text("Personal") },
+                    leadingIcon = {
+                        if (uiState.isPersonalExpense) Icon(Icons.Default.DateRange, null) 
+                    }
+                )
+            }
+
             // Split Type Selector
 
             // Expense Date Picker
@@ -181,73 +203,77 @@ fun AddExpenseScreen(
                 ) { DatePicker(state = datePickerState) }
             }
 
-            // Split Type Selector
-            Text("Split Type", style = MaterialTheme.typography.labelMedium)
-            Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SplitType.values().forEach { type ->
-                    FilterChip(
-                            selected = uiState.splitType == type,
-                            onClick = { viewModel.updateSplitType(type) },
-                            label = { Text(type.name) }
-                    )
+            if (!uiState.isPersonalExpense) {
+                // Split Type Selector
+                Text("Split Type", style = MaterialTheme.typography.labelMedium)
+                Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SplitType.values().forEach { type ->
+                        FilterChip(
+                                selected = uiState.splitType == type,
+                                onClick = { viewModel.updateSplitType(type) },
+                                label = { Text(type.name) }
+                        )
+                    }
                 }
-            }
 
-            // Participant Selection
-            Text("Participants", style = MaterialTheme.typography.labelMedium)
-            Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                uiState.groupMembers.forEach { userId ->
-                    FilterChip(
-                            selected = userId in uiState.selectedParticipants,
-                            onClick = { viewModel.toggleParticipant(userId) },
-                            label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
-                    )
+                // Participant Selection
+                Text("Participants", style = MaterialTheme.typography.labelMedium)
+                Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    uiState.groupMembers.forEach { userId ->
+                        FilterChip(
+                                selected = userId in uiState.selectedParticipants,
+                                onClick = { viewModel.toggleParticipant(userId) },
+                                label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
+                        )
+                    }
                 }
             }
 
             // Split Input Section
-            when (uiState.splitType) {
-                SplitType.EQUAL -> {
-                    SplitPreviewSection(
-                            splitPreview = uiState.splitPreview,
-                            userNames = uiState.userNames
-                    )
-                }
-                SplitType.EXACT -> {
-                    ExactAmountInputSection(
-                            participants = uiState.selectedParticipants,
-                            amounts = uiState.exactAmounts,
-                            userNames = uiState.userNames,
-                            onAmountChange = { userId, amount ->
-                                viewModel.updateExactAmount(userId, amount)
-                            }
-                    )
-                }
-                SplitType.PERCENTAGE -> {
-                    PercentageInputSection(
-                            participants = uiState.selectedParticipants,
-                            percentages = uiState.percentages,
-                            userNames = uiState.userNames,
-                            onPercentageChange = { userId, pct ->
-                                viewModel.updatePercentage(userId, pct)
-                            }
-                    )
-                }
-                SplitType.SHARES -> {
-                    SharesInputSection(
-                            participants = uiState.selectedParticipants,
-                            shares = uiState.shares,
-                            userNames = uiState.userNames,
-                            onSharesChange = { userId, count ->
-                                viewModel.updateShares(userId, count)
-                            }
-                    )
+            if (!uiState.isPersonalExpense) {
+                when (uiState.splitType) {
+                    SplitType.EQUAL -> {
+                        SplitPreviewSection(
+                                splitPreview = uiState.splitPreview,
+                                userNames = uiState.userNames
+                        )
+                    }
+                    SplitType.EXACT -> {
+                        ExactAmountInputSection(
+                                participants = uiState.selectedParticipants,
+                                amounts = uiState.exactAmounts,
+                                userNames = uiState.userNames,
+                                onAmountChange = { userId, amount ->
+                                    viewModel.updateExactAmount(userId, amount)
+                                }
+                        )
+                    }
+                    SplitType.PERCENTAGE -> {
+                        PercentageInputSection(
+                                participants = uiState.selectedParticipants,
+                                percentages = uiState.percentages,
+                                userNames = uiState.userNames,
+                                onPercentageChange = { userId, pct ->
+                                    viewModel.updatePercentage(userId, pct)
+                                }
+                        )
+                    }
+                    SplitType.SHARES -> {
+                        SharesInputSection(
+                                participants = uiState.selectedParticipants,
+                                shares = uiState.shares,
+                                userNames = uiState.userNames,
+                                onSharesChange = { userId, count ->
+                                    viewModel.updateShares(userId, count)
+                                }
+                        )
+                    }
                 }
             }
 

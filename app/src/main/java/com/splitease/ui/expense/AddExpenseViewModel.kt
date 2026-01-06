@@ -10,6 +10,7 @@ import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.repository.ExpenseRepository
 import com.splitease.domain.SplitValidationResult
 import com.splitease.domain.SplitValidator
+import com.splitease.domain.PersonalGroupConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -67,7 +68,8 @@ data class AddExpenseUiState(
         val isEditMode: Boolean = false,
         /** Logical date of expense, normalized to start-of-day */
         val expenseDate: Long = normalizeToStartOfDay(System.currentTimeMillis()),
-        val createdByUserId: String? = null
+        val createdByUserId: String? = null,
+        val isPersonalExpense: Boolean = false
 )
 
 @HiltViewModel
@@ -135,7 +137,12 @@ constructor(
                     userNames = userNamesMap,
                     shares = sortedMemberIds.associateWith { 1 } // Default 1 share each
                 )}
-                recalculateSplits()
+                // Re-apply personal mode side-effects if active
+                if (_uiState.value.isPersonalExpense) {
+                    togglePersonalExpense(true)
+                } else {
+                    recalculateSplits()
+                }
             }
         }
     }
@@ -148,6 +155,33 @@ constructor(
                 _uiState.update { it.copy(payerId = currentUserId) }
             }
             // If null, leave payerId as default (empty string)
+        }
+    }
+
+    fun togglePersonalExpense(isPersonal: Boolean) {
+        viewModelScope.launch {
+            val currentUserId = userContext.userId.firstOrNull() ?: return@launch
+            
+            _uiState.update { state -> 
+                if (isPersonal) {
+                     // Switch to personal: set virtual IDs and 100% split to self
+                    state.copy(
+                        isPersonalExpense = true,
+                        payerId = currentUserId,
+                        selectedParticipants = listOf(currentUserId),
+                        splitType = SplitType.EQUAL, // Force simple split
+                        validationResult = SplitValidationResult.Valid
+                    )
+                } else {
+                    // Revert to group: restore group members
+                    state.copy(
+                        isPersonalExpense = false,
+                        selectedParticipants = state.groupMembers,
+                        splitType = SplitType.EQUAL
+                    )
+                }
+            }
+            recalculateSplits()
         }
     }
 
@@ -375,7 +409,7 @@ constructor(
                 val expense =
                         Expense(
                                 id = finalExpenseId,
-                                groupId = groupId,
+                                groupId = if (state.isPersonalExpense) PersonalGroupConstants.PERSONAL_GROUP_ID else groupId,
                                 title = state.title,
                                 amount = amount,
                                 currency = "INR",
