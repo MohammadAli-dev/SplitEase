@@ -17,24 +17,22 @@ interface SettlementDao {
     @Query("SELECT * FROM settlements WHERE groupId = :groupId ORDER BY date DESC")
     fun getSettlementsForGroup(groupId: String): Flow<List<Settlement>>
 
+    @Query("SELECT * FROM settlements ORDER BY date DESC")
+    fun getAllSettlements(): Flow<List<Settlement>>
+
     /**
-     * Checks if a settlement exists by ID.
-     * **For diagnostics/tests only — do NOT use as insert guard.**
-     * Database REPLACE strategy enforces idempotency.
+     * Checks if a settlement exists by ID. **For diagnostics/tests only — do NOT use as insert
+     * guard.** Database REPLACE strategy enforces idempotency.
      */
     @Query("SELECT EXISTS(SELECT 1 FROM settlements WHERE id = :id)")
     suspend fun existsById(id: String): Boolean
 
-    /**
-     * Delete a settlement by ID. Used for zombie elimination on failed INSERT sync.
-     */
-    @Query("DELETE FROM settlements WHERE id = :id")
-    suspend fun deleteSettlement(id: String)
+    /** Delete a settlement by ID. Used for zombie elimination on failed INSERT sync. */
+    @Query("DELETE FROM settlements WHERE id = :id") suspend fun deleteSettlement(id: String)
 
     /**
-     * Batch fetch settlement amounts by IDs.
-     * Returns List<IdValuePair> for efficient N+1 prevention.
-     * Note: Amount is stored as TEXT (BigDecimal.toPlainString()).
+     * Batch fetch settlement amounts by IDs. Returns List<IdValuePair> for efficient N+1
+     * prevention. Note: Amount is stored as TEXT (BigDecimal.toPlainString()).
      */
     @Query("SELECT id, amount AS value FROM settlements WHERE id IN (:ids)")
     suspend fun getAmountsByIds(ids: List<String>): List<IdValuePair>
