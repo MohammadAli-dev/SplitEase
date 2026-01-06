@@ -11,13 +11,13 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.splitease.di.ApplicationScope
 import com.splitease.worker.SyncWorker
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 @HiltAndroidApp
@@ -27,7 +27,7 @@ class SplitEaseApp : Application(), Configuration.Provider {
 
     @Inject lateinit var appStartupInitializer: com.splitease.di.AppStartupInitializer
 
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    @Inject @ApplicationScope lateinit var applicationScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
@@ -38,10 +38,12 @@ class SplitEaseApp : Application(), Configuration.Provider {
         applicationScope.launch {
             try {
                 appStartupInitializer.init()
+            } catch (e: CancellationException) {
+                throw e // Never swallow coroutine cancellation
             } catch (e: Exception) {
                 // Log the error for debugging/telemetry; identity registration failed but
                 // we continue with sync scheduling for graceful degradation
-                Log.e(TAG, "Failed to initialize identity: ${e.message}", e)
+                Log.e(TAG, "Failed to initialize identity", e)
             }
             // Schedule syncs regardless - they may partially work even if identity bootstrap failed
             schedulePeriodicSync()
