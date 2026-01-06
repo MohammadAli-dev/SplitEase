@@ -219,3 +219,19 @@ This section defines strict guardrails for resolving data divergence in UPDATE f
 |-------------|-----------|
 | **Keep Server** | Local state == Server state. Sync op is removed. User accepts loss of local offline edits. |
 | **Keep Local** | Local state is preserved. Sync op is re-queued at its original valid position (by retaining ID/timestamp) for retry. |
+
+---
+
+## Identity & Ownership
+
+### Legacy User ID
+> **The `LEGACY_USER_ID` ("legacy_user") constant MUST NEVER be generated at runtime.**
+
+It exists *strictly and exclusively* for:
+1.  **Migration Backfill**: Populating ownership fields for pre-identity entities (Migration 5->6).
+2.  **Default Values**: Serving as a fallback when deserializing legacy payloads.
+
+Runtime logic must **ALWAYS** use the `LocalUserManager` UUID for new entities.
+
+### Attribution Graceful Handling
+UI components should gracefully handle `LEGACY_USER_ID` (or nulls from legacy payloads) by hiding attribution or displaying a generic "Added before identity enabled" state, rather than showing raw ID strings.

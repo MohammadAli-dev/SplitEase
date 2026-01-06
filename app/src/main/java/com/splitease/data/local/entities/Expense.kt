@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import java.math.BigDecimal
 import java.util.Date
+import com.splitease.data.identity.IdentityConstants
 
 @Entity(tableName = "expenses")
 data class Expense(
@@ -26,5 +27,7 @@ data class Expense(
      * - createdAt (date) = when the record was created in the app
      * - expenseDate = when the expense actually happened
      */
-    val expenseDate: Long = System.currentTimeMillis()
+    val expenseDate: Long = System.currentTimeMillis(),
+    val createdByUserId: String = IdentityConstants.LEGACY_USER_ID,
+    val lastModifiedByUserId: String = IdentityConstants.LEGACY_USER_ID
 )

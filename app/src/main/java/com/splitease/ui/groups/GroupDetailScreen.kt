@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.User
+import com.splitease.data.identity.IdentityConstants
 import com.splitease.domain.SettlementMode
 import com.splitease.domain.SettlementSuggestion
 import java.math.BigDecimal
@@ -187,7 +188,7 @@ fun GroupDetailScreen(
 
                         // Group Metadata
                         item {
-                            val creator = state.members.find { it.id == state.group.createdBy }
+                            val creator = state.members.find { it.id == state.group.createdByUserId }
                             Text(
                                 text = "Created by ${creator?.name ?: "Unknown"}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -340,10 +341,18 @@ fun GroupDetailScreen(
                         } else {
                             items(state.expenses) { expense ->
                                 val isPending = expense.id in state.pendingExpenseIds
+                                val creator = state.members.find { it.id == expense.createdByUserId }
+                                val showAttribution = expense.createdByUserId != IdentityConstants.LEGACY_USER_ID
+                                // TODO: In the future, gracefully handle "Added before identity was enabled"
+                                // instead of just hiding (e.g., specific string resource).
+                                val attribution = if (expense.createdByUserId == state.currentUserId) "You" else creator?.name ?: "Unknown"
+                                
                                 ExpenseItem(
                                     expense = expense,
                                     isPending = isPending,
-                                    onClick = { onNavigateToEditExpense(state.group.id, expense.id) }
+                                    onClick = { onNavigateToEditExpense(state.group.id, expense.id) },
+                                    showAttribution = showAttribution,
+                                    attributionText = "Added by $attribution"
                                 )
                             }
                         }
@@ -387,10 +396,13 @@ private fun MemberAvatar(user: User) {
     }
 }
 
+
 @Composable
 fun ExpenseItem(
     expense: Expense, 
     isPending: Boolean = false,
+    showAttribution: Boolean = false,
+    attributionText: String = "",
     onClick: () -> Unit
 ) {
     val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
@@ -427,8 +439,16 @@ fun ExpenseItem(
                 Text(
                     text = dateFormat.format(expense.date),
                     style = MaterialTheme.typography.bodySmall,
+
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (showAttribution) {
+                    Text(
+                        text = attributionText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                }
             }
             Text(
                 text = "${expense.currency} ${expense.amount}",

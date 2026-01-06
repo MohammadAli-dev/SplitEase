@@ -58,7 +58,7 @@ fun AccountScreen(viewModel: AccountViewModel = hiltViewModel()) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = user.email,
+                        text = user.email ?: "Not set",
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
