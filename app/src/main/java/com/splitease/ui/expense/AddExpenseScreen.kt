@@ -187,7 +187,7 @@ fun AddExpenseScreen(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SplitType.entries.forEach { type ->
+                SplitType.values().forEach { type ->
                     FilterChip(
                             selected = uiState.splitType == type,
                             onClick = { viewModel.updateSplitType(type) },
