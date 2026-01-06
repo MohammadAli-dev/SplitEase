@@ -273,7 +273,7 @@ class GroupDetailViewModel @Inject constructor(
                 // Idiomatic: firstOrNull() with early return if identity unavailable
                 val creatorUserId = userContext.userId.firstOrNull()
                 if (creatorUserId == null) {
-                    _eventChannel.send(GroupDetailEvent.ShowSnackbar("Failed to record settlement"))
+                    _eventChannel.send(GroupDetailEvent.ShowSnackbar("Unable to verify user identity"))
                     return@launch
                 }
                 

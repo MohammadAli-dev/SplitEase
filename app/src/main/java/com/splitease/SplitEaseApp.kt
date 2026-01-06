@@ -21,6 +21,9 @@ class SplitEaseApp : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
+    @Inject
+    lateinit var appStartupInitializer: com.splitease.di.AppStartupInitializer
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -28,6 +31,7 @@ class SplitEaseApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        appStartupInitializer.init()
         schedulePeriodicSync()
         triggerOneTimeSync()
     }

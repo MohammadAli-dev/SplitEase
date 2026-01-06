@@ -1,4 +1,5 @@
 package com.splitease.ui.expense
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +16,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
@@ -56,9 +56,9 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseScreen(
-    onNavigateBack: () -> Unit,
-    onExpenseSaved: () -> Unit,
-    viewModel: AddExpenseViewModel = hiltViewModel()
+        onNavigateBack: () -> Unit,
+        onExpenseSaved: () -> Unit,
+        viewModel: AddExpenseViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -74,70 +74,74 @@ fun AddExpenseScreen(
 
     if (showDeleteDialog) {
         AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Expense?") },
-            text = { Text("This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        viewModel.deleteExpense()
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete")
+                onDismissRequest = { showDeleteDialog = false },
+                title = { Text("Delete Expense?") },
+                text = { Text("This action cannot be undone.") },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                showDeleteDialog = false
+                                viewModel.deleteExpense()
+                            },
+                            colors =
+                                    ButtonDefaults.textButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                    )
+                    ) { Text("Delete") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
-            }
         )
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(text = if (uiState.isEditMode) "Edit Expense" else "Add Expense") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (uiState.isEditMode) {
-                        IconButton(onClick = { showDeleteDialog = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+            topBar = {
+                TopAppBar(
+                        title = {
+                            Text(text = if (uiState.isEditMode) "Edit Expense" else "Add Expense")
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onNavigateBack) {
+                                Icon(
+                                        Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back"
+                                )
+                            }
+                        },
+                        actions = {
+                            if (uiState.isEditMode) {
+                                IconButton(onClick = { showDeleteDialog = true }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete")
+                                }
+                            }
                         }
-                    }
-                }
-            )
-        }
+                )
+            }
     ) { innerPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier =
+                        Modifier.fillMaxSize()
+                                .padding(innerPadding)
+                                .padding(horizontal = 16.dp)
+                                .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Title
             OutlinedTextField(
-                value = uiState.title,
-                onValueChange = { viewModel.updateTitle(it) },
-                label = { Text("Title") },
-                modifier = Modifier.fillMaxWidth()
+                    value = uiState.title,
+                    onValueChange = { viewModel.updateTitle(it) },
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth()
             )
 
             // Amount
             OutlinedTextField(
-                value = uiState.amountText,
-                onValueChange = { viewModel.updateAmount(it) },
-                label = { Text("Amount (₹)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth()
+                    value = uiState.amountText,
+                    onValueChange = { viewModel.updateAmount(it) },
+                    label = { Text("Amount (₹)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
             )
 
             // Split Type Selector
@@ -145,58 +149,49 @@ fun AddExpenseScreen(
             // Expense Date Picker
             Text("Expense Date", style = MaterialTheme.typography.labelMedium)
             OutlinedTextField(
-                value = dateFormatter.format(Date(uiState.expenseDate)),
-                onValueChange = { },
-                readOnly = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showDatePicker = true },
-                trailingIcon = {
-                    IconButton(onClick = { showDatePicker = true }) {
-                        Icon(Icons.Default.DateRange, contentDescription = "Select Date")
+                    value = dateFormatter.format(Date(uiState.expenseDate)),
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true },
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Select Date")
+                        }
                     }
-                }
             )
 
             if (showDatePicker) {
-                val datePickerState = rememberDatePickerState(
-                    initialSelectedDateMillis = uiState.expenseDate
-                )
+                val datePickerState =
+                        rememberDatePickerState(initialSelectedDateMillis = uiState.expenseDate)
                 DatePickerDialog(
-                    onDismissRequest = { showDatePicker = false },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                datePickerState.selectedDateMillis?.let {
-                                    viewModel.updateExpenseDate(it)
-                                }
-                                showDatePicker = false
-                            }
-                        ) {
-                            Text("OK")
+                        onDismissRequest = { showDatePicker = false },
+                        confirmButton = {
+                            TextButton(
+                                    onClick = {
+                                        datePickerState.selectedDateMillis?.let {
+                                            viewModel.updateExpenseDate(it)
+                                        }
+                                        showDatePicker = false
+                                    }
+                            ) { Text("OK") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
                         }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showDatePicker = false }) {
-                            Text("Cancel")
-                        }
-                    }
-                ) {
-                    DatePicker(state = datePickerState)
-                }
+                ) { DatePicker(state = datePickerState) }
             }
 
             // Split Type Selector
             Text("Split Type", style = MaterialTheme.typography.labelMedium)
             Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SplitType.values().forEach { type ->
+                SplitType.entries.forEach { type ->
                     FilterChip(
-                        selected = uiState.splitType == type,
-                        onClick = { viewModel.updateSplitType(type) },
-                        label = { Text(type.name) }
+                            selected = uiState.splitType == type,
+                            onClick = { viewModel.updateSplitType(type) },
+                            label = { Text(type.name) }
                     )
                 }
             }
@@ -204,14 +199,14 @@ fun AddExpenseScreen(
             // Participant Selection
             Text("Participants", style = MaterialTheme.typography.labelMedium)
             Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 uiState.groupMembers.forEach { userId ->
                     FilterChip(
-                        selected = userId in uiState.selectedParticipants,
-                        onClick = { viewModel.toggleParticipant(userId) },
-                        label = { Text("User ${userId.take(4)}") }
+                            selected = userId in uiState.selectedParticipants,
+                            onClick = { viewModel.toggleParticipant(userId) },
+                            label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
                     )
                 }
             }
@@ -219,27 +214,39 @@ fun AddExpenseScreen(
             // Split Input Section
             when (uiState.splitType) {
                 SplitType.EQUAL -> {
-                    SplitPreviewSection(uiState.splitPreview)
+                    SplitPreviewSection(
+                            splitPreview = uiState.splitPreview,
+                            userNames = uiState.userNames
+                    )
                 }
                 SplitType.EXACT -> {
                     ExactAmountInputSection(
-                        participants = uiState.selectedParticipants,
-                        amounts = uiState.exactAmounts,
-                        onAmountChange = { userId, amount -> viewModel.updateExactAmount(userId, amount) }
+                            participants = uiState.selectedParticipants,
+                            amounts = uiState.exactAmounts,
+                            userNames = uiState.userNames,
+                            onAmountChange = { userId, amount ->
+                                viewModel.updateExactAmount(userId, amount)
+                            }
                     )
                 }
                 SplitType.PERCENTAGE -> {
                     PercentageInputSection(
-                        participants = uiState.selectedParticipants,
-                        percentages = uiState.percentages,
-                        onPercentageChange = { userId, pct -> viewModel.updatePercentage(userId, pct) }
+                            participants = uiState.selectedParticipants,
+                            percentages = uiState.percentages,
+                            userNames = uiState.userNames,
+                            onPercentageChange = { userId, pct ->
+                                viewModel.updatePercentage(userId, pct)
+                            }
                     )
                 }
                 SplitType.SHARES -> {
                     SharesInputSection(
-                        participants = uiState.selectedParticipants,
-                        shares = uiState.shares,
-                        onSharesChange = { userId, count -> viewModel.updateShares(userId, count) }
+                            participants = uiState.selectedParticipants,
+                            shares = uiState.shares,
+                            userNames = uiState.userNames,
+                            onSharesChange = { userId, count ->
+                                viewModel.updateShares(userId, count)
+                            }
                     )
                 }
             }
@@ -247,24 +254,24 @@ fun AddExpenseScreen(
             // Split Preview (for non-EQUAL types)
             if (uiState.splitType != SplitType.EQUAL && uiState.splitPreview.isNotEmpty()) {
                 Text("Preview", style = MaterialTheme.typography.labelMedium)
-                SplitPreviewSection(uiState.splitPreview)
+                SplitPreviewSection(uiState.splitPreview, userNames = uiState.userNames)
             }
 
             // Validation feedback
             if (uiState.validationResult is SplitValidationResult.Invalid) {
                 Text(
-                    text = (uiState.validationResult as SplitValidationResult.Invalid).reason,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
+                        text = (uiState.validationResult as SplitValidationResult.Invalid).reason,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
                 )
             }
 
             // Error message
             uiState.errorMessage?.let { error ->
                 Text(
-                    text = error,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
                 )
             }
 
@@ -274,14 +281,13 @@ fun AddExpenseScreen(
                 CircularProgressIndicator()
             } else {
                 Button(
-                    onClick = { viewModel.saveExpense() },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = uiState.validationResult is SplitValidationResult.Valid &&
-                              uiState.title.isNotBlank() &&
-                              uiState.amountText.isNotBlank()
-                ) {
-                    Text(text = if (uiState.isEditMode) "Update Expense" else "Save Expense")
-                }
+                        onClick = { viewModel.saveExpense() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled =
+                                uiState.validationResult is SplitValidationResult.Valid &&
+                                        uiState.title.isNotBlank() &&
+                                        uiState.amountText.isNotBlank()
+                ) { Text(text = if (uiState.isEditMode) "Update Expense" else "Save Expense") }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -290,14 +296,20 @@ fun AddExpenseScreen(
 }
 
 @Composable
-private fun SplitPreviewSection(splitPreview: Map<String, BigDecimal>) {
+private fun SplitPreviewSection(
+        splitPreview: Map<String, BigDecimal>,
+        userNames: Map<String, String>
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         splitPreview.entries.forEach { (userId, amount) ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("User ${userId.take(4)}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                        userNames[userId] ?: "User ${userId.take(4)}",
+                        style = MaterialTheme.typography.bodyMedium
+                )
                 Text("₹$amount", style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -306,19 +318,20 @@ private fun SplitPreviewSection(splitPreview: Map<String, BigDecimal>) {
 
 @Composable
 private fun ExactAmountInputSection(
-    participants: List<String>,
-    amounts: Map<String, String>,
-    onAmountChange: (String, String) -> Unit
+        participants: List<String>,
+        amounts: Map<String, String>,
+        userNames: Map<String, String>,
+        onAmountChange: (String, String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         participants.forEach { userId ->
             OutlinedTextField(
-                value = amounts[userId] ?: "",
-                onValueChange = { onAmountChange(userId, it) },
-                label = { Text("User ${userId.take(4)}") },
-                suffix = { Text("₹") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth()
+                    value = amounts[userId] ?: "",
+                    onValueChange = { onAmountChange(userId, it) },
+                    label = { Text(userNames[userId] ?: "User ${userId.take(4)}") },
+                    suffix = { Text("₹") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -326,19 +339,20 @@ private fun ExactAmountInputSection(
 
 @Composable
 private fun PercentageInputSection(
-    participants: List<String>,
-    percentages: Map<String, String>,
-    onPercentageChange: (String, String) -> Unit
+        participants: List<String>,
+        percentages: Map<String, String>,
+        userNames: Map<String, String>,
+        onPercentageChange: (String, String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         participants.forEach { userId ->
             OutlinedTextField(
-                value = percentages[userId] ?: "",
-                onValueChange = { onPercentageChange(userId, it) },
-                label = { Text("User ${userId.take(4)}") },
-                suffix = { Text("%") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth()
+                    value = percentages[userId] ?: "",
+                    onValueChange = { onPercentageChange(userId, it) },
+                    label = { Text(userNames[userId] ?: "User ${userId.take(4)}") },
+                    suffix = { Text("%") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -346,33 +360,35 @@ private fun PercentageInputSection(
 
 @Composable
 private fun SharesInputSection(
-    participants: List<String>,
-    shares: Map<String, Int>,
-    onSharesChange: (String, Int) -> Unit
+        participants: List<String>,
+        shares: Map<String, Int>,
+        userNames: Map<String, String>,
+        onSharesChange: (String, Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         participants.forEach { userId ->
             val currentShares = shares[userId] ?: 1
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("User ${userId.take(4)}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                        userNames[userId] ?: "User ${userId.take(4)}",
+                        style = MaterialTheme.typography.bodyMedium
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = { onSharesChange(userId, (currentShares - 1).coerceAtLeast(1)) }
-                    ) {
-                        Text("-", style = MaterialTheme.typography.titleLarge)
-                    }
+                            onClick = {
+                                onSharesChange(userId, (currentShares - 1).coerceAtLeast(1))
+                            }
+                    ) { Text("-", style = MaterialTheme.typography.titleLarge) }
                     Text(
-                        text = currentShares.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.width(32.dp)
+                            text = currentShares.toString(),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.width(32.dp)
                     )
-                    IconButton(
-                        onClick = { onSharesChange(userId, currentShares + 1) }
-                    ) {
+                    IconButton(onClick = { onSharesChange(userId, currentShares + 1) }) {
                         Text("+", style = MaterialTheme.typography.titleLarge)
                     }
                 }

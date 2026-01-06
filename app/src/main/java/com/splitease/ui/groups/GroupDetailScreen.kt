@@ -188,7 +188,7 @@ fun GroupDetailScreen(
 
                         // Group Metadata
                         item {
-                            val creator = state.members.find { it.id == state.group.createdBy }
+                            val creator = state.members.find { it.id == state.group.createdByUserId }
                             Text(
                                 text = "Created by ${creator?.name ?: "Unknown"}",
                                 style = MaterialTheme.typography.bodySmall,
