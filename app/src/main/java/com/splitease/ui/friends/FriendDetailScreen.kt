@@ -36,7 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.splitease.data.repository.FriendTransactionItem
+import com.splitease.data.repository.FriendLedgerItem
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -79,7 +79,7 @@ fun FriendDetailScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Balance Header (Read-Only)
+            // Header with Friend info and Balance
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -109,30 +109,24 @@ fun FriendDetailScreen(
                         text = uiState.balanceDisplayText,
                         style = MaterialTheme.typography.bodyLarge,
                         color = when {
-                            uiState.balance > BigDecimal.ZERO -> Color(0xFF4CAF50) // Green
-                            uiState.balance < BigDecimal.ZERO -> Color(0xFFFF9800) // Orange
+                            uiState.balance.compareTo(BigDecimal.ZERO) > 0 -> Color(0xFF4CAF50) // Green
+                            uiState.balance.compareTo(BigDecimal.ZERO) < 0 -> Color(0xFFFF9800) // Orange
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                 }
             }
             
-            // Transactions List
             if (uiState.transactions.isEmpty()) {
-                // Empty State
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "No expenses with this person yet.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        "No transactions yet",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else {
                 Text(
@@ -145,7 +139,7 @@ fun FriendDetailScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(uiState.transactions) { transaction ->
-                        TransactionItem(transaction = transaction)
+                        TransactionItem(transaction)
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     }
                 }
@@ -155,7 +149,7 @@ fun FriendDetailScreen(
 }
 
 @Composable
-private fun TransactionItem(transaction: FriendTransactionItem) {
+private fun TransactionItem(transaction: FriendLedgerItem) {
     val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
     Row(
@@ -170,8 +164,8 @@ private fun TransactionItem(transaction: FriendTransactionItem) {
             modifier = Modifier.weight(1f)
         ) {
             val icon = when (transaction) {
-                is FriendTransactionItem.GroupExpense -> Icons.Default.Home
-                is FriendTransactionItem.DirectExpense -> Icons.Default.Person
+                is FriendLedgerItem.GroupExpense -> Icons.Default.Home
+                is FriendLedgerItem.DirectExpense -> Icons.Default.Person
             }
             Icon(
                 imageVector = icon,
@@ -180,22 +174,24 @@ private fun TransactionItem(transaction: FriendTransactionItem) {
                 modifier = Modifier.size(24.dp)
             )
             
-            Column(
-                modifier = Modifier.padding(start = 12.dp)
-            ) {
+            Column(modifier = Modifier.padding(start = 12.dp)) {
                 Text(
                     text = transaction.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium
                 )
+                
+                val subtitle = when (transaction) {
+                    is FriendLedgerItem.GroupExpense -> transaction.groupName
+                    is FriendLedgerItem.DirectExpense -> "Direct Expense"
+                }
+                
                 Text(
-                    text = when (transaction) {
-                        is FriendTransactionItem.GroupExpense -> transaction.groupName
-                        is FriendTransactionItem.DirectExpense -> "Non-group expense"
-                    },
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                
                 Text(
                     text = dateFormatter.format(Date(transaction.timestamp)),
                     style = MaterialTheme.typography.bodySmall,
@@ -207,7 +203,7 @@ private fun TransactionItem(transaction: FriendTransactionItem) {
         Text(
             text = "₹${transaction.amount}",
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
         )
     }
