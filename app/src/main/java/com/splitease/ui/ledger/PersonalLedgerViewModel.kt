@@ -1,4 +1,4 @@
-package com.splitease.ui.friends
+package com.splitease.ui.ledger
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -17,17 +17,26 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
 
-data class FriendDetailUiState(
+data class PersonalLedgerUiState(
     val friendId: String = "",
     val friendName: String = "",
     val balance: BigDecimal = BigDecimal.ZERO, // Positive = they owe you, Negative = you owe them
     val balanceDisplayText: String = "",
-    val transactions: List<FriendLedgerItem> = emptyList(),
+    val ledgerItems: List<FriendLedgerItem> = emptyList(),
     val isLoading: Boolean = true
 )
 
+/**
+ * ViewModel for Friend Ledger screen.
+ * 
+ * Displays ALL expenses between current user and selected friend:
+ * - Group expenses from shared groups
+ * - Direct (non-group) expenses
+ * 
+ * The ledger is read-only. Navigation to edit happens via EditExpenseScreen.
+ */
 @HiltViewModel
-class FriendDetailViewModel @Inject constructor(
+class PersonalLedgerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val friendTransactionsRepository: FriendTransactionsRepository,
     private val balanceSummaryRepository: BalanceSummaryRepository,
@@ -36,20 +45,20 @@ class FriendDetailViewModel @Inject constructor(
     
     private val friendId: String = savedStateHandle.get<String>("friendId") ?: ""
     
-    private val _uiState = MutableStateFlow(FriendDetailUiState(friendId = friendId))
-    val uiState: StateFlow<FriendDetailUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(PersonalLedgerUiState(friendId = friendId))
+    val uiState: StateFlow<PersonalLedgerUiState> = _uiState.asStateFlow()
     
     init {
-        loadFriendDetails()
+        loadLedger()
     }
     
-    private fun loadFriendDetails() {
+    private fun loadLedger() {
         viewModelScope.launch {
             combine(
                 userDao.getUser(friendId),
                 friendTransactionsRepository.getTransactionsForFriend(friendId),
                 balanceSummaryRepository.getDashboardSummary()
-            ) { friend, transactions, dashboardSummary ->
+            ) { friend, ledgerItems, dashboardSummary ->
                 // Find friend's balance from dashboard summary
                 val friendBalance = dashboardSummary.friendBalances.find { it.friendId == friendId }
                 val balance = friendBalance?.balance ?: BigDecimal.ZERO
@@ -60,12 +69,12 @@ class FriendDetailViewModel @Inject constructor(
                     else -> "settled up"
                 }
                 
-                FriendDetailUiState(
+                PersonalLedgerUiState(
                     friendId = friendId,
                     friendName = friend?.name ?: friendId.take(8),
                     balance = balance,
                     balanceDisplayText = balanceText,
-                    transactions = transactions,
+                    ledgerItems = ledgerItems,
                     isLoading = false
                 )
             }.collectLatest { state ->
@@ -74,3 +83,4 @@ class FriendDetailViewModel @Inject constructor(
         }
     }
 }
+

@@ -30,6 +30,7 @@ import com.splitease.ui.groups.GroupListScreen
 import com.splitease.ui.sync.ReconciliationScreen
 import com.splitease.ui.sync.SyncIssuesScreen
 import com.splitease.ui.friends.FriendDetailScreen
+import com.splitease.ui.ledger.PersonalLedgerScreen
 import androidx.navigation.NavType
 
 data class BottomNavItem(
@@ -93,7 +94,7 @@ fun MainScaffold() {
                         navController.navigate(Screen.CreateGroup.route)
                     },
                     onNavigateToFriendDetail = { friendId ->
-                        navController.navigate(Screen.FriendDetail.createRoute(friendId))
+                        navController.navigate(Screen.PersonalLedger.createRoute(friendId))
                     }
                 )
             }
@@ -190,6 +191,19 @@ fun MainScaffold() {
             ) {
                 FriendDetailScreen(
                     onNavigateBack = { navController.popBackStack() }
+                )
+            }
+            composable(
+                route = Screen.PersonalLedger.route,
+                arguments = listOf(androidx.navigation.navArgument("friendId") { 
+                    type = NavType.StringType 
+                })
+            ) {
+                PersonalLedgerScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToEditExpense = { groupId, expenseId ->
+                        navController.navigate(Screen.EditExpense.createRoute(groupId, expenseId))
+                    }
                 )
             }
         }
