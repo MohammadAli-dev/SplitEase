@@ -84,7 +84,14 @@ fun MainScaffold() {
             modifier = androidx.compose.ui.Modifier.padding(innerPadding)
         ) {
             composable(Screen.Dashboard.route) {
-                DashboardScreen()
+                DashboardScreen(
+                    onNavigateToAddExpense = { groupId ->
+                         navController.navigate(Screen.AddExpense.createRoute(groupId))
+                    },
+                    onNavigateToCreateGroup = {
+                        navController.navigate(Screen.CreateGroup.route)
+                    }
+                )
             }
             composable(Screen.Groups.route) {
                 GroupListScreen(

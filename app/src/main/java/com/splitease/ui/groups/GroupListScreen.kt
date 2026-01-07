@@ -249,6 +249,34 @@ fun GroupListScreen(
                             onClick = { onNavigateToGroupDetail(group.id) }
                         )
                     }
+                    
+                    // Virtual "Non-Group Expenses" entry
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { 
+                                    // Navigate to non-group expenses list
+                                    onNavigateToGroupDetail(com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID)
+                                },
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Non-Group Expenses",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Text(
+                                    text = "Personal IOUs without a group",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -313,6 +313,7 @@ class GroupDetailViewModel @Inject constructor(
             viewModelScope.launch {
                 if (state.canLeaveGroup) {
                     Log.d("GroupExit", "Leave group allowed (simulation only)")
+                    // TODO(Auth): Replace UI-only leave with actual group_members deletion
                     _eventChannel.send(GroupDetailEvent.ShowLeaveGroupDialog(canLeave = true))
                 } else {
                     _eventChannel.send(GroupDetailEvent.ShowLeaveGroupDialog(canLeave = false))

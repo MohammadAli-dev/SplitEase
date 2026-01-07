@@ -54,6 +54,9 @@ interface ExpenseDao {
     )
     fun getAllExpenseSplitsForGroup(groupId: String): Flow<List<ExpenseSplit>>
 
+    @Query("SELECT * FROM expense_splits")
+    fun getAllSplits(): Flow<List<ExpenseSplit>>
+
     @Transaction
     suspend fun insertExpenseWithSplits(expense: Expense, splits: List<ExpenseSplit>) {
         insertExpense(expense)

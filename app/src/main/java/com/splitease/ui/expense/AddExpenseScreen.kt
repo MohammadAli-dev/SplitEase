@@ -152,19 +152,26 @@ fun AddExpenseScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = !uiState.isPersonalExpense,
-                    onClick = { viewModel.togglePersonalExpense(false) },
-                    label = { Text("Group Split") },
+                    onClick = { viewModel.toggleDirectExpense(false) },
+                    label = { Text("Group Expense") },
                     leadingIcon = { 
                          if (!uiState.isPersonalExpense) Icon(Icons.Default.Home, null) 
                     }
                 )
                 FilterChip(
                     selected = uiState.isPersonalExpense,
-                    onClick = { viewModel.togglePersonalExpense(true) },
-                    label = { Text("Personal") },
+                    onClick = { viewModel.toggleDirectExpense(true) },
+                    label = { Text("Non-Group Expense") },
                     leadingIcon = {
                         if (uiState.isPersonalExpense) Icon(Icons.Default.Person, null) 
                     }
+                )
+            }
+            if (uiState.isPersonalExpense) {
+                Text(
+                    "Non-Group expenses are shared costs with people, without creating a group.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -205,23 +212,62 @@ fun AddExpenseScreen(
                 ) { DatePicker(state = datePickerState) }
             }
 
-            if (!uiState.isPersonalExpense) {
-                // Split Type Selector
-                Text("Split Type", style = MaterialTheme.typography.labelMedium)
+            // Split Type Selector (for group expenses) or always for direct expense splits
+            Text("Split Type", style = MaterialTheme.typography.labelMedium)
+            Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SplitType.values().forEach { type ->
+                    FilterChip(
+                            selected = uiState.splitType == type,
+                            onClick = { viewModel.updateSplitType(type) },
+                            label = { Text(type.name) }
+                    )
+                }
+            }
+
+            // Participant Selection
+            if (uiState.isPersonalExpense) {
+                // Non-Group expense: show "You" + all other users to select
+                Text("Select Participants", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "Choose people to split this expense with",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    SplitType.values().forEach { type ->
+                    // "You" chip - always selected, cannot be removed
+                    FilterChip(
+                            selected = true,
+                            onClick = { /* Cannot deselect self */ },
+                            label = { Text("You") },
+                            enabled = false // Visually indicate it's locked
+                    )
+                    
+                    // Other users - selectable
+                    uiState.groupMembers.forEach { userId ->
                         FilterChip(
-                                selected = uiState.splitType == type,
-                                onClick = { viewModel.updateSplitType(type) },
-                                label = { Text(type.name) }
+                                selected = userId in uiState.selectedParticipants,
+                                onClick = { viewModel.toggleParticipant(userId) },
+                                label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
                         )
                     }
                 }
-
-                // Participant Selection
+                
+                if (uiState.groupMembers.isEmpty()) {
+                    Text(
+                        "No other users found. Add users from a group first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                // Group expense: show group members
                 Text("Participants", style = MaterialTheme.typography.labelMedium)
                 Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -237,8 +283,8 @@ fun AddExpenseScreen(
                 }
             }
 
-            // Split Input Section
-            if (!uiState.isPersonalExpense) {
+            // Split Input Section - show for any expense with participants selected
+            if (uiState.selectedParticipants.isNotEmpty()) {
                 when (uiState.splitType) {
                     SplitType.EQUAL -> {
                         SplitPreviewSection(
