@@ -5,6 +5,7 @@ import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.domain.BalanceCalculator
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
 import java.math.BigDecimal
 import javax.inject.Inject
@@ -119,6 +120,16 @@ class BalanceSummaryRepository @Inject constructor(
             }
             
             DashboardSummary(totalOwed, totalOwing, friendBalances)
+        }
+    }
+
+    /**
+     * Single source of truth for a specific friend's balance.
+     * Reuses dashboard logic to ensure consistency.
+     */
+    fun getBalanceWithFriend(friendId: String): Flow<BigDecimal> {
+        return getDashboardSummary().map { summary ->
+            summary.friendBalances.find { it.friendId == friendId }?.balance ?: BigDecimal.ZERO
         }
     }
 }

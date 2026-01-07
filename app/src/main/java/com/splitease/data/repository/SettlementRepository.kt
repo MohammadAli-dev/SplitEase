@@ -4,8 +4,10 @@ import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Settlement
 import com.splitease.data.sync.SyncWriteService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.util.Date
 import java.util.UUID
 import javax.inject.Inject
@@ -13,13 +15,24 @@ import javax.inject.Singleton
 
 interface SettlementRepository {
     /**
-     * Executes a settlement between two users.
-     *
-     * - **Atomic**: Persists settlement and sync intent in one transaction.
-     * - **Offline-safe**: Works without network.
-     * - **Idempotent**: Sync payload includes unique ID for backend deduping.
-     *
-     * @throws IllegalArgumentException if fromUserId == toUserId
+     * Creates a new settlement (global, not group-specific).
+     * @param fromUserId The user who paid.
+     * @param toUserId The user who received.
+     * @param amount The amount settled.
+     */
+    suspend fun createSettlement(
+        fromUserId: String,
+        toUserId: String,
+        amount: BigDecimal
+    )
+
+    /**
+     * Observes all settlements between two users (in either direction).
+     */
+    fun observeSettlementsBetween(userA: String, userB: String): Flow<List<Settlement>>
+
+    /**
+     * Low-level execution of a settlement. Kept for flexibility if group-specific settlements are needed later.
      */
     suspend fun executeSettlement(
         groupId: String,
@@ -35,6 +48,26 @@ class SettlementRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService
 ) : SettlementRepository {
+
+    override suspend fun createSettlement(
+        fromUserId: String,
+        toUserId: String,
+        amount: BigDecimal
+    ) {
+        // Payer is the creator implicitly for now (in absence of Auth Context here)
+        // Global settlements use empty string for groupId
+        executeSettlement(
+            groupId = "",
+            fromUserId = fromUserId,
+            toUserId = toUserId,
+            amount = amount,
+            creatorUserId = fromUserId
+        )
+    }
+
+    override fun observeSettlementsBetween(userA: String, userB: String): Flow<List<Settlement>> {
+        return appDatabase.settlementDao().observeSettlementsBetween(userA, userB)
+    }
 
     override suspend fun executeSettlement(
         groupId: String,
@@ -58,7 +91,7 @@ class SettlementRepositoryImpl @Inject constructor(
             groupId = groupId,
             fromUserId = fromUserId,
             toUserId = toUserId,
-            amount = amount,
+            amount = amount.setScale(2, RoundingMode.HALF_UP),
             date = Date(),
             createdByUserId = creatorUserId,
             lastModifiedByUserId = creatorUserId

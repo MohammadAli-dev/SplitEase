@@ -51,4 +51,11 @@ sealed class Screen(val route: String) {
             fun createRoute(friendId: String) = "personal_ledger/$friendId"
         }
     }
+
+    data class SettleUp(val friendId: String) : Screen("settle_up/{friendId}") {
+        companion object {
+            const val route = "settle_up/{friendId}"
+            fun createRoute(friendId: String) = "settle_up/$friendId"
+        }
+    }
 }

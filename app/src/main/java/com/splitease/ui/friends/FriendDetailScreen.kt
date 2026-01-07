@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -152,6 +153,24 @@ fun FriendDetailScreen(
 private fun TransactionItem(transaction: FriendLedgerItem) {
     val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
+    // Determine icon
+    val icon = when (transaction) {
+        is FriendLedgerItem.GroupExpense -> Icons.Default.Home
+        is FriendLedgerItem.DirectExpense -> Icons.Default.Person
+        is FriendLedgerItem.SettlementItem -> Icons.Default.CheckCircle
+    }
+    
+    // Determine subtitle
+    val subtitle = when (transaction) {
+        is FriendLedgerItem.GroupExpense -> transaction.groupName
+        is FriendLedgerItem.DirectExpense -> "Direct Expense"
+        is FriendLedgerItem.SettlementItem -> "Settlement"
+    }
+    
+    // Determine title color (Teal for settlement)
+    val isSettlement = transaction is FriendLedgerItem.SettlementItem
+    val titleColor = if (isSettlement) Color(0xFF009688) else Color.Unspecified
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -163,14 +182,10 @@ private fun TransactionItem(transaction: FriendLedgerItem) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f)
         ) {
-            val icon = when (transaction) {
-                is FriendLedgerItem.GroupExpense -> Icons.Default.Home
-                is FriendLedgerItem.DirectExpense -> Icons.Default.Person
-            }
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = if (isSettlement) Color(0xFF009688) else MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(24.dp)
             )
             
@@ -178,13 +193,9 @@ private fun TransactionItem(transaction: FriendLedgerItem) {
                 Text(
                     text = transaction.title,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    color = titleColor
                 )
-                
-                val subtitle = when (transaction) {
-                    is FriendLedgerItem.GroupExpense -> transaction.groupName
-                    is FriendLedgerItem.DirectExpense -> "Direct Expense"
-                }
                 
                 Text(
                     text = subtitle,
@@ -204,7 +215,7 @@ private fun TransactionItem(transaction: FriendLedgerItem) {
             text = "₹${transaction.amount}",
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
+            color = if (isSettlement) Color(0xFF009688) else MaterialTheme.colorScheme.primary
         )
     }
 }
