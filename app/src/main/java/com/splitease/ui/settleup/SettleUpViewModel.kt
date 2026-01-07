@@ -11,7 +11,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -61,13 +64,16 @@ class SettleUpViewModel @Inject constructor(
     private fun loadData() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            try {
-                // Load friend name
-                val user = userDao.getUser(friendId).first()
-                val friendName = user?.name ?: "Unknown"
+            // Load friend name (suspend, one-shot)
+            val friendName = try {
+                userDao.getUser(friendId).first()?.name ?: "Unknown"
+            } catch (e: Exception) {
+                "Unknown"
+            }
 
-                // Load balance
-                balanceSummaryRepository.getBalanceWithFriend(friendId).collect { balance ->
+            // Load balance (flow)
+            balanceSummaryRepository.getBalanceWithFriend(friendId)
+                .onEach { balance ->
                     _uiState.update { 
                         it.copy(
                             friendName = friendName,
@@ -76,9 +82,10 @@ class SettleUpViewModel @Inject constructor(
                         ) 
                     }
                 }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, errorMessage = "Failed to load data") }
-            }
+                .catch { e ->
+                    _uiState.update { it.copy(isLoading = false, errorMessage = "Failed to load data") }
+                }
+                .collect()
         }
     }
 
