@@ -53,6 +53,7 @@ import com.splitease.domain.PersonalGroupConstants
 fun DashboardScreen(
     onNavigateToAddExpense: (String) -> Unit,
     onNavigateToCreateGroup: () -> Unit,
+    onNavigateToFriendDetail: (String) -> Unit,
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -329,7 +330,7 @@ fun DashboardScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { 
-                                        // TODO: Navigate to FriendDetailScreen(friendBalance.friendId)
+                                        onNavigateToFriendDetail(friendBalance.friendId)
                                     }
                                     .padding(vertical = 12.dp, horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,

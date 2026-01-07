@@ -37,4 +37,11 @@ sealed class Screen(val route: String) {
             fun createRoute(expenseId: String, syncOpId: Int) = "reconciliation/$expenseId/$syncOpId"
         }
     }
+    
+    data class FriendDetail(val friendId: String) : Screen("friend_detail/{friendId}") {
+        companion object {
+            const val route = "friend_detail/{friendId}"
+            fun createRoute(friendId: String) = "friend_detail/$friendId"
+        }
+    }
 }

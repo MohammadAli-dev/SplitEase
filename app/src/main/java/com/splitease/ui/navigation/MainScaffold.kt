@@ -29,6 +29,7 @@ import com.splitease.ui.groups.GroupDetailScreen
 import com.splitease.ui.groups.GroupListScreen
 import com.splitease.ui.sync.ReconciliationScreen
 import com.splitease.ui.sync.SyncIssuesScreen
+import com.splitease.ui.friends.FriendDetailScreen
 import androidx.navigation.NavType
 
 data class BottomNavItem(
@@ -90,6 +91,9 @@ fun MainScaffold() {
                     },
                     onNavigateToCreateGroup = {
                         navController.navigate(Screen.CreateGroup.route)
+                    },
+                    onNavigateToFriendDetail = { friendId ->
+                        navController.navigate(Screen.FriendDetail.createRoute(friendId))
                     }
                 )
             }
@@ -175,6 +179,16 @@ fun MainScaffold() {
                 )
             ) {
                 ReconciliationScreen(
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+            composable(
+                route = Screen.FriendDetail.route,
+                arguments = listOf(androidx.navigation.navArgument("friendId") { 
+                    type = NavType.StringType 
+                })
+            ) {
+                FriendDetailScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
