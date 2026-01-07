@@ -1,6 +1,6 @@
 package com.splitease.di
 
-import com.splitease.data.remote.MockAuthInterceptor
+import com.splitease.data.auth.AuthInterceptor
 import com.splitease.data.remote.SplitEaseApi
 import dagger.Module
 import dagger.Provides
@@ -18,13 +18,13 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(mockAuthInterceptor: MockAuthInterceptor): OkHttpClient {
+    fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
         return OkHttpClient.Builder()
             .addInterceptor(logging)
-            .addInterceptor(mockAuthInterceptor) // Mock interceptor for auth
+            .addInterceptor(authInterceptor) // Real auth interceptor
             .build()
     }
 
