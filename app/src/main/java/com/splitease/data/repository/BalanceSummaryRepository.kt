@@ -97,8 +97,9 @@ class BalanceSummaryRepository @Inject constructor(
             }
             
             // Build friend balances list (filter out zero balances)
+            // Note: Using compareTo instead of != for BigDecimal to handle scale differences
             val friendBalances = friendBalanceMap
-                .filter { it.value != BigDecimal.ZERO }
+                .filter { it.value.compareTo(BigDecimal.ZERO) != 0 }
                 .map { (friendId, balance) ->
                     FriendBalance(
                         friendId = friendId,
