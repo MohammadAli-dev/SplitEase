@@ -1,5 +1,6 @@
 package com.splitease.data.auth
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,6 +54,10 @@ class AuthManagerImpl @Inject constructor(
     private val authService: AuthService,
     private val tokenManager: TokenManagerImpl // Use Impl to access saveCloudUserId
 ) : AuthManager {
+
+    companion object {
+        private const val TAG = "AuthManager"
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
@@ -184,6 +189,7 @@ class AuthManagerImpl @Inject constructor(
                 }
             } catch (e: Exception) {
                 // Network error during refresh - don't logout, allow retry on next request
+                Log.e(TAG, "Network error during refresh", e)
                 false
             }        }
     }
