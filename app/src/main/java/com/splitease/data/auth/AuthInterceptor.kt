@@ -24,6 +24,12 @@ class AuthInterceptor @Inject constructor(
     private val authManagerProvider: Provider<AuthManager>
 ) : Interceptor {
 
+    /**
+     * Intercepts requests to attach a bearer access token and, on an HTTP 401 with an existing token, attempts a synchronous token refresh and retry.
+     *
+     * If an access token is available, the interceptor adds an `Authorization: Bearer <token>` header to the outgoing request. When the server responds with 401 and a token was present, the interceptor synchronously attempts to refresh the access token via the provided AuthManager; if the refresh succeeds the request is retried with the refreshed token, and if it fails a synthetic 401 response is returned (AuthManager is responsible for handling logout).
+     *
+     * @return The HTTP response: either the original response, a retried response using a refreshed token, or a synthetic 401 response when token refresh fails. */
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
         

@@ -16,6 +16,12 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    /**
+     * Provides an OkHttpClient configured with HTTP request/response logging and request authentication.
+     *
+     * @param authInterceptor Interceptor that injects authentication information into outgoing requests.
+     * @return An OkHttpClient instance with a body-level HTTP logging interceptor and the provided authentication interceptor.
+     */
     @Provides
     @Singleton
     fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient {

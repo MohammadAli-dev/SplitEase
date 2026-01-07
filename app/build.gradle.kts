@@ -13,6 +13,12 @@ val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
+/**
+ * Retrieves an authentication-related property value from the project's local.properties.
+ *
+ * @param key The property key to look up (for example, "SUPABASE_PROJECT_ID").
+ * @return The property value if present, otherwise an empty string.
+ */
 fun getAuthProperty(key: String): String {
     return localProperties.getProperty(key, "")
 }

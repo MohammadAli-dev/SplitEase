@@ -51,6 +51,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Displays a friend's ledger screen with balance, actions, and a list of ledger items.
+ *
+ * Shows a loading indicator while state is loading, a header with the friend's name and balance,
+ * action buttons for settling or reminding, and a list of expenses and settlements. Ledger rows
+ * are clickable to edit the underlying expense except for settlement items which are read-only.
+ *
+ * @param onNavigateBack Invoked when the user requests back navigation (e.g., top app bar back).
+ * @param onNavigateToEditExpense Invoked with `groupId` and `expenseId` when the user opens an expense for editing.
+ * @param onNavigateToSettleUp Invoked with the friend's id when the user initiates a settle-up flow.
+ * @param viewModel Provides UI state for the screen; defaults to the Hilt-provided PersonalLedgerViewModel.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonalLedgerScreen(
@@ -219,6 +231,16 @@ fun PersonalLedgerScreen(
     }
 }
 
+/**
+ * Renders a single ledger row for a FriendLedgerItem with type-specific iconography, colors, and texts.
+ *
+ * Displays title, a context-specific subtitle, formatted date, amount, and a share/settlement hint.
+ * Settlement items are styled distinctly (teal accent) and are non-clickable; other item types are clickable
+ * and will invoke the provided onClick callback.
+ *
+ * @param item The ledger item to display (GroupExpense, DirectExpense, or SettlementItem).
+ * @param onClick Action to perform when the row is tapped; not invoked for settlement items.
+ */
 @Composable
 private fun LedgerItemRow(
     item: FriendLedgerItem,
