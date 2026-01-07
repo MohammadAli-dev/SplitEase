@@ -27,35 +27,32 @@ interface AuthManager {
     val authState: StateFlow<AuthState>
 
     /**
- * Logs in using a Google ID token obtained from Google Sign-In.
- *
- * @param idToken The Google ID token returned by Google Sign-In (not an Android client ID token).
- * @return A `Result` that is `success` when login completes and tokens are stored, or `failure` with an exception describing the error.
- */
+     * Login with Google ID token obtained from Google Sign-In.
+     * 
+     * @param idToken The Google ID token (NOT the Android client ID token).
+     * @return Result.success(Unit) on success, Result.failure with exception on error.
+     */
     suspend fun loginWithGoogle(idToken: String): Result<Unit>
 
     /**
- * Clears stored authentication tokens and marks the user as unauthenticated while preserving local data.
- *
- * Removes access and refresh tokens and updates the authentication state to unauthenticated; does not delete other local/offline data.
- */
+     * Logout and clear tokens.
+     * Preserves all local data.
+     */
     suspend fun logout()
 
     /**
- * Refreshes the access token using the stored refresh token.
- *
- * If the refresh succeeds, new tokens (and cloud user id if present) are saved.
- * If the server rejects the refresh (HTTP 401/403), stored tokens and authentication state are cleared.
- *
- * @return `true` if the access token was refreshed and saved, `false` otherwise.
- */
+     * Refresh the access token using the stored refresh token.
+     * Called by AuthInterceptor on 401.
+     * 
+     * @return true if refresh succeeded, false otherwise.
+     */
     suspend fun refreshAccessToken(): Boolean
 }
 
 @Singleton
 class AuthManagerImpl @Inject constructor(
     private val authService: AuthService,
-    private val tokenManager: TokenManagerImpl // Use Impl to access saveCloudUserId
+    private val tokenManager: TokenManager
 ) : AuthManager {
 
     companion object {
@@ -78,9 +75,8 @@ class AuthManagerImpl @Inject constructor(
     }
 
     /**
-     * Initializes the public authState from TokenManager on cold start without performing network calls.
-     *
-     * Sets authState to Authenticated when a valid token exists and a stored cloud user ID is present; otherwise sets authState to Unauthenticated.
+     * Initialize auth state from TokenManager.
+     * Called on cold start. No network call.
      */
     private suspend fun initializeAuthState() {
         val hasValidToken = tokenManager.hasValidToken().first()
@@ -98,12 +94,6 @@ class AuthManagerImpl @Inject constructor(
         }
     }
 
-    /**
-     * Performs sign-in using a Google ID token and updates the local authentication state.
-     *
-     * @param idToken The Google ID token obtained from Google Sign-In.
-     * @return `Result.success(Unit)` if login succeeded and tokens and cloud user ID were stored (authState set to Authenticated); `Result.failure` with an exception describing the failure otherwise.
-     */
     override suspend fun loginWithGoogle(idToken: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             // Check if auth is configured
@@ -146,11 +136,6 @@ class AuthManagerImpl @Inject constructor(
         }
     }
 
-    /**
-     * Clears all stored authentication tokens and sets the authentication state to unauthenticated.
-     *
-     * This preserves local (offline) data; only credentials/state related to authentication are removed.
-     */
     override suspend fun logout() = withContext(Dispatchers.IO) {
         // Clear tokens (atomic)
         tokenManager.clearTokens()
@@ -161,13 +146,6 @@ class AuthManagerImpl @Inject constructor(
         // NOTE: Local data is NOT deleted. Offline-first preserved.
     }
 
-    /**
-     * Attempts to refresh the access token using the stored refresh token, updating stored tokens and the saved cloud user ID on success.
-     *
-     * This call serializes concurrent refresh attempts; if the refresh response is HTTP 401 or 403 the manager performs a logout to clear stored tokens and auth state.
-     *
-     * @return `true` if the refresh succeeded and new tokens were saved, `false` otherwise.
-     */
     override suspend fun refreshAccessToken(): Boolean = refreshMutex.withLock {
         // Synchronized refresh - only one at a time
         withContext(Dispatchers.IO) {
@@ -211,10 +189,9 @@ class AuthManagerImpl @Inject constructor(
                 }
             } catch (e: Exception) {
                 // Network error during refresh - don't logout, allow retry on next request
-                Log.e(TAG, "Network error during refresh", e)
+                Log.e(TAG, "Network error during refresh: ${e.javaClass.simpleName}")
                 false
-            }        }
-    }
+            }        }    }
 }
 
 /**

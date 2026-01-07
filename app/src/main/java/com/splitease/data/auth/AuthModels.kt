@@ -88,14 +88,9 @@ data class AuthError(
     @SerializedName("error_description")
     val errorDescription: String?,
     
-    @SerializedName("msg")
+    @SerializedName("message")
     val message: String?
 ) {
-    /**
-     * Selects the most specific authentication error text available for display.
-     *
-     * @return The first non-null value among `errorDescription`, `message`, and `error`; returns "Authentication failed" if all are null.
-     */
     fun getDisplayMessage(): String {
         return errorDescription ?: message ?: error ?: "Authentication failed"
     }

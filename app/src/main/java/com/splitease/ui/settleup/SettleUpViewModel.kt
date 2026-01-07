@@ -61,12 +61,6 @@ class SettleUpViewModel @Inject constructor(
         loadData()
     }
 
-    /**
-     * Loads the friend's display name and current balance and updates the UI state.
-     *
-     * Sets `isLoading` while data is being fetched, updates `friendName` and `balance`
-     * when values are available, and sets `errorMessage` if loading fails.
-     */
     private fun loadData() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
@@ -95,13 +89,6 @@ class SettleUpViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Updates the current amount input when the provided string is empty or a numeric value with up to two decimal places.
-     *
-     * If the input is valid, updates the UI state's `amountInput` and clears `errorMessage`. Invalid input is ignored.
-     *
-     * @param newAmount The new amount text entered by the user; allowed formats: empty or digits with optional decimal and up to two fractional digits (e.g., "123", "12.34").
-     */
     fun onAmountChanged(newAmount: String) {
         // Simple regex validation for currency
         if (newAmount.isEmpty() || newAmount.matches(Regex("^\\d*\\.?\\d{0,2}\$"))) {
@@ -109,17 +96,6 @@ class SettleUpViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Initiates a settlement using the current amount input and updates the UI state.
-     *
-     * If the UI state's `canSettle` is false, the call is ignored. Otherwise the function:
-     * - sets `isLoading` while working,
-     * - reads the amount from `amountInput` and the current user ID from the user context,
-     * - if the user context is missing sets `errorMessage` to `"User context missing"` and clears loading,
-     * - creates a settlement with direction determined by `balance`: if `balance < 0` the settlement is from the current user to the friend; otherwise it is from the friend to the current user,
-     * - on success sets `isSettled` to `true` and clears loading,
-     * - on failure sets `errorMessage` to the exception message and clears loading.
-     */
     fun onSettleUp() {
         if (!_uiState.value.canSettle) return
 
@@ -138,20 +114,29 @@ class SettleUpViewModel @Inject constructor(
                 // Determine direction
                 // If balance is positive (> 0), Friend owes Me. Friend pays Me.
                 // If balance is negative (< 0), I owe Friend. I pay Friend.
-                if (balance < BigDecimal.ZERO) {
-                    // I owe them. From = Me, To = Friend
-                    settlementRepository.createSettlement(
-                        fromUserId = currentUserId,
-                        toUserId = friendId,
-                        amount = amount
-                    )
-                } else {
-                    // They owe me. From = Friend, To = Me
-                    settlementRepository.createSettlement(
-                        fromUserId = friendId,
-                        toUserId = currentUserId,
-                        amount = amount
-                    )
+                // If balance is zero, there's nothing to settle.
+                when {
+                    balance.signum() == 0 -> {
+                        // Zero balance - nothing to settle
+                        _uiState.update { it.copy(isLoading = false, errorMessage = "No balance to settle") }
+                        return@launch
+                    }
+                    balance.signum() < 0 -> {
+                        // I owe them. From = Me, To = Friend
+                        settlementRepository.createSettlement(
+                            fromUserId = currentUserId,
+                            toUserId = friendId,
+                            amount = amount
+                        )
+                    }
+                    else -> {
+                        // They owe me. From = Friend, To = Me
+                        settlementRepository.createSettlement(
+                            fromUserId = friendId,
+                            toUserId = currentUserId,
+                            amount = amount
+                        )
+                    }
                 }
 
                 _uiState.update { it.copy(isLoading = false, isSettled = true) }
@@ -161,11 +146,6 @@ class SettleUpViewModel @Inject constructor(
         }
     }
     
-    /**
-     * Clears the settled flag in the UI state.
-     *
-     * Updates the ViewModel state so `isSettled` becomes `false`, allowing the UI to return to a non-settled state.
-     */
     fun resetSettledState() {
         _uiState.update { it.copy(isSettled = false) }
     }
