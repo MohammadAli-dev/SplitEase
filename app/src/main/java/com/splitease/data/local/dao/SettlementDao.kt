@@ -20,6 +20,14 @@ interface SettlementDao {
     @Query("SELECT * FROM settlements ORDER BY date DESC")
     fun getAllSettlements(): Flow<List<Settlement>>
 
+    @Query("""
+        SELECT * FROM settlements 
+        WHERE (fromUserId = :userA AND toUserId = :userB) 
+           OR (fromUserId = :userB AND toUserId = :userA) 
+        ORDER BY date DESC
+    """)
+    fun observeSettlementsBetween(userA: String, userB: String): Flow<List<Settlement>>
+
     /**
      * Checks if a settlement exists by ID. **For diagnostics/tests only — do NOT use as insert
      * guard.** Database REPLACE strategy enforces idempotency.

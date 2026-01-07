@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
@@ -45,26 +46,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.repository.FriendLedgerItem
-import com.splitease.domain.PersonalGroupConstants
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Friend Ledger Screen.
- * 
- * Displays ALL expenses between current user and selected friend:
- * - Group expenses from shared groups
- * - Direct (non-group) expenses
- * 
- * This is a read-only ledger view. Tapping an expense navigates to the edit screen.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonalLedgerScreen(
     onNavigateBack: () -> Unit,
     onNavigateToEditExpense: (groupId: String, expenseId: String) -> Unit,
+    onNavigateToSettleUp: (friendId: String) -> Unit,
     viewModel: PersonalLedgerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -144,7 +136,7 @@ fun PersonalLedgerScreen(
                 }
             }
             
-            // Action Buttons Row (stubbed)
+            // Action Buttons Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -152,11 +144,12 @@ fun PersonalLedgerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
-                    onClick = { /* TODO: Settle up */ },
+                    onClick = { onNavigateToSettleUp(uiState.friendId) },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFF9800)
-                    )
+                        containerColor = Color(0xFF00C853) // Green for Settle Up
+                    ),
+                    enabled = uiState.balance.compareTo(BigDecimal.ZERO) != 0 // Disable if settled
                 ) {
                     Text("Settle up")
                 }
@@ -208,10 +201,14 @@ fun PersonalLedgerScreen(
                         LedgerItemRow(
                             item = ledgerItem,
                             onClick = {
-                                onNavigateToEditExpense(
-                                    ledgerItem.groupId,
-                                    ledgerItem.expenseId
-                                )
+                                // Direct/Group expenses navigate to edit.
+                                // Settlements are read-only.
+                                if (ledgerItem !is FriendLedgerItem.SettlementItem) {
+                                    onNavigateToEditExpense(
+                                        ledgerItem.groupId,
+                                        ledgerItem.expenseId
+                                    )
+                                }
                             }
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
@@ -233,26 +230,50 @@ private fun LedgerItemRow(
     val subtitle = when (item) {
         is FriendLedgerItem.GroupExpense -> item.groupName
         is FriendLedgerItem.DirectExpense -> "${item.payerName} paid ₹${item.amount}"
+        is FriendLedgerItem.SettlementItem -> "${item.payerName} paid ₹${item.amount}"
     }
     
     // Determine icon
     val icon = when (item) {
         is FriendLedgerItem.GroupExpense -> Icons.Default.Home
         is FriendLedgerItem.DirectExpense -> Icons.Default.Person
+        is FriendLedgerItem.SettlementItem -> Icons.Default.CheckCircle
     }
     
-    // Determine share color (green = owed to me, orange = I owe)
+    // Determine share color
+    val isSettlement = item is FriendLedgerItem.SettlementItem
+    
+    // For settlements: if I paid (paidByCurrentUser), it's green (money left me, debt reduced? Wait).
+    // Usually: Green = "I got money" or "You owe me reduced".
+    // If I paid: I spent money.
+    // If Friend paid: They spent money.
+    // In Splitwise:
+    // "You paid Alice" -> Green? No, neutral. "You paid".
+    // "Alice paid you" -> Green.
+    // Let's iterate color.
+    // Group/Direct color logic:
+    // Green = Owed TO me (Lent).
+    // Orange = I Owe (Borrowed).
+    
     val shareColor = if (item.paidByCurrentUser) Color(0xFF4CAF50) else Color(0xFFFF9800)
-    val shareText = if (item.paidByCurrentUser) {
-        "you lent ₹${item.amount - item.myShare}"
+    
+    val shareText = if (isSettlement) {
+        if (item.paidByCurrentUser) "you paid" else "${item.payerName} paid"
     } else {
-        "you borrowed ₹${item.myShare}"
+        if (item.paidByCurrentUser) {
+            "you lent ₹${item.amount - item.myShare}"
+        } else {
+            "you borrowed ₹${item.myShare}"
+        }
     }
+    
+    // Settlement specific styling override
+    val titleColor = if (isSettlement) Color(0xFF009688) else Color.Unspecified // Teal for settlement title?
     
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(onClick = onClick, enabled = !isSettlement)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -260,7 +281,7 @@ private fun LedgerItemRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = if (isSettlement) Color(0xFF009688) else MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(32.dp)
         )
         
@@ -271,7 +292,8 @@ private fun LedgerItemRow(
             Text(
                 text = item.title,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                color = titleColor
             )
             Text(
                 text = subtitle,
@@ -290,14 +312,14 @@ private fun LedgerItemRow(
             Text(
                 text = "₹${item.amount}",
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                color = if (isSettlement) Color(0xFF009688) else Color.Unspecified
             )
             Text(
                 text = shareText,
                 style = MaterialTheme.typography.bodySmall,
-                color = shareColor
+                color = if (isSettlement) Color.Gray else shareColor
             )
         }
     }
 }
-

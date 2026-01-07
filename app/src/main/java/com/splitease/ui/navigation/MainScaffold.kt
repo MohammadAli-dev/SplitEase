@@ -203,7 +203,20 @@ fun MainScaffold() {
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToEditExpense = { groupId, expenseId ->
                         navController.navigate(Screen.EditExpense.createRoute(groupId, expenseId))
+                    },
+                    onNavigateToSettleUp = { friendId ->
+                        navController.navigate(Screen.SettleUp.createRoute(friendId))
                     }
+                )
+            }
+            
+            composable(
+                route = Screen.SettleUp.route,
+                arguments = listOf(androidx.navigation.navArgument("friendId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                // SettleUpScreen
+                com.splitease.ui.settleup.SettleUpScreen(
+                    onNavigateUp = { navController.popBackStack() }
                 )
             }
         }
