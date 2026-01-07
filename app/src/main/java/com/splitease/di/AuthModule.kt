@@ -59,11 +59,22 @@ abstract class AuthModule {
         @Provides
         @Singleton
         fun provideAuthService(@AuthClient okHttpClient: OkHttpClient): AuthService {
-            // Use empty base URL if not configured (will fail gracefully at runtime)
-            val baseUrl = AuthConfig.supabaseBaseUrl.ifEmpty { "https://placeholder.supabase.co" }
+            val baseUrl = AuthConfig.supabaseBaseUrl
+            
+            // Log clear warning if auth is not configured
+            if (baseUrl.isEmpty()) {
+                android.util.Log.w(
+                    "AuthModule",
+                    "⚠️ AUTH NOT CONFIGURED: SUPABASE_PROJECT_ID missing from local.properties. " +
+                    "Auth features will not work. See auth.properties.template for setup instructions."
+                )
+            }
+            
+            // Use a non-empty URL for Retrofit (required), but auth calls will fail with clear error
+            val effectiveUrl = baseUrl.ifEmpty { "https://not-configured.invalid" }
             
             return Retrofit.Builder()
-                .baseUrl("$baseUrl/")
+                .baseUrl("$effectiveUrl/")
                 .client(okHttpClient)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

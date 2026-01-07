@@ -174,16 +174,18 @@ class AuthManagerImpl @Inject constructor(
 
                     true
                 } else {
-                    // Refresh failed - trigger logout
-                    logout()
+                    // Check if this is an auth error vs server error
+                    if (response.code() == 401 || response.code() == 403) {
+                        // Token is invalid/revoked - logout
+                        logout()
+                    }
+                    // Other errors: don't logout, let retry happen
                     false
                 }
             } catch (e: Exception) {
-                // Network error during refresh - trigger logout
-                logout()
+                // Network error during refresh - don't logout, allow retry on next request
                 false
-            }
-        }
+            }        }
     }
 }
 

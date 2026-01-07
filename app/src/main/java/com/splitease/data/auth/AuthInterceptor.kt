@@ -63,10 +63,15 @@ class AuthInterceptor @Inject constructor(
             }
             
             // Refresh failed - AuthManager already called logout
-            // Return the original 401 response (rebuild since we closed it)
-            return chain.proceed(originalRequest)
+            // Return a 401 response without making another network call
+            return Response.Builder()
+                .request(originalRequest)
+                .protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(401)
+                .message("Unauthorized - token refresh failed")
+                .body(okhttp3.ResponseBody.create(null, ""))
+                .build()
         }
-
         return response
     }
 }

@@ -53,6 +53,17 @@ interface TokenManager {
      * Does NOT delete any app data.
      */
     suspend fun clearTokens()
+
+    /**
+     * Save the cloud user ID from Supabase response.
+     * Called by AuthManager after successful login.
+     */
+    fun saveCloudUserId(cloudUserId: String)
+
+    /**
+     * Get the stored cloud user ID.
+     */
+    fun getCloudUserId(): String?
 }
 
 @Singleton
@@ -93,7 +104,7 @@ class TokenManagerImpl @Inject constructor(
      * Save the cloud user ID from Supabase response.
      * Called by AuthManager after successful login.
      */
-    fun saveCloudUserId(cloudUserId: String) {
+    override fun saveCloudUserId(cloudUserId: String) {
         encryptedPrefs.edit()
             .putString(KEY_CLOUD_USER_ID, cloudUserId)
             .apply()
@@ -102,7 +113,7 @@ class TokenManagerImpl @Inject constructor(
     /**
      * Get the stored cloud user ID.
      */
-    fun getCloudUserId(): String? {
+    override fun getCloudUserId(): String? {
         return encryptedPrefs.getString(KEY_CLOUD_USER_ID, null)
     }
 

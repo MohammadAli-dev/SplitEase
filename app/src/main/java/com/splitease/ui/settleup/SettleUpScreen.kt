@@ -96,8 +96,7 @@ fun SettleUpScreen(
                 color = statusColor
             )
 
-            if (balance.abs() > BigDecimal.ZERO) {
-                // Input
+            if (balance.abs().compareTo(BigDecimal.ZERO) > 0) {                // Input
                 OutlinedTextField(
                     value = uiState.amountInput,
                     onValueChange = viewModel::onAmountChanged,
