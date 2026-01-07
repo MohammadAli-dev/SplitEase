@@ -32,17 +32,34 @@ annotation class AuthClient
 @InstallIn(SingletonComponent::class)
 abstract class AuthModule {
 
+    /**
+     * Binds TokenManagerImpl to the TokenManager interface for dependency injection.
+     *
+     * @param impl The concrete TokenManagerImpl to provide when TokenManager is requested.
+     * @return The bound TokenManager.
+     */
     @Binds
     @Singleton
     abstract fun bindTokenManager(impl: TokenManagerImpl): TokenManager
 
+    /**
+     * Binds AuthManagerImpl as the AuthManager interface in the dependency-injection graph.
+     *
+     * @param impl The concrete AuthManagerImpl instance to be provided when AuthManager is requested.
+     * @return The bound AuthManager instance (the provided AuthManagerImpl).
+     */
     @Binds
     @Singleton
     abstract fun bindAuthManager(impl: AuthManagerImpl): AuthManager
 
     companion object {
         /**
-         * OkHttpClient for auth API calls (no AuthInterceptor to avoid circular dependency).
+         * Provides an OkHttpClient configured for authentication API calls without the AuthInterceptor.
+         *
+         * This client is intended for use with the auth Retrofit service to avoid introducing a
+         * circular dependency between the interceptor and auth network calls.
+         *
+         * @return An OkHttpClient instance for auth requests with no AuthInterceptor applied.
          */
         @Provides
         @Singleton
@@ -53,8 +70,15 @@ abstract class AuthModule {
         }
 
         /**
-         * Retrofit instance for Supabase Auth API.
-         * Uses separate OkHttpClient without AuthInterceptor.
+         * Creates an AuthService Retrofit implementation configured for the Supabase Auth API.
+         *
+         * Logs a warning when the configured base URL is empty and uses a placeholder non-empty URL
+         * so Retrofit can be constructed; auth calls will fail clearly at runtime if not configured.
+         *
+         * @param okHttpClient An OkHttpClient qualified with `@AuthClient`; must not include the
+         *        AuthInterceptor to avoid request recursion.
+         * @return An `AuthService` Retrofit implementation targeting the configured Supabase auth base URL,
+         *         or a placeholder URL when the base URL is not set.
          */
         @Provides
         @Singleton

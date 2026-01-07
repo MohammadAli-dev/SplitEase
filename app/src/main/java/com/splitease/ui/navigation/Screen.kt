@@ -48,14 +48,26 @@ sealed class Screen(val route: String) {
     data class PersonalLedger(val friendId: String) : Screen("personal_ledger/{friendId}") {
         companion object {
             const val route = "personal_ledger/{friendId}"
-            fun createRoute(friendId: String) = "personal_ledger/$friendId"
+            /**
+ * Creates a navigation route for the personal ledger screen for the specified friend.
+ *
+ * @param friendId The friend's unique identifier to embed in the route.
+ * @return The route string for the personal ledger with `friendId` substituted (e.g. "personal_ledger/123").
+ */
+fun createRoute(friendId: String) = "personal_ledger/$friendId"
         }
     }
 
     data class SettleUp(val friendId: String) : Screen("settle_up/{friendId}") {
         companion object {
             const val route = "settle_up/{friendId}"
-            fun createRoute(friendId: String) = "settle_up/$friendId"
+            /**
+ * Builds the navigation route for the SettleUp screen for the given friend.
+ *
+ * @param friendId The friend's identifier to embed in the route.
+ * @return The route string `settle_up/{friendId}` with the `{friendId}` placeholder replaced by the provided id.
+ */
+fun createRoute(friendId: String) = "settle_up/$friendId"
         }
     }
 }

@@ -39,6 +39,12 @@ data class BottomNavItem(
     val icon: androidx.compose.ui.graphics.vector.ImageVector
 )
 
+/**
+ * Provides the app's top-level Compose scaffold with navigation.
+ *
+ * Hosts a remembered NavController, conditionally shows the bottom navigation bar for the main tab routes,
+ * and sets up the NavHost with the app's composable destinations and their navigation actions.
+ */
 @Composable
 fun MainScaffold() {
     val navController = rememberNavController()

@@ -17,13 +17,12 @@ import retrofit2.http.Query
 interface AuthService {
 
     /**
-     * Login with Google ID token.
-     * 
-     * Endpoint: POST /auth/v1/token?grant_type=id_token
-     * 
-     * @param apiKey Supabase public/anon key (header: apikey)
-     * @param request Contains provider="google" and the Google ID token
-     * @return AuthResponse with access_token, refresh_token, expires_in, and user info
+     * Authenticate with Supabase using a Google ID token to obtain access and refresh tokens.
+     *
+     * @param apiKey Supabase public/anon key sent in the `apikey` header.
+     * @param grantType Grant type query parameter (defaults to `"id_token"`).
+     * @param request Request payload containing `provider = "google"` and the Google ID token.
+     * @return A `Response` whose body is an `AuthResponse` containing `access_token`, `refresh_token`, `expires_in`, and user information.
      */
     @POST("auth/v1/token")
     suspend fun loginWithIdToken(
@@ -33,13 +32,11 @@ interface AuthService {
     ): Response<AuthResponse>
 
     /**
-     * Refresh access token using refresh token.
-     * 
-     * Endpoint: POST /auth/v1/token?grant_type=refresh_token
-     * 
-     * @param apiKey Supabase public/anon key (header: apikey)
-     * @param request Contains the refresh_token
-     * @return AuthResponse with new access_token, refresh_token (rotated), expires_in, and user info
+     * Refreshes the access token using the provided refresh token.
+     *
+     * @param apiKey Supabase public/anon key sent in the `apikey` header.
+     * @param request Request payload containing the `refresh_token` to use for refreshing.
+     * @return A Retrofit Response wrapping an AuthResponse containing a new `access_token`, rotated `refresh_token`, `expires_in`, and user information.
      */
     @POST("auth/v1/token")
     suspend fun refreshToken(

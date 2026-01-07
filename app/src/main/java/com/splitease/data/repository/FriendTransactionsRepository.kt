@@ -78,6 +78,14 @@ class FriendTransactionsRepository @Inject constructor(
     private val settlementRepository: SettlementRepository
 ) {
     
+    /**
+     * Produces the friend's ledger view by combining relevant expenses and settlements between the current user and the specified friend.
+     *
+     * Emits an empty list when there is no current user. The emitted lists contain GroupExpense, DirectExpense, and SettlementItem entries representing transactions between the current user and the friend, sorted by timestamp in descending order.
+     *
+     * @param friendId The friend's user id to build the ledger for.
+     * @return A Flow that emits lists of FriendLedgerItem representing combined expenses and settlements between the current user and the specified friend, sorted by timestamp descending.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun getTransactionsForFriend(friendId: String): Flow<List<FriendLedgerItem>> {
         return userContext.userId.flatMapLatest { currentUserId ->
