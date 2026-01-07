@@ -29,6 +29,7 @@ import androidx.compose.material3.DatePickerDialog
 
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +57,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.text.font.FontWeight
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseScreen(
@@ -73,6 +84,7 @@ fun AddExpenseScreen(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showPayerSelector by remember { mutableStateOf(false) }
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
     if (showDeleteDialog) {
@@ -97,6 +109,54 @@ fun AddExpenseScreen(
                 }
         )
     }
+    
+    if (showPayerSelector) {
+        ModalBottomSheet(
+            onDismissRequest = { showPayerSelector = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Who paid?",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(uiState.selectedParticipants) { userId ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.updatePayer(userId)
+                                    showPayerSelector = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = uiState.userNames[userId] ?: "User",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            if (userId == uiState.payerId) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        if (userId != uiState.selectedParticipants.last()) {
+                            Divider()
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
 
     Scaffold(
             topBar = {
@@ -115,7 +175,7 @@ fun AddExpenseScreen(
                         actions = {
                             if (uiState.isEditMode) {
                                 IconButton(onClick = { showDeleteDialog = true }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete")
+                                    Icon(Icons.Filled.Delete, contentDescription = "Delete")
                                 }
                             }
                         }
@@ -155,7 +215,7 @@ fun AddExpenseScreen(
                     onClick = { viewModel.toggleDirectExpense(false) },
                     label = { Text("Group Expense") },
                     leadingIcon = { 
-                         if (!uiState.isPersonalExpense) Icon(Icons.Default.Home, null) 
+                         if (!uiState.isPersonalExpense) Icon(Icons.Filled.Home, null) 
                     }
                 )
                 FilterChip(
@@ -163,7 +223,7 @@ fun AddExpenseScreen(
                     onClick = { viewModel.toggleDirectExpense(true) },
                     label = { Text("Non-Group Expense") },
                     leadingIcon = {
-                        if (uiState.isPersonalExpense) Icon(Icons.Default.Person, null) 
+                        if (uiState.isPersonalExpense) Icon(Icons.Filled.Person, null) 
                     }
                 )
             }
@@ -174,9 +234,43 @@ fun AddExpenseScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            
+            // Paid By Section
+            if (uiState.selectedParticipants.isNotEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showPayerSelector = true },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Paid by",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = uiState.userNames[uiState.payerId] ?: "Select Payer",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Icon(Icons.Filled.ArrowDropDown, contentDescription = "Select")
+                    }
+                }
+            }
 
             // Split Type Selector
-
             // Expense Date Picker
             Text("Expense Date", style = MaterialTheme.typography.labelMedium)
             OutlinedTextField(

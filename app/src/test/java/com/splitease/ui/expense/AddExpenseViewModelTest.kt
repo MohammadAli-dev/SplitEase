@@ -3,6 +3,7 @@ package com.splitease.ui.expense
 import androidx.lifecycle.SavedStateHandle
 import com.splitease.data.identity.UserContext
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.User
 import com.splitease.data.repository.ExpenseRepository
 import io.mockk.coEvery
@@ -26,6 +27,7 @@ class AddExpenseViewModelTest {
     private val expenseRepository: ExpenseRepository = mockk(relaxed = true)
     private val userContext: UserContext = mockk()
     private val groupDao: GroupDao = mockk()
+    private val userDao: UserDao = mockk()
     private val savedStateHandle: SavedStateHandle = mockk(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
@@ -56,13 +58,16 @@ class AddExpenseViewModelTest {
 
         coEvery { groupDao.getGroupMembersWithDetails(groupId) } returns flowOf(users)
         coEvery { userContext.userId } returns flowOf("u1") 
+        // Mock redundant userDao call if any (not used in group path but good to handle)
+        coEvery { userDao.getAllUsers() } returns flowOf(users)
 
         // When
         val viewModel = AddExpenseViewModel(
             savedStateHandle,
             expenseRepository,
             userContext,
-            groupDao
+            groupDao,
+            userDao
         )
 
         // Run coroutines
