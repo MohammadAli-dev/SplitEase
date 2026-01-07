@@ -230,9 +230,6 @@ constructor(
         recalculateSplits()
     }
 
-    fun updatePayer(payerId: String) {
-        _uiState.update { it.copy(payerId = payerId) }
-    }
 
     /** Update expense date, normalized to start-of-day. */
     fun updateExpenseDate(dateMillis: Long) {
@@ -260,10 +257,31 @@ constructor(
             } else {
                 current.add(userId)
             }
-            state.copy(selectedParticipants = current.sorted())
+            
+            // Auto-correct payer if the current payer was removed
+            var newPayerId = state.payerId
+            if (userId == state.payerId && userId !in current) {
+                // Payer was removed. Assign to first available participant or empty if none.
+                newPayerId = current.firstOrNull() ?: ""
+            } else if (state.payerId.isEmpty() && current.isNotEmpty()) {
+                 // If no payer was set (e.g. cleared), set to first added
+                newPayerId = current.first()
+            }
+            
+            state.copy(
+                selectedParticipants = current.sorted(),
+                payerId = newPayerId
+            )
         }
         normalizeShares()
         recalculateSplits()
+    }
+    
+    fun updatePayer(payerId: String) {
+        // Ensure the selected payer is actually a participant
+        if (payerId in _uiState.value.selectedParticipants) {
+             _uiState.update { it.copy(payerId = payerId) }
+        }
     }
 
     fun updateExactAmount(userId: String, amountText: String) {
@@ -420,6 +438,11 @@ constructor(
             return
         }
 
+        if (state.payerId !in state.selectedParticipants) {
+            _uiState.update { it.copy(errorMessage = "Payer must be a selected participant") }
+            return
+        }
+
         val amount =
                 try {
                     BigDecimal(state.amountText).setScale(2, RoundingMode.HALF_UP)
@@ -459,7 +482,7 @@ constructor(
                                 amount = amount,
                                 currency = "INR",
                                 date = Date(System.currentTimeMillis()),
-                                payerId = state.payerId.ifBlank { currentUserId },
+                                payerId = state.payerId,
                                 createdBy = creatorId,
                                 createdByUserId = creatorId,
                                 lastModifiedByUserId = currentUserId,
