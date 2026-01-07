@@ -10,6 +10,7 @@ import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.repository.ExpenseRepository
 import com.splitease.domain.SplitValidationResult
 import com.splitease.domain.SplitValidator
+import com.splitease.domain.PersonalGroupConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -67,7 +68,8 @@ data class AddExpenseUiState(
         val isEditMode: Boolean = false,
         /** Logical date of expense, normalized to start-of-day */
         val expenseDate: Long = normalizeToStartOfDay(System.currentTimeMillis()),
-        val createdByUserId: String? = null
+        val createdByUserId: String? = null,
+        val isPersonalExpense: Boolean = false
 )
 
 @HiltViewModel
@@ -77,7 +79,8 @@ constructor(
         savedStateHandle: SavedStateHandle,
         private val expenseRepository: ExpenseRepository,
         private val userContext: UserContext,
-        private val groupDao: GroupDao
+        private val groupDao: GroupDao,
+        private val userDao: com.splitease.data.local.dao.UserDao
 ) : ViewModel() {
 
     private val groupId: String = savedStateHandle.get<String>("groupId") ?: ""
@@ -91,6 +94,9 @@ constructor(
         if (expenseId != null) {
             _uiState.update { it.copy(isEditMode = true) }
             loadExpense(expenseId)
+        } else if (groupId == PersonalGroupConstants.PERSONAL_GROUP_ID) {
+            // Auto-enable direct expense mode for global "Add Expense"
+            toggleDirectExpense(true)
         }
         setDefaultPayer()
     }
@@ -125,17 +131,45 @@ constructor(
 
     private fun loadGroupMembers() {
         viewModelScope.launch {
-            groupDao.getGroupMembersWithDetails(groupId).collectLatest { users ->
-                val sortedUsers = users.sortedBy { it.name }
-                val sortedMemberIds = sortedUsers.map { it.id }
-                val userNamesMap = sortedUsers.associate { it.id to it.name }
-                _uiState.update { it.copy(
-                    groupMembers = sortedMemberIds,
-                    selectedParticipants = sortedMemberIds,
-                    userNames = userNamesMap,
-                    shares = sortedMemberIds.associateWith { 1 } // Default 1 share each
-                )}
-                recalculateSplits()
+            val currentUserId = userContext.userId.firstOrNull() ?: return@launch
+            
+            // For Non-Group expenses, load all users; for Group expenses, load group members
+            if (groupId == PersonalGroupConstants.PERSONAL_GROUP_ID) {
+                userDao.getAllUsers().collectLatest { allUsers ->
+                    // Show all OTHER users as selectable, but current user is always included
+                    val otherUsers = allUsers.filter { it.id != currentUserId }
+                    val sortedUsers = otherUsers.sortedBy { it.name }
+                    val sortedMemberIds = sortedUsers.map { it.id }
+                    val userNamesMap = allUsers.associate { it.id to it.name }
+                    
+                    // Current user is ALWAYS a participant in non-group expenses
+                    // They select additional participants from the list
+                    _uiState.update { it.copy(
+                        groupMembers = sortedMemberIds,
+                        selectedParticipants = listOf(currentUserId), // Auto-include "You"
+                        userNames = userNamesMap,
+                        shares = mapOf(currentUserId to 1) // Default 1 share for self
+                    )}
+                    normalizeShares()
+                    recalculateSplits()
+                }
+            } else {
+                groupDao.getGroupMembersWithDetails(groupId).collectLatest { users ->
+                    val sortedUsers = users.sortedBy { it.name }
+                    val sortedMemberIds = sortedUsers.map { it.id }
+                    val userNamesMap = sortedUsers.associate { it.id to it.name }
+                    _uiState.update { it.copy(
+                        groupMembers = sortedMemberIds,
+                        selectedParticipants = sortedMemberIds,
+                        userNames = userNamesMap,
+                        shares = sortedMemberIds.associateWith { 1 }
+                    )}
+                    if (_uiState.value.isPersonalExpense) {
+                        toggleDirectExpense(true)
+                    } else {
+                        recalculateSplits()
+                    }
+                }
             }
         }
     }
@@ -151,6 +185,34 @@ constructor(
         }
     }
 
+    fun toggleDirectExpense(isDirect: Boolean) {
+        viewModelScope.launch {
+            val currentUserId = userContext.userId.firstOrNull() ?: return@launch
+            
+            _uiState.update { state -> 
+                if (isDirect) {
+                     // Switch to direct expense: Keep participants selectable, default payer to current user
+                    state.copy(
+                        isPersonalExpense = true, // Reusing field for "is Direct Expense"
+                        payerId = currentUserId,
+                        // Do NOT force participants - allow user to select multiple
+                        splitType = SplitType.EQUAL
+                    )
+                } else {
+                    // Revert to group: restore group members
+                    state.copy(
+                        isPersonalExpense = false,
+                        selectedParticipants = state.groupMembers,
+                        splitType = SplitType.EQUAL
+                    )
+                }
+            }
+            normalizeShares()
+            recalculateSplits()
+        }
+    }
+
+
     fun updateTitle(title: String) {
         _uiState.update { it.copy(title = title) }
     }
@@ -162,6 +224,9 @@ constructor(
 
     fun updateSplitType(splitType: SplitType) {
         _uiState.update { it.copy(splitType = splitType) }
+        if (splitType == SplitType.SHARES) {
+            normalizeShares()
+        }
         recalculateSplits()
     }
 
@@ -174,6 +239,19 @@ constructor(
         _uiState.update { it.copy(expenseDate = normalizeToStartOfDay(dateMillis)) }
     }
 
+    /**
+     * Invariant: shares must contain an entry for every selected participant.
+     * Call this after any change to selectedParticipants or when switching to SHARES split type.
+     */
+    private fun normalizeShares() {
+        _uiState.update { state ->
+            val updatedShares = state.selectedParticipants.associateWith { userId ->
+                state.shares[userId] ?: 1 // Default 1 share if not present
+            }
+            state.copy(shares = updatedShares)
+        }
+    }
+
     fun toggleParticipant(userId: String) {
         _uiState.update { state ->
             val current = state.selectedParticipants.toMutableList()
@@ -184,6 +262,7 @@ constructor(
             }
             state.copy(selectedParticipants = current.sorted())
         }
+        normalizeShares()
         recalculateSplits()
     }
 
@@ -375,7 +454,7 @@ constructor(
                 val expense =
                         Expense(
                                 id = finalExpenseId,
-                                groupId = groupId,
+                                groupId = if (state.isPersonalExpense) PersonalGroupConstants.PERSONAL_GROUP_ID else groupId,
                                 title = state.title,
                                 amount = amount,
                                 currency = "INR",

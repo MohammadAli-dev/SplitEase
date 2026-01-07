@@ -17,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -24,6 +26,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -144,6 +147,34 @@ fun AddExpenseScreen(
                     modifier = Modifier.fillMaxWidth()
             )
 
+            // Expense Type Toggle
+            Text("Expense Type", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !uiState.isPersonalExpense,
+                    onClick = { viewModel.toggleDirectExpense(false) },
+                    label = { Text("Group Expense") },
+                    leadingIcon = { 
+                         if (!uiState.isPersonalExpense) Icon(Icons.Default.Home, null) 
+                    }
+                )
+                FilterChip(
+                    selected = uiState.isPersonalExpense,
+                    onClick = { viewModel.toggleDirectExpense(true) },
+                    label = { Text("Non-Group Expense") },
+                    leadingIcon = {
+                        if (uiState.isPersonalExpense) Icon(Icons.Default.Person, null) 
+                    }
+                )
+            }
+            if (uiState.isPersonalExpense) {
+                Text(
+                    "Non-Group expenses are shared costs with people, without creating a group.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             // Split Type Selector
 
             // Expense Date Picker
@@ -181,7 +212,7 @@ fun AddExpenseScreen(
                 ) { DatePicker(state = datePickerState) }
             }
 
-            // Split Type Selector
+            // Split Type Selector (for group expenses) or always for direct expense splits
             Text("Split Type", style = MaterialTheme.typography.labelMedium)
             Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -197,57 +228,100 @@ fun AddExpenseScreen(
             }
 
             // Participant Selection
-            Text("Participants", style = MaterialTheme.typography.labelMedium)
-            Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                uiState.groupMembers.forEach { userId ->
+            if (uiState.isPersonalExpense) {
+                // Non-Group expense: show "You" + all other users to select
+                Text("Select Participants", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "Choose people to split this expense with",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // "You" chip - always selected, cannot be removed
                     FilterChip(
-                            selected = userId in uiState.selectedParticipants,
-                            onClick = { viewModel.toggleParticipant(userId) },
-                            label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
+                            selected = true,
+                            onClick = { /* Cannot deselect self */ },
+                            label = { Text("You") },
+                            enabled = false // Visually indicate it's locked
                     )
+                    
+                    // Other users - selectable
+                    uiState.groupMembers.forEach { userId ->
+                        FilterChip(
+                                selected = userId in uiState.selectedParticipants,
+                                onClick = { viewModel.toggleParticipant(userId) },
+                                label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
+                        )
+                    }
+                }
+                
+                if (uiState.groupMembers.isEmpty()) {
+                    Text(
+                        "No other users found. Add users from a group first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                // Group expense: show group members
+                Text("Participants", style = MaterialTheme.typography.labelMedium)
+                Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    uiState.groupMembers.forEach { userId ->
+                        FilterChip(
+                                selected = userId in uiState.selectedParticipants,
+                                onClick = { viewModel.toggleParticipant(userId) },
+                                label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
+                        )
+                    }
                 }
             }
 
-            // Split Input Section
-            when (uiState.splitType) {
-                SplitType.EQUAL -> {
-                    SplitPreviewSection(
-                            splitPreview = uiState.splitPreview,
-                            userNames = uiState.userNames
-                    )
-                }
-                SplitType.EXACT -> {
-                    ExactAmountInputSection(
-                            participants = uiState.selectedParticipants,
-                            amounts = uiState.exactAmounts,
-                            userNames = uiState.userNames,
-                            onAmountChange = { userId, amount ->
-                                viewModel.updateExactAmount(userId, amount)
-                            }
-                    )
-                }
-                SplitType.PERCENTAGE -> {
-                    PercentageInputSection(
-                            participants = uiState.selectedParticipants,
-                            percentages = uiState.percentages,
-                            userNames = uiState.userNames,
-                            onPercentageChange = { userId, pct ->
-                                viewModel.updatePercentage(userId, pct)
-                            }
-                    )
-                }
-                SplitType.SHARES -> {
-                    SharesInputSection(
-                            participants = uiState.selectedParticipants,
-                            shares = uiState.shares,
-                            userNames = uiState.userNames,
-                            onSharesChange = { userId, count ->
-                                viewModel.updateShares(userId, count)
-                            }
-                    )
+            // Split Input Section - show for any expense with participants selected
+            if (uiState.selectedParticipants.isNotEmpty()) {
+                when (uiState.splitType) {
+                    SplitType.EQUAL -> {
+                        SplitPreviewSection(
+                                splitPreview = uiState.splitPreview,
+                                userNames = uiState.userNames
+                        )
+                    }
+                    SplitType.EXACT -> {
+                        ExactAmountInputSection(
+                                participants = uiState.selectedParticipants,
+                                amounts = uiState.exactAmounts,
+                                userNames = uiState.userNames,
+                                onAmountChange = { userId, amount ->
+                                    viewModel.updateExactAmount(userId, amount)
+                                }
+                        )
+                    }
+                    SplitType.PERCENTAGE -> {
+                        PercentageInputSection(
+                                participants = uiState.selectedParticipants,
+                                percentages = uiState.percentages,
+                                userNames = uiState.userNames,
+                                onPercentageChange = { userId, pct ->
+                                    viewModel.updatePercentage(userId, pct)
+                                }
+                        )
+                    }
+                    SplitType.SHARES -> {
+                        SharesInputSection(
+                                participants = uiState.selectedParticipants,
+                                shares = uiState.shares,
+                                userNames = uiState.userNames,
+                                onSharesChange = { userId, count ->
+                                    viewModel.updateShares(userId, count)
+                                }
+                        )
+                    }
                 }
             }
 

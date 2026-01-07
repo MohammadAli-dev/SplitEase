@@ -29,8 +29,13 @@ constructor(
         ) { expenses, settlements, groups ->
             val expenseItems =
                 expenses.map { expense ->
-                    val groupName =
-                        groups.find { it.id == expense.groupId }?.name ?: "Unknown Group"
+                    val groupName = 
+                        if (expense.groupId == com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID) {
+                            // Invariant: PERSONAL_GROUP_ID is a virtual group and does not exist in expense_groups table
+                            com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_NAME
+                        } else {
+                            groups.find { it.id == expense.groupId }?.name ?: "Unknown Group"
+                        }
                     ActivityItem.ExpenseAdded(
                         id = "expense_${expense.id}",
                         title = expense.title,
@@ -45,7 +50,11 @@ constructor(
             val settlementItems =
                 settlements.map { settlement ->
                     val groupName =
-                        groups.find { it.id == settlement.groupId }?.name ?: "Unknown Group"
+                        if (settlement.groupId == com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID) {
+                            com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_NAME
+                        } else {
+                            groups.find { it.id == settlement.groupId }?.name ?: "Unknown Group"
+                        }
                     ActivityItem.SettlementCreated(
                         id = "settlement_${settlement.id}",
                         fromUserName = "You", // Placeholder until Auth

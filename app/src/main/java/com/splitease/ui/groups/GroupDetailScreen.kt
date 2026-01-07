@@ -22,7 +22,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-// import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import com.splitease.ui.common.SyncStatusIcon
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -34,6 +35,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -79,6 +82,10 @@ fun GroupDetailScreen(
     
     // Expanded settlement row state
     var expandedSettlementKey by remember { mutableStateOf<String?>(null) }
+    
+    // Leave Group Dialog State
+    var showLeaveDialog by remember { mutableStateOf(false) }
+    var leaveDialogAllowed by remember { mutableStateOf(false) } // true = can leave, false = blocked
 
     // Handle one-off events (Snackbar)
     LaunchedEffect(viewModel.events) {
@@ -87,8 +94,32 @@ fun GroupDetailScreen(
                 is GroupDetailEvent.ShowSnackbar -> {
                     snackbarHostState.showSnackbar(event.message)
                 }
+                is GroupDetailEvent.ShowLeaveGroupDialog -> {
+                    leaveDialogAllowed = event.canLeave
+                    showLeaveDialog = true
+                }
             }
         }
+    }
+
+    if (showLeaveDialog) {
+        val title = if (leaveDialogAllowed) "Leaving Group" else "Cannot Leave Group"
+        val text = if (leaveDialogAllowed) 
+            "You can now safely leave this group." 
+        else 
+            "You must settle all balances before leaving this group."
+        
+        AlertDialog(
+            onDismissRequest = { showLeaveDialog = false },
+            title = { Text(title) },
+            text = { Text(text) },
+            confirmButton = {
+                TextButton(onClick = { showLeaveDialog = false }) {
+                    Text("OK")
+                }
+            },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) }
+        )
     }
 
     Scaffold(
@@ -123,6 +154,23 @@ fun GroupDetailScreen(
                     
                     IconButton(onClick = { viewModel.retry() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    }
+                    
+                    var showMenu by remember { mutableStateOf(false) }
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Leave Group") },
+                            onClick = {
+                                showMenu = false
+                                viewModel.onLeaveGroupClicked()
+                            }
+                        )
                     }
                 }
             )
