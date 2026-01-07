@@ -1,7 +1,7 @@
 package com.splitease.data.identity
 
+import com.splitease.data.auth.TokenManager
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -12,11 +12,12 @@ interface UserContext {
 
 @Singleton
 class UserContextImpl @Inject constructor(
-    private val localUserManager: LocalUserManager
+    private val localUserManager: LocalUserManager,
+    private val tokenManager: TokenManager
 ) : UserContext {
 
     override val userId: Flow<String> = localUserManager.userId
 
-    // Hardcoded to false for Sprint 11A (Pre-Auth)
-    override val isAuthenticated: Flow<Boolean> = flowOf(false)
+    // Driven by TokenManager - true if valid (non-expired) token exists
+    override val isAuthenticated: Flow<Boolean> = tokenManager.hasValidToken()
 }

@@ -32,6 +32,21 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.math.BigDecimal
 
+/**
+ * Composable screen for settling a monetary balance with a friend.
+ *
+ * Displays the friend's name and current balance status, provides an amount input and a "Settle Up"
+ * action when a non-zero balance exists, and offers a "Return to Ledger" action when the balance
+ * is zero. Observes the view model's UI state to update the UI and react to loading/error states.
+ *
+ * When the view model reports that settlement completed, this screen resets the settled state on
+ * the view model and invokes the navigation callback.
+ *
+ * @param onNavigateUp Callback invoked to navigate back; also invoked automatically after a
+ * successful settlement.
+ * @param viewModel View model that supplies UI state and actions for settling up. Defaults to a
+ * Hilt-provided instance.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettleUpScreen(
@@ -96,8 +111,7 @@ fun SettleUpScreen(
                 color = statusColor
             )
 
-            if (balance.abs() > BigDecimal.ZERO) {
-                // Input
+            if (balance.abs().compareTo(BigDecimal.ZERO) > 0) {                // Input
                 OutlinedTextField(
                     value = uiState.amountInput,
                     onValueChange = viewModel::onAmountChanged,

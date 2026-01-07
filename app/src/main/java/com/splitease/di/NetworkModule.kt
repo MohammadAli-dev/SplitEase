@@ -1,6 +1,6 @@
 package com.splitease.di
 
-import com.splitease.data.remote.MockAuthInterceptor
+import com.splitease.data.auth.AuthInterceptor
 import com.splitease.data.remote.SplitEaseApi
 import dagger.Module
 import dagger.Provides
@@ -16,15 +16,21 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    /**
+     * Provides an OkHttpClient configured with HTTP request/response logging and request authentication.
+     *
+     * @param authInterceptor Interceptor that injects authentication information into outgoing requests.
+     * @return An OkHttpClient instance with a body-level HTTP logging interceptor and the provided authentication interceptor.
+     */
     @Provides
     @Singleton
-    fun provideOkHttpClient(mockAuthInterceptor: MockAuthInterceptor): OkHttpClient {
+    fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
         return OkHttpClient.Builder()
             .addInterceptor(logging)
-            .addInterceptor(mockAuthInterceptor) // Mock interceptor for auth
+            .addInterceptor(authInterceptor) // Real auth interceptor
             .build()
     }
 

@@ -1,8 +1,26 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.hiltAndroid)
     alias(libs.plugins.ksp)
+}
+
+// Load auth config from local.properties (with fallback to empty strings)
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+/**
+ * Retrieves an authentication-related property value from the project's local.properties.
+ *
+ * @param key The property key to look up (for example, "SUPABASE_PROJECT_ID").
+ * @return The property value if present, otherwise an empty string.
+ */
+fun getAuthProperty(key: String): String {
+    return localProperties.getProperty(key, "")
 }
 
 android {
@@ -20,6 +38,11 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Auth BuildConfig fields (loaded from local.properties)
+        buildConfigField("String", "SUPABASE_PROJECT_ID", "\"${getAuthProperty("SUPABASE_PROJECT_ID")}\"")
+        buildConfigField("String", "SUPABASE_PUBLIC_KEY", "\"${getAuthProperty("SUPABASE_PUBLIC_KEY")}\"")
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${getAuthProperty("GOOGLE_WEB_CLIENT_ID")}\"")
     }
 
     buildTypes {
@@ -40,6 +63,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"
@@ -72,6 +96,9 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp.logging.interceptor)
+
+    // Google Sign-In
+    implementation(libs.google.play.services.auth)
 
     // Hilt
     implementation(libs.hilt.android)

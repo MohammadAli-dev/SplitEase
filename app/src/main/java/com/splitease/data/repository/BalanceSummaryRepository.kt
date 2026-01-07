@@ -34,6 +34,17 @@ class BalanceSummaryRepository @Inject constructor(
     private val userContext: UserContext
 ) {
 
+    /**
+     * Produces a live dashboard summary by combining expenses, splits, settlements, and the current user ID.
+     *
+     * When the current user ID is empty the function emits an empty DashboardSummary. For a non-empty user,
+     * the emitted DashboardSummary contains per-friend net balances (positive = friend owes the user,
+     * negative = user owes the friend), totals for amounts owed to the user and amounts the user owes,
+     * and a list of FriendBalance entries. Entries with a zero net balance are excluded; each FriendBalance
+     * uses a placeholder friendName derived from the friendId (first 8 characters).
+     *
+     * @return A DashboardSummary with computed totalOwed, totalOwing, and a sorted list of non-zero FriendBalance items.
+     */
     fun getDashboardSummary(): Flow<DashboardSummary> {
         return combine(
             expenseDao.getAllExpenses(),
@@ -124,8 +135,11 @@ class BalanceSummaryRepository @Inject constructor(
     }
 
     /**
-     * Single source of truth for a specific friend's balance.
-     * Reuses dashboard logic to ensure consistency.
+     * Provides the current balance for a specific friend.
+     *
+     * @param friendId The ID of the friend whose balance to retrieve.
+     * @return The friend's balance: a positive value means the friend owes the current user,
+     * a negative value means the current user owes the friend. Returns `BigDecimal.ZERO` if no balance is found.
      */
     fun getBalanceWithFriend(friendId: String): Flow<BigDecimal> {
         return getDashboardSummary().map { summary ->
