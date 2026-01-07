@@ -149,16 +149,6 @@ fun FriendDetailScreen(
     }
 }
 
-/**
- * Renders a single friend's ledger transaction as a horizontally arranged list row.
- *
- * Visuals vary by transaction subtype: a subtype-specific icon is shown, a subtitle is derived
- * ("groupName" for group expenses, "Direct Expense" for direct expenses, "Settlement" for settlements),
- * and settlement items use a teal accent for the title, icon tint, and amount. The transaction timestamp
- * is displayed using the "MMM dd, yyyy" format and the amount is shown prefixed with "₹".
- *
- * @param transaction The ledger item to render; its subtype determines icon, subtitle, and accent color.
- */
 @Composable
 private fun TransactionItem(transaction: FriendLedgerItem) {
     val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())

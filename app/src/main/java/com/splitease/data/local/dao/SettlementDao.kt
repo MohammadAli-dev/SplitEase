@@ -17,23 +17,9 @@ interface SettlementDao {
     @Query("SELECT * FROM settlements WHERE groupId = :groupId ORDER BY date DESC")
     fun getSettlementsForGroup(groupId: String): Flow<List<Settlement>>
 
-    /**
-     * Observes all settlement records ordered by most recent first.
-     *
-     * Emits updates whenever the settlements table changes.
-     *
-     * @return A Flow that emits lists of Settlement objects ordered by `date` descending.
-     */
     @Query("SELECT * FROM settlements ORDER BY date DESC")
     fun getAllSettlements(): Flow<List<Settlement>>
 
-    /**
-     * Observe settlements exchanged between two users, ordered by date descending.
-     *
-     * @param userA ID of the first user.
-     * @param userB ID of the second user.
-     * @return Lists of Settlement objects involving both users, newest first.
-     */
     @Query("""
         SELECT * FROM settlements 
         WHERE (fromUserId = :userA AND toUserId = :userB) 
