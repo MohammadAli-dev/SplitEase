@@ -92,7 +92,7 @@ class ConnectionManagerImpl @Inject constructor(
                     Log.d(TAG, "Created invite for phantom=$phantomLocalUserId")
                     InviteResult.Success(body.inviteToken, body.expiresAt)
                 } else {
-                    val errorBody = response.errorBody()?.string()
+                    val errorBody = response.errorBody()?.use { it.string() }
                     Log.e(TAG, "Create invite failed: ${response.code()} - $errorBody")
                     InviteResult.Error("Failed to create invite: ${response.code()}")
                 }
@@ -114,18 +114,29 @@ class ConnectionManagerImpl @Inject constructor(
                     val status = when (body.status) {
                         "PENDING" -> ClaimStatus.Pending
                         "CLAIMED" -> {
-                            // Update local state to CLAIMED
+                            // Update or create local state to CLAIMED
                             val existingState = connectionStateDao.get(phantomLocalUserId)
-                            if (existingState != null) {
-                                connectionStateDao.upsert(
-                                    existingState.copy(
-                                        status = ConnectionStatus.CLAIMED,
-                                        claimedByCloudUserId = body.claimedBy?.cloudUserId,
-                                        claimedByName = body.claimedBy?.name,
-                                        lastCheckedAt = System.currentTimeMillis()
-                                    )
+                            val updatedState = if (existingState != null) {
+                                existingState.copy(
+                                    status = ConnectionStatus.CLAIMED,
+                                    claimedByCloudUserId = body.claimedBy?.cloudUserId,
+                                    claimedByName = body.claimedBy?.name,
+                                    lastCheckedAt = System.currentTimeMillis()
+                                )
+                            } else {
+                                // No local state exists - create new one
+                                Log.w(TAG, "No local state for claimed invite, creating new entry")
+                                ConnectionStateEntity(
+                                    phantomLocalUserId = phantomLocalUserId,
+                                    inviteToken = "", // Token not available from status check
+                                    status = ConnectionStatus.CLAIMED,
+                                    claimedByCloudUserId = body.claimedBy?.cloudUserId,
+                                    claimedByName = body.claimedBy?.name,
+                                    lastCheckedAt = System.currentTimeMillis()
                                 )
                             }
+                            connectionStateDao.upsert(updatedState)
+                            
                             ClaimStatus.Claimed(
                                 cloudUserId = body.claimedBy?.cloudUserId ?: "",
                                 name = body.claimedBy?.name ?: "Unknown"
@@ -139,7 +150,7 @@ class ConnectionManagerImpl @Inject constructor(
                     Log.d(TAG, "Invite status for phantom=$phantomLocalUserId: ${body.status}")
                     status
                 } else {
-                    val errorBody = response.errorBody()?.string()
+                    val errorBody = response.errorBody()?.use { it.string() }
                     Log.e(TAG, "Check status failed: ${response.code()} - $errorBody")
                     ClaimStatus.Error("Failed to check status: ${response.code()}")
                 }

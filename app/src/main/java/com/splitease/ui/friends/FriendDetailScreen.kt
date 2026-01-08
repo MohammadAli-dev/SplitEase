@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -215,7 +216,7 @@ private fun ConnectionStatusBanner(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.padding(horizontal = 8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Creating invite...")
                 }
             }
@@ -244,7 +245,7 @@ private fun ConnectionStatusBanner(
                             tint = Color(0xFFFF9800),
                             modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Waiting for $friendName to join...",
                             style = MaterialTheme.typography.bodyMedium,
@@ -288,7 +289,7 @@ private fun ConnectionStatusBanner(
                             tint = Color(0xFF4CAF50),
                             modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "✓ ${connectionState.claimerName} joined — Tap to finalize",
                             style = MaterialTheme.typography.bodyMedium,
@@ -307,7 +308,7 @@ private fun ConnectionStatusBanner(
                                 modifier = Modifier.size(16.dp),
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
-                            Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text("Merging...")
                         } else {
                             Text("Finalize Connection")

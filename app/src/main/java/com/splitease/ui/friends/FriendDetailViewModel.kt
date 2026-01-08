@@ -13,11 +13,15 @@ import com.splitease.data.repository.BalanceSummaryRepository
 import com.splitease.data.repository.FriendLedgerItem
 import com.splitease.data.repository.FriendTransactionsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
@@ -32,6 +36,17 @@ sealed class ConnectionUiState {
     data class Claimed(val claimerName: String) : ConnectionUiState()
     object Merged : ConnectionUiState()
     data class Error(val message: String) : ConnectionUiState()
+}
+
+/**
+ * One-off navigation events emitted by ViewModel.
+ */
+sealed class FriendDetailEvent {
+    /**
+     * Navigate back after phantom merge completes.
+     * The phantom user no longer exists.
+     */
+    object NavigateBackAfterMerge : FriendDetailEvent()
 }
 
 data class FriendDetailUiState(
@@ -58,6 +73,9 @@ class FriendDetailViewModel @Inject constructor(
     
     private val _uiState = MutableStateFlow(FriendDetailUiState(friendId = friendId))
     val uiState: StateFlow<FriendDetailUiState> = _uiState.asStateFlow()
+
+    private val _events = MutableSharedFlow<FriendDetailEvent>()
+    val events: SharedFlow<FriendDetailEvent> = _events.asSharedFlow()
     
     init {
         loadFriendDetails()
@@ -81,16 +99,18 @@ class FriendDetailViewModel @Inject constructor(
                     else -> "settled up"
                 }
                 
-                _uiState.value.copy(
-                    friendId = friendId,
-                    friendName = friend?.name ?: friendId.take(8),
-                    balance = balance,
-                    balanceDisplayText = balanceText,
-                    transactions = transactions,
-                    isLoading = false
-                )
-            }.collectLatest { state ->
-                _uiState.value = state
+                Triple(friend, transactions, Pair(balance, balanceText))
+            }.collectLatest { (friend, transactions, balanceData) ->
+                _uiState.update { current ->
+                    current.copy(
+                        friendId = friendId,
+                        friendName = friend?.name ?: friendId.take(8),
+                        balance = balanceData.first,
+                        balanceDisplayText = balanceData.second,
+                        transactions = transactions,
+                        isLoading = false
+                    )
+                }
             }
         }
     }
@@ -104,7 +124,7 @@ class FriendDetailViewModel @Inject constructor(
                     ConnectionStatus.MERGED -> ConnectionUiState.Merged
                     null -> ConnectionUiState.None
                 }
-                _uiState.value = _uiState.value.copy(connectionState = connectionUiState)
+                _uiState.update { it.copy(connectionState = connectionUiState) }
             }
         }
     }
@@ -114,17 +134,13 @@ class FriendDetailViewModel @Inject constructor(
      */
     fun createInvite() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(connectionState = ConnectionUiState.Loading)
+            _uiState.update { it.copy(connectionState = ConnectionUiState.Loading) }
             when (val result = connectionManager.createInvite(friendId)) {
                 is InviteResult.Success -> {
-                    _uiState.value = _uiState.value.copy(
-                        connectionState = ConnectionUiState.InviteCreated(result.inviteToken)
-                    )
+                    _uiState.update { it.copy(connectionState = ConnectionUiState.InviteCreated(result.inviteToken)) }
                 }
                 is InviteResult.Error -> {
-                    _uiState.value = _uiState.value.copy(
-                        connectionState = ConnectionUiState.Error(result.message)
-                    )
+                    _uiState.update { it.copy(connectionState = ConnectionUiState.Error(result.message)) }
                 }
             }
         }
@@ -138,9 +154,7 @@ class FriendDetailViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = connectionManager.checkInviteStatus(friendId)) {
                 is ClaimStatus.Claimed -> {
-                    _uiState.value = _uiState.value.copy(
-                        connectionState = ConnectionUiState.Claimed(result.name)
-                    )
+                    _uiState.update { it.copy(connectionState = ConnectionUiState.Claimed(result.name)) }
                 }
                 is ClaimStatus.Error -> {
                     // Don't overwrite current state on error
@@ -155,33 +169,36 @@ class FriendDetailViewModel @Inject constructor(
     /**
      * Finalize connection by merging phantom into real user.
      * Only works when status is CLAIMED.
+     *
+     * After successful merge, emits [FriendDetailEvent.NavigateBackAfterMerge]
+     * because the phantom user is deleted.
      */
     fun finalizeConnection() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isMerging = true)
+            _uiState.update { it.copy(isMerging = true) }
             when (val result = connectionManager.mergeIfClaimed(friendId)) {
                 is MergeResult.Success -> {
-                    // Note: After merge, the phantom user is deleted
-                    // The screen should navigate back or refresh
-                    _uiState.value = _uiState.value.copy(
-                        connectionState = ConnectionUiState.Merged,
-                        isMerging = false
-                    )
+                    // Phantom user is deleted - update state and emit navigation event
+                    _uiState.update { it.copy(connectionState = ConnectionUiState.Merged, isMerging = false) }
+                    _events.emit(FriendDetailEvent.NavigateBackAfterMerge)
                 }
                 is MergeResult.NotClaimed -> {
-                    _uiState.value = _uiState.value.copy(
-                        connectionState = ConnectionUiState.Error("Cannot merge - invite not claimed"),
-                        isMerging = false
-                    )
+                    _uiState.update {
+                        it.copy(
+                            connectionState = ConnectionUiState.Error("Cannot merge - invite not claimed"),
+                            isMerging = false
+                        )
+                    }
                 }
                 is MergeResult.Error -> {
-                    _uiState.value = _uiState.value.copy(
-                        connectionState = ConnectionUiState.Error(result.message),
-                        isMerging = false
-                    )
+                    _uiState.update {
+                        it.copy(
+                            connectionState = ConnectionUiState.Error(result.message),
+                            isMerging = false
+                        )
+                    }
                 }
             }
         }
     }
 }
-

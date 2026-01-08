@@ -98,22 +98,33 @@ serve(async (req: Request) => {
     // Check if invite already exists for this phantom + creator (idempotent)
     const { data: existingInvite, error: selectError } = await supabaseAdmin
       .from('connection_invites')
-      .select('invite_token, expires_at')
+      .select('id, invite_token, expires_at')
       .eq('phantom_local_user_id', phantomLocalUserId)
       .eq('created_by_cloud_user_id', cloudUserId)
       .single()
 
     if (existingInvite && !selectError) {
-      // Return existing invite (idempotent)
-      console.log(`Returning existing invite for phantom=${phantomLocalUserId}`)
-      const response: CreateInviteResponse = {
-        inviteToken: existingInvite.invite_token,
-        expiresAt: existingInvite.expires_at
+      // Check if existing invite is expired
+      const expiresAt = new Date(existingInvite.expires_at)
+      if (expiresAt > new Date()) {
+        // Return existing non-expired invite (idempotent)
+        console.log(`Returning existing invite for phantom=${phantomLocalUserId}`)
+        const response: CreateInviteResponse = {
+          inviteToken: existingInvite.invite_token,
+          expiresAt: existingInvite.expires_at
+        }
+        return new Response(
+          JSON.stringify(response),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      } else {
+        // Existing invite is expired - delete it so we can create a new one
+        console.log(`Existing invite expired for phantom=${phantomLocalUserId}, deleting`)
+        await supabaseAdmin
+          .from('connection_invites')
+          .delete()
+          .eq('id', existingInvite.id)
       }
-      return new Response(
-        JSON.stringify(response),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
     }
 
     // Generate new invite

@@ -51,11 +51,9 @@ CREATE POLICY "Creators can insert own invites" ON connection_invites
     FOR INSERT
     WITH CHECK (auth.uid() = created_by_cloud_user_id);
 
--- Anyone can read invite by token (for claiming - token is secret)
--- This is intentionally permissive since the token acts as the auth
-CREATE POLICY "Anyone can read by token" ON connection_invites
-    FOR SELECT
-    USING (invite_token IS NOT NULL);
+-- NOTE: Token lookups for claiming are performed via Edge Functions using the
+-- service-role key, NOT via direct client queries with RLS.
+-- This ensures invite tokens act as bearer secrets without exposing rows.
 
 -- Update only for claiming (by the claimer)
 CREATE POLICY "Claimers can update to claim" ON connection_invites
