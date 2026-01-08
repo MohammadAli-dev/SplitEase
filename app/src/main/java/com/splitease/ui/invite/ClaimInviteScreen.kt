@@ -61,7 +61,8 @@ fun ClaimInviteScreen(
             contentAlignment = Alignment.Center
         ) {
             when {
-                uiState.isLoading -> {
+                // Full-screen loading only during initial data fetch
+                uiState.isInitialLoading -> {
                     LoadingContent()
                 }
                 !uiState.isAuthenticated -> {
@@ -78,8 +79,9 @@ fun ClaimInviteScreen(
                     )
                 }
                 else -> {
+                    // Pass isClaimInProgress for in-button loading indicator
                     AcceptInviteContent(
-                        isLoading = uiState.isLoading,
+                        isLoading = uiState.isClaimInProgress,
                         onAcceptClick = { viewModel.claimInvite() }
                     )
                 }

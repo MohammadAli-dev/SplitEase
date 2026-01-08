@@ -242,6 +242,18 @@ serve(async (req: Request) => {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 30) // 30 day expiry
 
+    /**
+     * INSERT with race condition handling.
+     * 
+     * REQUIRES: UNIQUE constraint on (phantom_local_user_id, created_by_cloud_user_id)
+     * 
+     * If another concurrent request won the race (23505), we fetch and return
+     * the winning invite instead of failing with 500.
+     * 
+     * Status codes:
+     * - 201: This request created the invite
+     * - 200: Invite already existed (idempotent return or race recovery)
+     */
     const { error: insertError } = await supabaseAdmin
       .from('connection_invites')
       .insert({
@@ -252,7 +264,40 @@ serve(async (req: Request) => {
       })
 
     if (insertError) {
-      console.error('Insert error:', insertError.message)
+      // Race condition: another concurrent request won the INSERT
+      if (insertError.code === '23505') {
+        console.log('Invite race detected (23505). Fetching winning invite.')
+
+        const { data: raceWinner, error: raceError } = await supabaseAdmin
+          .from('connection_invites')
+          .select('invite_token, expires_at')
+          .eq('phantom_local_user_id', phantomLocalUserId)
+          .eq('created_by_cloud_user_id', cloudUserId)
+          .single()
+
+        // Handle unexpected errors during race recovery
+        if (raceError && raceError.code !== 'PGRST116') {
+          console.error('Failed to fetch race winner:', raceError.message)
+        }
+
+        if (raceWinner) {
+          console.log(`Race recovery: returning winning invite for phantom=${phantomLocalUserId}`)
+          const response: CreateInviteResponse = {
+            inviteToken: raceWinner.invite_token,
+            expiresAt: raceWinner.expires_at
+          }
+          return new Response(
+            JSON.stringify(response),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+
+        // Defensive fallback: 23505 triggered but no invite found (should never happen)
+        console.error('23505 encountered but no invite found - constraint may be misconfigured')
+      }
+
+      // Genuine failure (not a race condition)
+      console.error('Insert error:', insertError.message, 'code:', insertError.code)
       return new Response(
         JSON.stringify({ error: 'Failed to create invite' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -266,6 +311,7 @@ serve(async (req: Request) => {
       expiresAt: expiresAt.toISOString()
     }
 
+    // 201: This request successfully created the invite
     return new Response(
       JSON.stringify(response),
       { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

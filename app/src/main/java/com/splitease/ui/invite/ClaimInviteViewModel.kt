@@ -18,9 +18,14 @@ import javax.inject.Inject
 
 /**
  * UI State for ClaimInviteScreen.
+ *
+ * Loading states are split for proper UX:
+ * - [isInitialLoading]: Full-screen spinner during initial data load
+ * - [isClaimInProgress]: In-button spinner during claim API call (keeps form visible)
  */
 data class ClaimInviteUiState(
-    val isLoading: Boolean = true,
+    val isInitialLoading: Boolean = true,
+    val isClaimInProgress: Boolean = false,
     val isAuthenticated: Boolean = false,
     val inviteToken: String? = null,
     val claimSuccess: ClaimSuccessInfo? = null,
@@ -62,7 +67,8 @@ class ClaimInviteViewModel @Inject constructor(
             val isAuthenticated = authState is AuthState.Authenticated
 
             _uiState.value = ClaimInviteUiState(
-                isLoading = false,
+                isInitialLoading = false,
+                isClaimInProgress = false,
                 isAuthenticated = isAuthenticated,
                 inviteToken = token,
                 claimSuccess = null,
@@ -85,14 +91,14 @@ class ClaimInviteViewModel @Inject constructor(
 
     /**
      * Attempt to claim the invite.
-     * Idempotent: Button is disabled while isLoading is true.
+     * Idempotent: Button is disabled while isClaimInProgress is true.
      */
     fun claimInvite() {
         val currentState = _uiState.value
         val token = currentState.inviteToken
 
-        // Idempotency gate
-        if (currentState.isLoading) return
+        // Idempotency gate - prevent duplicate claims
+        if (currentState.isClaimInProgress) return
         if (token.isNullOrBlank()) {
             _uiState.value = currentState.copy(
                 errorMessage = "No invite token available",
@@ -102,12 +108,12 @@ class ClaimInviteViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _uiState.value = currentState.copy(isLoading = true, errorMessage = null)
+            _uiState.value = currentState.copy(isClaimInProgress = true, errorMessage = null)
 
             when (val result = claimManager.claim(token)) {
                 is ClaimResult.Success -> {
                     _uiState.value = _uiState.value.copy(
-                        isLoading = false,
+                        isClaimInProgress = false,
                         claimSuccess = ClaimSuccessInfo(
                             friendId = result.friendId,
                             friendName = result.friendName
@@ -118,7 +124,7 @@ class ClaimInviteViewModel @Inject constructor(
                 is ClaimResult.Failure -> {
                     val (message, isTerminal) = mapClaimError(result.error)
                     _uiState.value = _uiState.value.copy(
-                        isLoading = false,
+                        isClaimInProgress = false,
                         errorMessage = message,
                         isTerminalError = isTerminal
                     )

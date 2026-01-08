@@ -1,17 +1,24 @@
 package com.splitease.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import com.splitease.ui.auth.LoginScreen
 import com.splitease.ui.auth.SignupScreen
 import com.splitease.ui.invite.ClaimInviteScreen
 
+/**
+ * Main navigation graph. Pure wiring - no IO, no side effects.
+ *
+ * @param navController External controller passed from MainActivity
+ * @param startDestination Stable destination based on auth state
+ */
 @Composable
-fun SplitEaseNavGraph(startDestination: String = Screen.Login.route) {
-    val navController = rememberNavController()
-
+fun SplitEaseNavGraph(
+    navController: NavHostController,
+    startDestination: String = Screen.Login.route
+) {
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Screen.Login.route) {
             LoginScreen(

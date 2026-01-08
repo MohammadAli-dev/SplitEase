@@ -52,7 +52,11 @@ data class ClaimerInfo(
  * Result from creating an invite.
  */
 sealed class InviteResult {
-    data class Success(val inviteToken: String, val expiresAt: String) : InviteResult()
+    /**
+     * @param inviteToken The unique invite token.
+     * @param expiresAt ISO-8601 expiration timestamp, or null if expiry is unknown (e.g., cached invite).
+     */
+    data class Success(val inviteToken: String, val expiresAt: String?) : InviteResult()
     data class Error(val message: String) : InviteResult()
 }
 

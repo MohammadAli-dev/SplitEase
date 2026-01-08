@@ -11,9 +11,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,9 +22,9 @@ import com.splitease.ui.navigation.Screen
 import com.splitease.ui.navigation.SplitEaseNavGraph
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,12 +36,16 @@ class MainViewModel @Inject constructor(
 ) : ViewModel() {
     val currentUser = authRepository.getCurrentUser()
 
-    private val _pendingDeepLinkRoute = MutableStateFlow<String?>(null)
-    val pendingDeepLinkRoute: StateFlow<String?> = _pendingDeepLinkRoute.asStateFlow()
+    /**
+     * One-shot navigation events using Channel.
+     * Channel ensures each event is consumed exactly once.
+     */
+    private val _navigationEvent = Channel<NavigationEvent>(Channel.BUFFERED)
+    val navigationEvent: Flow<NavigationEvent> = _navigationEvent.receiveAsFlow()
 
     /**
      * Process an incoming deep link intent.
-     * Saves token to PendingInviteStore and signals navigation.
+     * Saves token to PendingInviteStore and emits navigation event.
      */
     fun handleDeepLink(intent: Intent?) {
         val uri = intent?.data ?: return
@@ -52,10 +53,10 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = deepLinkHandler.parse(uri)) {
                 is DeepLinkResult.ClaimInvite -> {
-                    // Save token to authoritative store
+                    // Save token for process death survival
                     pendingInviteStore.save(result.inviteToken)
-                    // Signal navigation to ClaimInvite screen
-                    _pendingDeepLinkRoute.value = Screen.ClaimInvite.route
+                    // Emit one-shot navigation event
+                    _navigationEvent.send(NavigationEvent.NavigateTo(Screen.ClaimInvite.route))
                 }
                 is DeepLinkResult.Unknown -> {
                     // Ignore unknown deep links
@@ -63,10 +64,13 @@ class MainViewModel @Inject constructor(
             }
         }
     }
+}
 
-    fun consumePendingDeepLinkRoute() {
-        _pendingDeepLinkRoute.value = null
-    }
+/**
+ * Navigation events emitted by ViewModel, consumed by Activity.
+ */
+sealed class NavigationEvent {
+    data class NavigateTo(val route: String) : NavigationEvent()
 }
 
 @AndroidEntryPoint
@@ -81,28 +85,32 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val currentUser by viewModel.currentUser.collectAsState(initial = null)
-            val pendingDeepLinkRoute by viewModel.pendingDeepLinkRoute.collectAsState()
-
-            // Determine start destination
-            var startDestination by remember { mutableStateOf<String?>(null) }
+            val navController = androidx.navigation.compose.rememberNavController()
             
-            LaunchedEffect(currentUser, pendingDeepLinkRoute) {
-                startDestination = when {
-                    // Deep link takes priority
-                    pendingDeepLinkRoute != null -> {
-                        viewModel.consumePendingDeepLinkRoute()
-                        pendingDeepLinkRoute
+            // Stable startDestination based ONLY on auth state (no deep link influence)
+            val startDestination = if (currentUser != null) {
+                Screen.Dashboard.route
+            } else {
+                Screen.Login.route
+            }
+            
+            // Collect one-shot navigation events from ViewModel
+            LaunchedEffect(navController) {
+                viewModel.navigationEvent.collect { event ->
+                    when (event) {
+                        is NavigationEvent.NavigateTo -> {
+                            navController.navigate(event.route)
+                        }
                     }
-                    currentUser != null -> Screen.Dashboard.route
-                    else -> Screen.Login.route
                 }
             }
             
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    startDestination?.let { dest ->
-                        SplitEaseNavGraph(startDestination = dest)
-                    }
+                    SplitEaseNavGraph(
+                        navController = navController,
+                        startDestination = startDestination
+                    )
                 }
             }
         }

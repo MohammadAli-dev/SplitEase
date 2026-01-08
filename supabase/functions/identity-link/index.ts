@@ -38,6 +38,16 @@ interface LinkIdentityResponse {
   status: string
 }
 
+/**
+ * Truncates an ID to first 4 + last 4 characters for safe logging.
+ * Avoids exposing full PII in production logs.
+ * Example: "abc12345-...-xyz" → "abc1...xyz"
+ */
+function truncateId(id: string): string {
+  if (id.length <= 12) return id // Already short enough
+  return `${id.slice(0, 4)}...${id.slice(-4)}`
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -135,7 +145,7 @@ serve(async (req: Request) => {
     // Success response
     const response: LinkIdentityResponse = { status: 'linked' }
     
-    console.log(`Identity linked: cloud=${cloudUserId}, local=${localUserId}`)
+    console.log(`Identity linked: cloud=${truncateId(cloudUserId)}, local=${truncateId(localUserId)}`)
     
     return new Response(
       JSON.stringify(response),
