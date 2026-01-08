@@ -120,10 +120,18 @@ serve(async (req: Request) => {
       } else {
         // Existing invite is expired - delete it so we can create a new one
         console.log(`Existing invite expired for phantom=${phantomLocalUserId}, deleting`)
-        await supabaseAdmin
+        const { error: deleteError } = await supabaseAdmin
           .from('connection_invites')
           .delete()
           .eq('id', existingInvite.id)
+
+        if (deleteError) {
+          console.error('Failed to delete expired invite:', deleteError.message)
+          return new Response(
+            JSON.stringify({ error: 'Failed to delete expired invite' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
       }
     }
 
