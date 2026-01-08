@@ -109,7 +109,7 @@ class ConnectionManagerImpl @Inject constructor(
                     Log.d(TAG, "Returning existing invite for phantom=$phantomLocalUserId")
                     return@withContext InviteResult.Success(
                         inviteToken = existingState.inviteToken,
-                        expiresAt = "" // We don't store expiry locally
+                        expiresAt = null // Expiry not stored locally; null indicates unknown
                     )
                 }
 
