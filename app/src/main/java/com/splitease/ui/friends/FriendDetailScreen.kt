@@ -218,7 +218,7 @@ private fun ConnectionStatusBanner(
     onFinalize: () -> Unit
 ) {
     when (connectionState) {
-        is ConnectionUiState.None -> {
+        is ConnectionUiState.None, is ConnectionUiState.NotFound, is ConnectionUiState.Expired -> {
             // Show "Invite" option for phantom users
             Card(
                 modifier = Modifier
@@ -235,8 +235,13 @@ private fun ConnectionStatusBanner(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    val text = when (connectionState) {
+                        is ConnectionUiState.Expired -> "Invite expired. Send a new one?"
+                        is ConnectionUiState.NotFound -> "Invite not found. Send a new one?"
+                        else -> "Connect $friendName to a real account"
+                    }
                     Text(
-                        text = "Connect $friendName to a real account",
+                        text = text,
                         style = MaterialTheme.typography.bodyMedium
                     )
                     TextButton(onClick = onCreateInvite) {
@@ -306,6 +311,49 @@ private fun ConnectionStatusBanner(
                             Text("Check Status")
                         }
                         // TODO: Add share button for invite link
+                    }
+                }
+            }
+        }
+        is ConnectionUiState.Pending -> {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Waiting for $friendName to join...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        TextButton(onClick = onRefresh) {
+                            Text("Check Status")
+                        }
                     }
                 }
             }
@@ -418,9 +466,10 @@ private fun ConnectionStatusBanner(
  * The amount is shown with a "₹" currency symbol and the date is formatted as "MMM dd, yyyy".
  *
  * @param transaction The ledger item to render; supported subtypes are `GroupExpense`, `DirectExpense`, and `SettlementItem`.
+ */
 @Composable
 private fun TransactionItem(transaction: FriendLedgerItem) {
-    val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+    val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
     
     // Determine icon
     val icon = when (transaction) {

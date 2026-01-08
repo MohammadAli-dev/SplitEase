@@ -97,7 +97,15 @@ class ConnectionManagerImpl @Inject constructor(
             try {
                 // Check if we already have a local state for this phantom
                 val existingState = connectionStateDao.get(phantomLocalUserId)
-                if (existingState != null && existingState.status != ConnectionStatus.MERGED) {
+                
+                // Explicitly reject MERGED phantoms - no invite should be created
+                if (existingState != null && existingState.status == ConnectionStatus.MERGED) {
+                    Log.w(TAG, "Cannot create invite for merged phantom=$phantomLocalUserId")
+                    return@withContext InviteResult.Error("Phantom user has been merged.")
+                }
+                
+                // Return existing invite if status is INVITE_CREATED or CLAIMED
+                if (existingState != null) {
                     Log.d(TAG, "Returning existing invite for phantom=$phantomLocalUserId")
                     return@withContext InviteResult.Success(
                         inviteToken = existingState.inviteToken,
@@ -163,6 +171,13 @@ class ConnectionManagerImpl @Inject constructor(
                     val status = when (body.status) {
                         "PENDING" -> ClaimStatus.Pending
                         "CLAIMED" -> {
+                            // Validate claimedBy is present - null/empty means malformed response
+                            val claimer = body.claimedBy
+                            if (claimer == null || claimer.cloudUserId.isNullOrBlank()) {
+                                Log.e(TAG, "CLAIMED status with missing claimer info - malformed response")
+                                return@withContext ClaimStatus.Error("Claimed but claimer info missing.")
+                            }
+                            
                             // Update local state to CLAIMED
                             val existingState = connectionStateDao.get(phantomLocalUserId)
                             if (existingState == null) {
@@ -175,15 +190,15 @@ class ConnectionManagerImpl @Inject constructor(
                             connectionStateDao.upsert(
                                 existingState.copy(
                                     status = ConnectionStatus.CLAIMED,
-                                    claimedByCloudUserId = body.claimedBy?.cloudUserId,
-                                    claimedByName = body.claimedBy?.name,
+                                    claimedByCloudUserId = claimer.cloudUserId,
+                                    claimedByName = claimer.name ?: "Unknown",
                                     lastCheckedAt = System.currentTimeMillis()
                                 )
                             )
                             
                             ClaimStatus.Claimed(
-                                cloudUserId = body.claimedBy?.cloudUserId ?: "",
-                                name = body.claimedBy?.name ?: "Unknown"
+                                cloudUserId = claimer.cloudUserId,
+                                name = claimer.name ?: "Unknown"
                             )
                         }
                         "NOT_FOUND" -> ClaimStatus.NotFound

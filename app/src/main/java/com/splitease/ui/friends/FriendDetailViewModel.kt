@@ -35,6 +35,9 @@ sealed class ConnectionUiState {
     data class InviteCreated(val inviteToken: String) : ConnectionUiState()
     data class Claimed(val claimerName: String) : ConnectionUiState()
     object Merged : ConnectionUiState()
+    object Pending : ConnectionUiState()
+    object NotFound : ConnectionUiState()
+    object Expired : ConnectionUiState()
     data class Error(val message: String) : ConnectionUiState()
 }
 
@@ -178,20 +181,36 @@ class FriendDetailViewModel @Inject constructor(
      */
     fun refreshConnectionStatus() {
         viewModelScope.launch {
+            // Capture previous state to restore on error
+            val previousState = _uiState.value.connectionState
+            // Set loading state at start
+            _uiState.update { it.copy(connectionState = ConnectionUiState.Loading) }
+
             when (val result = connectionManager.checkInviteStatus(friendId)) {
                 is ClaimStatus.Claimed -> {
                     _uiState.update { it.copy(connectionState = ConnectionUiState.Claimed(result.name)) }
                 }
-                is ClaimStatus.Error -> {
-                    // Don't overwrite current state on error, but notify user
-                    _events.emit(FriendDetailEvent.ShowError("Status check failed: ${result.message}"))
+                is ClaimStatus.Pending -> {
+                    _uiState.update { it.copy(connectionState = ConnectionUiState.Pending) }
                 }
-                else -> {
-                    // Pending, NotFound, Expired - handled by observeConnectionState
+                is ClaimStatus.NotFound -> {
+                    _uiState.update { it.copy(connectionState = ConnectionUiState.NotFound) }
+                    // Optionally notify user
+                    _events.emit(FriendDetailEvent.ShowError("Invite not found."))
+                }
+                is ClaimStatus.Expired -> {
+                    _uiState.update { it.copy(connectionState = ConnectionUiState.Expired) }
+                    _events.emit(FriendDetailEvent.ShowError("Invite expired."))
+                }
+                is ClaimStatus.Error -> {
+                    // Restore previous state on error (don't leave it as Loading)
+                    _uiState.update { it.copy(connectionState = previousState) }
+                    _events.emit(FriendDetailEvent.ShowError("Status check failed: ${result.message}"))
                 }
             }
         }
     }
+
 
     /**
      * Merge the phantom friend into its claimed real user when the invite has been claimed.

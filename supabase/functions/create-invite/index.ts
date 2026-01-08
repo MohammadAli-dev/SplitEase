@@ -39,6 +39,12 @@ function getCorsHeaders(req: Request): Record<string, string> | null {
   
   // If ALLOWED_ORIGINS not configured, allow all (dev mode with warning)
   if (!allowedOriginsEnv) {
+    // If Authorization header is present, origin is required even in dev mode
+    if (req.headers.get('Authorization') && !origin) {
+      console.warn('Request with Authorization header missing Origin - denying CORS (dev mode)')
+      return null
+    }
+
     console.warn('ALLOWED_ORIGINS not set - allowing all origins (dev mode)')
     return {
       ...baseHeaders,
@@ -85,6 +91,7 @@ interface CreateInviteResponse {
  * Generate a cryptographically secure invite token prefixed with `inv_`.
  *
  * @returns The invite token string, prefixed with `inv_` followed by 32 lowercase hexadecimal characters.
+ *          (Generated from 16 random bytes / 128 bits).
  */
 async function generateInviteToken(): Promise<string> {
   const bytes = new Uint8Array(16)
@@ -171,6 +178,14 @@ serve(async (req: Request) => {
       supabaseUrl,
       supabaseServiceRoleKey
     )
+
+    /**
+     * NOTE:
+     * phantomLocalUserId is a client-scoped identifier.
+     * The server MUST NOT validate its existence or ownership.
+     * Ownership is enforced locally (offline-first).
+     * Server responsibility is limited to coordinating invite + claim lifecycle.
+     */
 
     // Check if invite already exists for this phantom + creator (idempotent)
     const { data: existingInvite, error: selectError } = await supabaseAdmin

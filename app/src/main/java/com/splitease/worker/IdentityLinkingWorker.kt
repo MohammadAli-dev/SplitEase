@@ -86,8 +86,14 @@ class IdentityLinkingWorker @AssistedInject constructor(
             when {
                 response.isSuccessful -> {
                     Log.d(TAG, "Identity linking succeeded")
-                    identityLinkStateStore.markLinked()
-                    Result.success()
+                    try {
+                        identityLinkStateStore.markLinked()
+                        Result.success()
+                    } catch (e: Exception) {
+                        // DataStore write failed - don't retry API call, fail permanently
+                        Log.e(TAG, "Failed to persist linked state: ${e.message}")
+                        Result.failure()
+                    }
                 }
                 response.code() == 401 || response.code() == 403 -> {
                     // Auth error - token invalid/revoked, fail permanently
