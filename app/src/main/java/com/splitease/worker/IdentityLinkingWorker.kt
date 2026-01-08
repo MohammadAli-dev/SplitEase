@@ -97,7 +97,9 @@ class IdentityLinkingWorker @AssistedInject constructor(
     }
 
     private fun retryOrFail(): Result {
-        return if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
+        // runAttemptCount is 0-indexed: 0 = first run, 1 = second run, etc.
+        // To allow 3 total attempts, retry only when count < 2 (runs 0, 1 can retry; run 2 fails)
+        return if (runAttemptCount < MAX_RETRY_ATTEMPTS - 1) {
             Log.d(TAG, "Retrying (attempt ${runAttemptCount + 1}/$MAX_RETRY_ATTEMPTS)")
             Result.retry()
         } else {

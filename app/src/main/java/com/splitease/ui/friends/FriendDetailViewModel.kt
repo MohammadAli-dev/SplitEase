@@ -47,6 +47,11 @@ sealed class FriendDetailEvent {
      * The phantom user no longer exists.
      */
     object NavigateBackAfterMerge : FriendDetailEvent()
+
+    /**
+     * Show transient error message (snackbar/toast).
+     */
+    data class ShowError(val message: String) : FriendDetailEvent()
 }
 
 data class FriendDetailUiState(
@@ -137,7 +142,8 @@ class FriendDetailViewModel @Inject constructor(
             _uiState.update { it.copy(connectionState = ConnectionUiState.Loading) }
             when (val result = connectionManager.createInvite(friendId)) {
                 is InviteResult.Success -> {
-                    _uiState.update { it.copy(connectionState = ConnectionUiState.InviteCreated(result.inviteToken)) }
+                    // Observer will pick up the new state from database
+                    // No explicit state update needed here
                 }
                 is InviteResult.Error -> {
                     _uiState.update { it.copy(connectionState = ConnectionUiState.Error(result.message)) }
@@ -157,7 +163,8 @@ class FriendDetailViewModel @Inject constructor(
                     _uiState.update { it.copy(connectionState = ConnectionUiState.Claimed(result.name)) }
                 }
                 is ClaimStatus.Error -> {
-                    // Don't overwrite current state on error
+                    // Don't overwrite current state on error, but notify user
+                    _events.emit(FriendDetailEvent.ShowError("Status check failed: ${result.message}"))
                 }
                 else -> {
                     // Pending, NotFound, Expired - handled by observeConnectionState

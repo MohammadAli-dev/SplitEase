@@ -114,28 +114,23 @@ class ConnectionManagerImpl @Inject constructor(
                     val status = when (body.status) {
                         "PENDING" -> ClaimStatus.Pending
                         "CLAIMED" -> {
-                            // Update or create local state to CLAIMED
+                            // Update local state to CLAIMED
                             val existingState = connectionStateDao.get(phantomLocalUserId)
-                            val updatedState = if (existingState != null) {
+                            if (existingState == null) {
+                                // No local state exists - this shouldn't happen if createInvite was called first
+                                // Return error instead of persisting with empty inviteToken
+                                Log.e(TAG, "No local state for claimed invite - createInvite must be called first")
+                                return@withContext ClaimStatus.Error("No invite found. Call createInvite first.")
+                            }
+                            
+                            connectionStateDao.upsert(
                                 existingState.copy(
                                     status = ConnectionStatus.CLAIMED,
                                     claimedByCloudUserId = body.claimedBy?.cloudUserId,
                                     claimedByName = body.claimedBy?.name,
                                     lastCheckedAt = System.currentTimeMillis()
                                 )
-                            } else {
-                                // No local state exists - create new one
-                                Log.w(TAG, "No local state for claimed invite, creating new entry")
-                                ConnectionStateEntity(
-                                    phantomLocalUserId = phantomLocalUserId,
-                                    inviteToken = "", // Token not available from status check
-                                    status = ConnectionStatus.CLAIMED,
-                                    claimedByCloudUserId = body.claimedBy?.cloudUserId,
-                                    claimedByName = body.claimedBy?.name,
-                                    lastCheckedAt = System.currentTimeMillis()
-                                )
-                            }
-                            connectionStateDao.upsert(updatedState)
+                            )
                             
                             ClaimStatus.Claimed(
                                 cloudUserId = body.claimedBy?.cloudUserId ?: "",

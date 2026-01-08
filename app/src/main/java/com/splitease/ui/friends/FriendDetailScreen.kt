@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,12 +29,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,17 +58,22 @@ fun FriendDetailScreen(
     viewModel: FriendDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // Collect one-off navigation events
+    // Collect one-off events
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
                 is FriendDetailEvent.NavigateBackAfterMerge -> onNavigateBack()
+                is FriendDetailEvent.ShowError -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
             }
         }
     }
     
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(uiState.friendName) },
@@ -204,7 +215,7 @@ private fun ConnectionStatusBanner(
                         text = "Connect $friendName to a real account",
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    androidx.compose.material3.TextButton(onClick = onCreateInvite) {
+                    TextButton(onClick = onCreateInvite) {
                         Text("Invite")
                     }
                 }
@@ -237,7 +248,7 @@ private fun ConnectionStatusBanner(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFFFFF8E1) // Amber light
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
                 )
             ) {
                 Column(
@@ -252,14 +263,14 @@ private fun ConnectionStatusBanner(
                         Icon(
                             imageVector = Icons.Default.Person,
                             contentDescription = null,
-                            tint = Color(0xFFFF9800),
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Waiting for $friendName to join...",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFFFF6F00)
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -267,7 +278,7 @@ private fun ConnectionStatusBanner(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        androidx.compose.material3.TextButton(onClick = onRefresh) {
+                        TextButton(onClick = onRefresh) {
                             Text("Check Status")
                         }
                         // TODO: Add share button for invite link
@@ -281,7 +292,7 @@ private fun ConnectionStatusBanner(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFFE8F5E9) // Green light
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             ) {
                 Column(
@@ -296,19 +307,19 @@ private fun ConnectionStatusBanner(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFF4CAF50),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "✓ ${connectionState.claimerName} joined — Tap to finalize",
+                            text = "${connectionState.claimerName} joined — Tap to finalize",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF2E7D32)
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    androidx.compose.material3.Button(
+                    Button(
                         onClick = onFinalize,
                         enabled = !isMerging,
                         modifier = Modifier.fillMaxWidth()
@@ -336,15 +347,37 @@ private fun ConnectionStatusBanner(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFFFFEBEE) // Red light
+                    containerColor = MaterialTheme.colorScheme.errorContainer
                 )
             ) {
-                Text(
-                    text = "Error: ${connectionState.message}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFD32F2F),
-                    modifier = Modifier.padding(12.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Error: ${connectionState.message}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    TextButton(onClick = onRefresh) {
+                        Text("Retry")
+                    }
+                }
             }
         }
     }

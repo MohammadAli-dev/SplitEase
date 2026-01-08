@@ -41,4 +41,4 @@ CREATE POLICY "Users can read own mapping" ON identity_maps
 
 COMMENT ON TABLE identity_maps IS 'Maps cloud user identities to local device identities for offline-first sync';
 COMMENT ON COLUMN identity_maps.cloud_user_id IS 'Supabase auth.users.id - unique, one mapping per cloud user';
-COMMENT ON COLUMN identity_maps.local_user_id IS 'UUID generated on device, stored as TEXT';
+COMMENT ON COLUMN identity_maps.local_user_id IS 'Device-generated UUID stored as TEXT. NOT UNIQUE: supports shared/offline devices where multiple cloud users may attempt to link the same local ID. Conflict resolution: first link wins (upsert with ignoreDuplicates: true).';

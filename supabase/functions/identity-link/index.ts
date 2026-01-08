@@ -107,13 +107,13 @@ serve(async (req: Request) => {
 
     // Insert identity mapping (idempotent: ON CONFLICT DO NOTHING)
     // The table has a UNIQUE constraint on cloud_user_id
+    // created_at uses database DEFAULT NOW()
     const { error: insertError } = await supabaseAdmin
       .from('identity_maps')
       .upsert(
         {
           cloud_user_id: cloudUserId,
-          local_user_id: localUserId,
-          created_at: new Date().toISOString()
+          local_user_id: localUserId
         },
         {
           onConflict: 'cloud_user_id',

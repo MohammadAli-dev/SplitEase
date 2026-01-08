@@ -37,11 +37,12 @@ abstract class ConnectionModule {
         ): ConnectionApiService {
             val baseUrl = AuthConfig.supabaseBaseUrl
 
-            // Use a non-empty URL for Retrofit (required), but calls will fail if not configured
-            val effectiveUrl = baseUrl.ifEmpty { "https://not-configured.invalid" }
+            require(baseUrl.isNotBlank()) {
+                "SUPABASE_URL is not configured. Set it in local.properties or BuildConfig."
+            }
 
             return Retrofit.Builder()
-                .baseUrl("$effectiveUrl/")
+                .baseUrl("$baseUrl/")
                 .client(okHttpClient)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

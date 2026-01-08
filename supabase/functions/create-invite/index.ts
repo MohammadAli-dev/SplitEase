@@ -17,13 +17,59 @@
 //   "expiresAt": "2026-12-31T23:59:59Z"
 // }
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts"
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0"
+import { crypto } from "https://deno.land/std@0.224.0/crypto/mod.ts"
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+// Base headers without origin (origin added dynamically)
+const baseHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+/**
+ * Get CORS headers with validated origin.
+ * Returns headers with matching origin if allowed, or null if origin not permitted.
+ * 
+ * ALLOWED_ORIGINS env var should be comma-separated list of origins.
+ * If not set, defaults to allowing all origins (dev mode).
+ */
+function getCorsHeaders(req: Request): Record<string, string> | null {
+  const origin = req.headers.get('Origin')
+  const allowedOriginsEnv = Deno.env.get('ALLOWED_ORIGINS')
+  
+  // If ALLOWED_ORIGINS not configured, allow all (dev mode with warning)
+  if (!allowedOriginsEnv) {
+    console.warn('ALLOWED_ORIGINS not set - allowing all origins (dev mode)')
+    return {
+      ...baseHeaders,
+      'Access-Control-Allow-Origin': origin || '*',
+    }
+  }
+  
+  // Parse allowed origins from env
+  const allowedOrigins = allowedOriginsEnv.split(',').map(o => o.trim())
+  
+  // Check if request origin is in allowlist
+  if (origin && allowedOrigins.includes(origin)) {
+    return {
+      ...baseHeaders,
+      'Access-Control-Allow-Origin': origin,
+    }
+  }
+  
+  // Origin not allowed
+  return null
+}
+
+/**
+ * Get required environment variable or throw descriptive error.
+ */
+function getRequiredEnv(name: string): string {
+  const value = Deno.env.get(name)
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`)
+  }
+  return value
 }
 
 interface CreateInviteRequest {
@@ -44,12 +90,30 @@ async function generateInviteToken(): Promise<string> {
 }
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req)
+  
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
+    if (!corsHeaders) {
+      return new Response('Forbidden', { status: 403 })
+    }
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // Reject requests from disallowed origins
+  if (!corsHeaders) {
+    return new Response(
+      JSON.stringify({ error: 'Origin not allowed' }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
   try {
+    // Validate required environment variables upfront
+    const supabaseUrl = getRequiredEnv('SUPABASE_URL')
+    const supabaseAnonKey = getRequiredEnv('SUPABASE_ANON_KEY')
+    const supabaseServiceRoleKey = getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY')
+
     // Verify Authorization header exists
     const authHeader = req.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -61,8 +125,8 @@ serve(async (req: Request) => {
 
     // Create Supabase client with user's JWT
     const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      supabaseUrl,
+      supabaseAnonKey,
       { global: { headers: { Authorization: authHeader } } }
     )
 
@@ -87,12 +151,21 @@ serve(async (req: Request) => {
       )
     }
 
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(body.phantomLocalUserId)) {
+      return new Response(
+        JSON.stringify({ error: 'phantomLocalUserId must be a valid UUID' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     const { phantomLocalUserId } = body
 
     // Use service role client for database operations
     const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      supabaseUrl,
+      supabaseServiceRoleKey
     )
 
     // Check if invite already exists for this phantom + creator (idempotent)
@@ -103,7 +176,17 @@ serve(async (req: Request) => {
       .eq('created_by_cloud_user_id', cloudUserId)
       .single()
 
-    if (existingInvite && !selectError) {
+    // PGRST116 = "no rows returned" which is expected when no invite exists
+    // Any other error code indicates a real database problem
+    if (selectError && selectError.code !== 'PGRST116') {
+      console.error('Database error checking existing invite:', selectError.message)
+      return new Response(
+        JSON.stringify({ error: 'Database error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (existingInvite) {
       // Check if existing invite is expired
       const expiresAt = new Date(existingInvite.expires_at)
       if (expiresAt > new Date()) {
@@ -157,7 +240,7 @@ serve(async (req: Request) => {
       )
     }
 
-    console.log(`Created invite for phantom=${phantomLocalUserId}, token=${inviteToken.substring(0, 10)}...`)
+    console.log(`Created invite for phantom=${phantomLocalUserId}, creator=${cloudUserId}`)
 
     const response: CreateInviteResponse = {
       inviteToken,
