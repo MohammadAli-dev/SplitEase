@@ -38,11 +38,23 @@ abstract class IdentityModule {
         localUserManagerImpl: LocalUserManagerImpl
     ): LocalUserManager
 
+    /**
+     * Binds UserContextImpl as the implementation of UserContext for dependency injection.
+     *
+     * @param userContextImpl The concrete UserContextImpl instance to bind.
+     * @return The bound UserContext implementation.
+     */
     @Binds
     abstract fun bindUserContext(
         userContextImpl: UserContextImpl
     ): UserContext
 
+    /**
+     * Binds IdentityLinkStateStoreImpl as the implementation of IdentityLinkStateStore for dependency injection.
+     *
+     * @param impl The concrete IdentityLinkStateStoreImpl to be provided when IdentityLinkStateStore is injected.
+     * @return The bound IdentityLinkStateStore interface implemented by the provided `impl`.
+     */
     @Binds
     @Singleton
     abstract fun bindIdentityLinkStateStore(
@@ -51,10 +63,13 @@ abstract class IdentityModule {
 
     companion object {
         /**
-         * OkHttpClient for Edge Function calls.
-         * Includes:
-         * - Automatic apikey header injection
-         * - AuthInterceptor for Authorization header
+         * Provides an OkHttpClient configured for Edge Function calls.
+         *
+         * The client injects the Supabase public API key into every request and applies the provided
+         * AuthInterceptor to attach authorization credentials.
+         *
+         * @param authInterceptor Interceptor that adds authorization credentials to requests.
+         * @return An OkHttpClient that adds an `apikey` header and applies the given AuthInterceptor.
          */
         @Provides
         @Singleton
@@ -78,7 +93,9 @@ abstract class IdentityModule {
         }
 
         /**
-         * Retrofit instance for Identity Edge Functions.
+         * Provides a Retrofit-backed IdentityApiService for calling Identity Edge Functions.
+         *
+         * @return An IdentityApiService backed by Retrofit configured with AuthConfig.supabaseBaseUrl (falls back to "https://not-configured.invalid" if empty), using the provided EdgeFunctions OkHttpClient and Gson for JSON conversion.
          */
         @Provides
         @Singleton
@@ -99,4 +116,3 @@ abstract class IdentityModule {
         }
     }
 }
-

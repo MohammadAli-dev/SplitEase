@@ -94,7 +94,12 @@ interface ExpenseDao {
     /** One-shot suspend query for expense by ID (for reconciliation). */
     @Query("SELECT * FROM expenses WHERE id = :id") suspend fun getExpenseById(id: String): Expense?
 
-    /** One-shot suspend query for splits by expense ID (for reconciliation). */
+    /**
+     * Fetches all expense splits belonging to the specified expense for reconciliation.
+     *
+     * @param expenseId The ID of the expense whose splits should be retrieved.
+     * @return A list of ExpenseSplit objects associated with the given expense ID.
+     */
     @Query("SELECT * FROM expense_splits WHERE expenseId = :expenseId")
     suspend fun getSplitsSync(expenseId: String): List<ExpenseSplit>
 
@@ -108,22 +113,30 @@ interface ExpenseDao {
     suspend fun updatePayerId(oldUserId: String, newUserId: String)
 
     /**
-     * Update userId field for all expense splits where userId matches the phantom user.
-     * Used during phantom → real identity merge.
+     * Replaces the `userId` of all expense split records that match the given old user id with the provided new user id.
+     *
+     * @param oldUserId The user id to replace (for example, a phantom or temporary id).
+     * @param newUserId The user id to set on matching records.
      */
     @Query("UPDATE expense_splits SET userId = :newUserId WHERE userId = :oldUserId")
     suspend fun updateSplitUserId(oldUserId: String, newUserId: String)
 
     /**
-     * Update createdByUserId for all expenses created by phantom user.
-     * Used during phantom → real identity merge.
+     * Updates `createdByUserId` for all expenses that match the given old user id.
+     *
+     * @param oldUserId The user id to replace.
+     * @param newUserId The new user id to set on matching expenses.
      */
     @Query("UPDATE expenses SET createdByUserId = :newUserId WHERE createdByUserId = :oldUserId")
     suspend fun updateCreatedByUserId(oldUserId: String, newUserId: String)
 
     /**
-     * Update lastModifiedByUserId for all expenses last modified by phantom user.
-     * Used during phantom → real identity merge.
+     * Update `lastModifiedByUserId` for expenses that reference a phantom user.
+     *
+     * Used during a phantom → real identity merge to reassign references from the old user id to the new one.
+     *
+     * @param oldUserId The phantom user's id to replace.
+     * @param newUserId The real user's id to set on matching expenses.
      */
     @Query("UPDATE expenses SET lastModifiedByUserId = :newUserId WHERE lastModifiedByUserId = :oldUserId")
     suspend fun updateLastModifiedByUserId(oldUserId: String, newUserId: String)

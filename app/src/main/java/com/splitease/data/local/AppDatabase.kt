@@ -50,12 +50,44 @@ import com.splitease.data.local.entities.User
  */
 abstract class AppDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
-    abstract fun syncDao(): SyncDao
-    abstract fun groupDao(): GroupDao
-    abstract fun userDao(): UserDao
-    abstract fun settlementDao(): SettlementDao
-    abstract fun connectionStateDao(): ConnectionStateDao
+    /**
+ * Accessor for the DAO that manages persisted synchronization operations.
+ *
+ * @return The `SyncDao` used to insert, query, and manage `SyncOperation` records.
+ */
+abstract fun syncDao(): SyncDao
+    /**
+ * Provides access to the DAO responsible for managing groups and their members.
+ *
+ * @return The GroupDao used to perform create, read, update, and delete operations on Group and GroupMember entities.
+ */
+abstract fun groupDao(): GroupDao
+    /**
+ * Provides the DAO for user-related database operations.
+ *
+ * @return The UserDao instance for performing user CRUD and query operations.
+ */
+abstract fun userDao(): UserDao
+    /**
+ * Provides the DAO for performing operations on settlement records.
+ *
+ * @return The `SettlementDao` used to query, insert, update, and delete `Settlement` entities.
+ */
+abstract fun settlementDao(): SettlementDao
+    /**
+ * Provides access to persistence operations for connection state.
+ *
+ * @return The DAO that manages `ConnectionStateEntity` records and related queries. 
+ */
+abstract fun connectionStateDao(): ConnectionStateDao
 
+    /**
+     * Update an existing expense, replace its splits, and record the corresponding sync operation in a single database transaction.
+     *
+     * @param expense The expense entity to update.
+     * @param splits The new list of ExpenseSplit entries that should replace the expense's existing splits.
+     * @param syncOp The SyncOperation that records this change for synchronization purposes.
+     */
     @androidx.room.Transaction
     open suspend fun updateExpenseWithSync(
         expense: Expense,
@@ -81,9 +113,13 @@ abstract class AppDatabase : RoomDatabase() {
     }
 
     /**
-     * Atomic transaction for group creation.
-     * This is the ONLY place where Group, GroupMember, and SyncOperation
-     * are written together. No DAO-to-DAO injection allowed.
+     * Inserts a Group and its members, and records the associated SyncOperation in a single database transaction.
+     *
+     * The operation is atomic: all inserts succeed together or are rolled back together.
+     *
+     * @param group The group to insert.
+     * @param members The members belonging to the group to insert.
+     * @param syncOp The sync operation to persist alongside the group and members.
      */
     @androidx.room.Transaction
     open suspend fun insertGroupWithMembersAndSync(
@@ -96,6 +132,12 @@ abstract class AppDatabase : RoomDatabase() {
         syncDao().insertSyncOp(syncOp)
     }
 
+    /**
+     * Insert a settlement and record its corresponding sync operation in a single database transaction.
+     *
+     * @param settlement The settlement to insert.
+     * @param syncOp The sync operation to persist so the change can be synchronized later.
+     */
     @androidx.room.Transaction
     open suspend fun insertSettlementWithSync(
         settlement: Settlement,
@@ -106,22 +148,16 @@ abstract class AppDatabase : RoomDatabase() {
     }
 
     /**
-     * Atomic transaction to merge a phantom user into a real cloud user.
+     * Merge a local phantom user into an existing real cloud user in a single atomic transaction.
      *
-     * CRITICAL ORDER:
-     * 1. Insert real user FIRST (to satisfy FK constraints)
-     * 2. Update all FK references from phantom → real
-     * 3. Delete phantom user (cascades connection_state automatically)
+     * This inserts the real user (if necessary), reassigns all foreign-key references from the phantom
+     * user to the real user across expenses, settlements, and groups, then deletes the phantom user.
+     * The operation is atomic, idempotent, and offline-safe.
      *
-     * This transaction is:
-     * - Atomic: All succeed or all fail
-     * - Idempotent: Safe to run multiple times
-     * - Offline-safe: No network calls inside
-     *
-     * @param phantomUserId The local phantom user ID to be replaced
-     * @param realUserId The cloud user ID to merge into
-     * @param realUserName Display name of the real user
-     * @param realUserEmail Optional email of the real user
+     * @param phantomUserId The local phantom user ID to be replaced.
+     * @param realUserId The cloud user ID to merge into.
+     * @param realUserName Display name for the real user record to insert.
+     * @param realUserEmail Optional email for the real user record to insert.
      */
     @androidx.room.Transaction
     open suspend fun mergePhantomToReal(
@@ -159,4 +195,3 @@ abstract class AppDatabase : RoomDatabase() {
         userDao().deleteUser(phantomUserId)
     }
 }
-

@@ -50,6 +50,16 @@ class IdentityLinkingWorker @AssistedInject constructor(
         private const val MAX_RETRY_ATTEMPTS = 3
     }
 
+    /**
+     * Attempts to link the local user identity with the cloud identity and persists the linked state on success.
+     *
+     * If no access token or no local user ID is available, the work fails permanently. HTTP 401/403 responses also
+     * cause a permanent failure. Other errors or exceptions trigger a retry while the worker has remaining attempts.
+     *
+     * @return `Result.success()` when the identity was linked and the linked state was persisted; `Result.retry()` for
+     * transient errors when the worker may be retried; `Result.failure()` for permanent failures (missing token/input,
+     * authentication errors, or when retry attempts are exhausted).
+     */
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting identity linking work...")
 
@@ -96,6 +106,11 @@ class IdentityLinkingWorker @AssistedInject constructor(
         }
     }
 
+    /**
+     * Decides whether the worker should be retried or failed permanently based on the current attempt count.
+     *
+     * @return `Result.retry()` if the current run attempt count is less than `MAX_RETRY_ATTEMPTS`, `Result.failure()` otherwise.
+     */
     private fun retryOrFail(): Result {
         return if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
             Log.d(TAG, "Retrying (attempt ${runAttemptCount + 1}/$MAX_RETRY_ATTEMPTS)")

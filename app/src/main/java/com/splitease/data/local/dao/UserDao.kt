@@ -18,15 +18,23 @@ interface UserDao {
     @Query("SELECT * FROM users")
     fun getAllUsers(): Flow<List<User>>
 
+    /**
+     * Emits the first user from the users table, or `null` when the table is empty.
+     *
+     * @return A Flow that emits the first stored [User], or `null` if no users exist. The Flow will emit again if the underlying data changes.
+     */
     @Query("SELECT * FROM users LIMIT 1")
     fun getAnyUser(): Flow<User?>
 
     /**
-     * Delete a user by ID.
-     * Used for phantom cleanup after merge.
-     * Note: FK CASCADE will clean up connection_states automatically.
+     * Removes the user with the given ID from the users table.
+     *
+     * Primarily used to perform phantom cleanup after a merge. Related
+     * `connection_states` rows are removed automatically by the database
+     * via foreign key cascade.
+     *
+     * @param userId The user's primary key ID to delete.
      */
     @Query("DELETE FROM users WHERE id = :userId")
     suspend fun deleteUser(userId: String)
 }
-

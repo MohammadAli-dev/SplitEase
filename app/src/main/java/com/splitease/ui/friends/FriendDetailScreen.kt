@@ -46,6 +46,18 @@ import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Renders the friend detail screen with profile header, connection status banner, and transaction list.
+ *
+ * Collects UI state and one-off events from the provided ViewModel. Shows a centered loading indicator when
+ * the UI state indicates loading. Displays the friend's avatar, name, and balance, a connection-status banner,
+ * and either a "No transactions yet" message or a list of transactions.
+ *
+ * The `onNavigateBack` callback is invoked when the user taps the back navigation icon and also when the
+ * view model emits a navigation-after-merge event.
+ *
+ * @param onNavigateBack Callback invoked to navigate back from this screen (also triggered after a merge completes).
+ */
 @Composable
 fun FriendDetailScreen(
     onNavigateBack: () -> Unit,
@@ -171,7 +183,19 @@ fun FriendDetailScreen(
 }
 
 /**
- * Banner to display connection status for phantom users.
+ * Displays a banner reflecting the connection status between a phantom friend and a real account,
+ * and surfaces context-appropriate actions (invite, check status, finalize) for that state.
+ *
+ * The banner presents different UI for the possible ConnectionUiState values: None, Loading,
+ * InviteCreated, Claimed, Merged, and Error. When `isMerging` is true, the finalize action is
+ * disabled and indicates merging progress.
+ *
+ * @param connectionState Current connection state driving the banner's content.
+ * @param friendName Display name of the friend referenced in messages and actions.
+ * @param isMerging True when a finalize/merge operation is in progress; disables the finalize action.
+ * @param onCreateInvite Callback invoked when the user requests creating/sending an invite.
+ * @param onRefresh Callback invoked to refresh or check the current invite/claim status.
+ * @param onFinalize Callback invoked to finalize the connection once the invite is claimed.
  */
 @Composable
 private fun ConnectionStatusBanner(
@@ -350,6 +374,17 @@ private fun ConnectionStatusBanner(
     }
 }
 
+/**
+ * Renders a single row representing a friend ledger item, showing an icon, title, subtitle, date, and amount.
+ *
+ * Displays different visuals based on the transaction subtype:
+ * - GroupExpense: home icon and the group's name as subtitle.
+ * - DirectExpense: person icon and "Direct Expense" as subtitle.
+ * - SettlementItem: check-circle icon, "Settlement" as subtitle, and teal tint for title, icon, and amount.
+ *
+ * The amount is shown with a "₹" currency symbol and the date is formatted as "MMM dd, yyyy".
+ *
+ * @param transaction The ledger item to render; supported subtypes are `GroupExpense`, `DirectExpense`, and `SettlementItem`.
 @Composable
 private fun TransactionItem(transaction: FriendLedgerItem) {
     val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
