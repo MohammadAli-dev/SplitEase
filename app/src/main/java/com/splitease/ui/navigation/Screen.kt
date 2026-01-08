@@ -58,4 +58,10 @@ sealed class Screen(val route: String) {
             fun createRoute(friendId: String) = "settle_up/$friendId"
         }
     }
+
+    /**
+     * Screen for claiming an invite received via deep link.
+     * Note: The inviteToken arg is transient; PendingInviteStore is the source of truth.
+     */
+    object ClaimInvite : Screen("claim_invite")
 }

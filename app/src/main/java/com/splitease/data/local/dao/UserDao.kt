@@ -12,6 +12,13 @@ interface UserDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertUser(user: User)
 
+    /**
+     * Upsert a user: Insert if not exists, Replace if exists.
+     * Used by ClaimManager to insert the inviter (User A) when claiming an invite.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertUser(user: User)
+
     @Query("SELECT * FROM users WHERE id = :userId")
     fun getUser(userId: String): Flow<User?>
 

@@ -16,7 +16,6 @@ gen/
 out/
 build/
 *.hprof
-build_log.txt
 
 
 # Gradle files
@@ -32,7 +31,7 @@ auth.properties.*
 proguard/
 
 # Log Files
-*.log
+# *.log
 
 # Android Studio Navigation editor temp files
 .navigation/
@@ -74,8 +73,8 @@ Thumbs.db
 .idea/misc.xml
 .idea/deployment.xml
 
-# spec files
-specs*.md*
+# # spec files
+# specs*.md*
 
 #settings
 .vscode/

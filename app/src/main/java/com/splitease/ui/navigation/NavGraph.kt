@@ -6,6 +6,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.splitease.ui.auth.LoginScreen
 import com.splitease.ui.auth.SignupScreen
+import com.splitease.ui.invite.ClaimInviteScreen
 
 @Composable
 fun SplitEaseNavGraph(startDestination: String = Screen.Login.route) {
@@ -34,6 +35,20 @@ fun SplitEaseNavGraph(startDestination: String = Screen.Login.route) {
         }
         composable(Screen.Dashboard.route) {
             MainScaffold()
+        }
+        composable(Screen.ClaimInvite.route) {
+            ClaimInviteScreen(
+                onNavigateToLogin = {
+                    navController.navigate(Screen.Login.route) {
+                        // Keep ClaimInvite in backstack so user returns after login
+                    }
+                },
+                onNavigateToDashboard = {
+                    navController.navigate(Screen.Dashboard.route) {
+                        popUpTo(Screen.ClaimInvite.route) { inclusive = true }
+                    }
+                }
+            )
         }
     }
 }
