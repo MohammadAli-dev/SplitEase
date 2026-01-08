@@ -1,6 +1,7 @@
 package com.splitease.data.local.converters
 
 import androidx.room.TypeConverter
+import com.splitease.data.local.entities.ConnectionStatus
 import com.splitease.data.local.entities.SyncStatus
 import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncFailureType
@@ -60,6 +61,13 @@ class Converters {
         return type?.name
     }
 
+    /**
+     * Converts a nullable string into the corresponding SyncFailureType enum.
+     *
+     * @param value The stored enum name, or null.
+     * @return The matching `SyncFailureType`, or null if `value` is null.
+     * @throws IllegalStateException if `value` is non-null but does not match any `SyncFailureType`.
+     */
     @TypeConverter
     fun toSyncFailureType(value: String?): SyncFailureType? {
         return value?.let {
@@ -68,6 +76,33 @@ class Converters {
             } catch (e: IllegalArgumentException) {
                 throw IllegalStateException("Unknown SyncFailureType: $it", e)
             }
+        }
+    }
+
+    /**
+     * Convert a ConnectionStatus enum to its name string.
+     *
+     * @param status The ConnectionStatus value to convert.
+     * @return The enum's `name` string.
+     */
+    @TypeConverter
+    fun fromConnectionStatus(status: ConnectionStatus): String {
+        return status.name
+    }
+
+    /**
+     * Converts the provided enum name string to the corresponding [ConnectionStatus].
+     *
+     * @param value The enum name of the ConnectionStatus (e.g., the result of `ConnectionStatus.name`).
+     * @return The matching [ConnectionStatus].
+     * @throws IllegalStateException if `value` does not match any ConnectionStatus constant.
+     */
+    @TypeConverter
+    fun toConnectionStatus(value: String): ConnectionStatus {
+        return try {
+            ConnectionStatus.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalStateException("Unknown ConnectionStatus: $value", e)
         }
     }
 }

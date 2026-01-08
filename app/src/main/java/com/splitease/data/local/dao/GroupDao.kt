@@ -51,9 +51,22 @@ interface GroupDao {
     suspend fun deleteGroup(groupId: String)
 
     /**
-     * Batch fetch group names by IDs.
-     * Returns List<IdValuePair> for efficient N+1 prevention.
+     * Fetches group names for the given group IDs as id/value pairs.
+     *
+     * @param ids The group IDs to look up.
+     * @return A list of `IdValuePair` containing `id` and `value` (the group's name) for each found group; groups not present in the table are omitted.
      */
     @Query("SELECT id, name AS value FROM expense_groups WHERE id IN (:ids)")
     suspend fun getNamesByIds(ids: List<String>): List<IdValuePair>
+
+    // ========== Phantom Merge Operations ==========
+
+    /**
+     * Reassigns group memberships from one user ID to another to merge a phantom identity into a real one.
+     *
+     * @param oldUserId The phantom user ID to replace.
+     * @param newUserId The real user ID to assign to memberships.
+     */
+    @Query("UPDATE group_members SET userId = :newUserId WHERE userId = :oldUserId")
+    suspend fun updateMemberUserId(oldUserId: String, newUserId: String)
 }
