@@ -16,12 +16,10 @@ import retrofit2.http.POST
 interface ConnectionApiService {
 
     /**
-     * Create an invite for a phantom user.
+     * Creates an invite for a phantom user.
      *
-     * Endpoint: POST /functions/v1/create-invite
-     *
-     * @param request Contains the phantomLocalUserId
-     * @return InviteToken and expiresAt on success
+     * @param request Request containing `phantomLocalUserId`.
+     * @return A Retrofit `Response` wrapping a `CreateInviteResponse` that contains the invite token and its expiration timestamp.
      */
     @POST("functions/v1/create-invite")
     suspend fun createInvite(
@@ -29,12 +27,10 @@ interface ConnectionApiService {
     ): Response<CreateInviteResponse>
 
     /**
-     * Check the status of an invite for a phantom user.
+     * Checks the invite status for a phantom user.
      *
-     * Endpoint: POST /functions/v1/check-invite-status
-     *
-     * @param request Contains the phantomLocalUserId
-     * @return Status (PENDING/CLAIMED) and claimer info if claimed
+     * @param request Request containing the `phantomLocalUserId` to identify the invite.
+     * @return The HTTP response wrapping a `CheckStatusResponse` that indicates invite status (`PENDING` or `CLAIMED`) and, if claimed, includes claimer information.
      */
     @POST("functions/v1/check-invite-status")
     suspend fun checkInviteStatus(

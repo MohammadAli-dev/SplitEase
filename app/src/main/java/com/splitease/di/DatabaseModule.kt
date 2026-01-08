@@ -77,6 +77,18 @@ object DatabaseModule {
      * - Default value: IdentityConstants.LEGACY_USER_ID
      */
     private val MIGRATION_5_6 = object : Migration(5, 6) {
+        /**
+         * Adds auditing columns to existing tables and initializes them with the legacy user ID.
+         *
+         * Sanitizes IdentityConstants.LEGACY_USER_ID by escaping single quotes before embedding it
+         * into the column default values, then adds the following `TEXT NOT NULL` columns with that
+         * default to each table:
+         * - expenses: `createdByUserId`, `lastModifiedByUserId`
+         * - expense_groups: `createdByUserId`, `lastModifiedByUserId`
+         * - settlements: `createdByUserId`, `lastModifiedByUserId`
+         *
+         * @param db The database undergoing the migration.
+         */
         override fun migrate(db: SupportSQLiteDatabase) {
             val legacyId = IdentityConstants.LEGACY_USER_ID
             // Sanitize input to prevent SQL injection or syntax errors
@@ -102,6 +114,21 @@ object DatabaseModule {
      * - FK to users table with CASCADE delete for automatic cleanup.
      */
     private val MIGRATION_6_7 = object : Migration(6, 7) {
+        /**
+         * Creates the `connection_states` table and a unique index on `phantomLocalUserId`.
+         *
+         * The table has columns:
+         * - `phantomLocalUserId` (TEXT, primary key, not null)
+         * - `inviteToken` (TEXT, not null)
+         * - `status` (TEXT, not null)
+         * - `claimedByCloudUserId` (TEXT, nullable)
+         * - `claimedByName` (TEXT, nullable)
+         * - `lastCheckedAt` (INTEGER, not null)
+         *
+         * A foreign key constraint references `users(id)` with `ON DELETE CASCADE`.
+         *
+         * @param db The database to apply the migration to.
+         */
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS connection_states (
@@ -120,6 +147,14 @@ object DatabaseModule {
         }
     }
 
+    /**
+     * Provides the singleton Room AppDatabase configured for the application's schema.
+     *
+     * The database is built with migrations from versions 2→3, 3→4, 4→5, 5→6, and 6→7, and uses
+     * fallbackToDestructiveMigration as a safety net.
+     *
+     * @return `AppDatabase` instance configured with the registered migrations and destructive fallback.
+     */
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -157,11 +192,21 @@ object DatabaseModule {
         return db.syncDao()
     }
 
+    /**
+     * Provides the SettlementDao instance from the AppDatabase for settlement-related persistence operations.
+     *
+     * @return The SettlementDao used to access and modify settlement records.
+     */
     @Provides
     fun provideSettlementDao(db: AppDatabase): SettlementDao {
         return db.settlementDao()
     }
 
+    /**
+     * Obtains the DAO for accessing the connection_states table.
+     *
+     * @return The ConnectionStateDao backed by the provided AppDatabase.
+     */
     @Provides
     fun provideConnectionStateDao(db: AppDatabase): ConnectionStateDao {
         return db.connectionStateDao()

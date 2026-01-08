@@ -24,26 +24,51 @@ import javax.inject.Singleton
  */
 interface ConnectionManager {
     /**
-     * Create an invite for a phantom user.
-     * Idempotent: returns existing invite if one exists.
-     */
+ * Creates an invite for the given phantom user and persists local connection state.
+ *
+ * Calling this is idempotent: if a non-merged invite already exists locally the existing invite token is returned.
+ *
+ * @param phantomLocalUserId Local identifier of the phantom user to create an invite for.
+ * @return An `InviteResult` representing success (contains the invite token and expiry) or an error describing the failure.
+ */
     suspend fun createInvite(phantomLocalUserId: String): InviteResult
 
     /**
-     * Check if an invite has been claimed.
-     * Updates local ConnectionState if claimed.
-     */
+ * Checks whether the invite for the given phantom user has been claimed and synchronizes local state when appropriate.
+ *
+ * If the backend reports the invite as CLAIMED, the local ConnectionState is created or updated with the claimer's id and name.
+ *
+ * @param phantomLocalUserId The local identifier of the phantom user whose invite status should be checked.
+ * @return One of:
+ *   - `ClaimStatus.Pending` when the invite is still pending,
+ *   - `ClaimStatus.Claimed(cloudUserId, name)` when the invite was claimed (contains the real user's cloud id and name, using placeholders if missing),
+ *   - `ClaimStatus.NotFound` when the invite does not exist,
+ *   - `ClaimStatus.Expired` when the invite has expired,
+ *   - `ClaimStatus.Error(message)` for any error or unknown backend status.
+ */
     suspend fun checkInviteStatus(phantomLocalUserId: String): ClaimStatus
 
     /**
-     * Merge phantom user into the real user who claimed the invite.
-     * Only runs if status == CLAIMED.
-     */
+ * Merge the phantom local user into the real user recorded as the claimer in local state.
+ *
+ * Performs the merge only when the local connection state exists and its status is `CLAIMED`.
+ * Validates that the claimed real user ID and name are present before performing an atomic
+ * merge operation in the database. If the phantom user row is removed by the merge, the
+ * associated connection state is expected to be cleaned up by foreign-key cascade.
+ *
+ * @param phantomLocalUserId The local identifier of the phantom user to merge.
+ * @return `MergeResult.Success` on successful merge; `MergeResult.NotClaimed` if no local
+ *         claimed state is available for the phantom user; `MergeResult.Error` with a message
+ *         on failure.
+ */
     suspend fun mergeIfClaimed(phantomLocalUserId: String): MergeResult
 
     /**
-     * Observe connection state for a phantom user.
-     */
+ * Observe the stored connection state for a phantom user and emit updates when it changes.
+ *
+ * @param phantomLocalUserId The local identifier of the phantom user whose connection state to observe.
+ * @return The current ConnectionStateEntity for the phantom user, or `null` if none exists; emits a new value whenever the stored state changes.
+ */
     fun observeConnectionState(phantomLocalUserId: String): Flow<ConnectionStateEntity?>
 }
 
@@ -58,7 +83,16 @@ class ConnectionManagerImpl @Inject constructor(
         private const val TAG = "ConnectionManager"
     }
 
-    override suspend fun createInvite(phantomLocalUserId: String): InviteResult =
+    /**
+         * Creates an invite for the given phantom user, returning an existing invite if one is already present and the phantom is not merged.
+         *
+         * Persists local connection state when a new invite is created.
+         *
+         * @param phantomLocalUserId Local identifier of the phantom user to create an invite for.
+         * @return `InviteResult.Success` with the invite token and expiry when an invite exists or is created;
+         *         `InviteResult.Error` with a message on failure.
+         */
+        override suspend fun createInvite(phantomLocalUserId: String): InviteResult =
         withContext(Dispatchers.IO) {
             try {
                 // Check if we already have a local state for this phantom
@@ -102,7 +136,22 @@ class ConnectionManagerImpl @Inject constructor(
             }
         }
 
-    override suspend fun checkInviteStatus(phantomLocalUserId: String): ClaimStatus =
+    /**
+         * Checks the claim status of an invite for the given phantom local user and synchronizes local state when claimed.
+         *
+         * If the backend reports the invite as `CLAIMED`, the local ConnectionStateEntity is created or updated with
+         * `ConnectionStatus.CLAIMED`, the claimer's cloud user id and name (when provided), and an updated `lastCheckedAt`.
+         * For other backend statuses, the corresponding `ClaimStatus` is returned. On API or network failures, a
+         * `ClaimStatus.Error` is returned with an explanatory message.
+         *
+         * @param phantomLocalUserId The local identifier of the phantom user whose invite status should be checked.
+         * @return `ClaimStatus.Pending` if the invite is pending;
+         *         `ClaimStatus.Claimed` with `cloudUserId` and `name` when claimed;
+         *         `ClaimStatus.NotFound` if the invite does not exist;
+         *         `ClaimStatus.Expired` if the invite has expired;
+         *         `ClaimStatus.Error` with a message on unknown statuses or failures.
+         */
+        override suspend fun checkInviteStatus(phantomLocalUserId: String): ClaimStatus =
         withContext(Dispatchers.IO) {
             try {
                 val response = connectionApiService.checkInviteStatus(
@@ -155,7 +204,19 @@ class ConnectionManagerImpl @Inject constructor(
             }
         }
 
-    override suspend fun mergeIfClaimed(phantomLocalUserId: String): MergeResult =
+    /**
+         * Merges a phantom local user into its claimed real user if the phantom has been claimed.
+         *
+         * Checks local connection state for the given phantom ID; if the state indicates the phantom was claimed
+         * and contains valid claimer information, performs an atomic merge of the phantom into the real user
+         * using the app database.
+         *
+         * @param phantomLocalUserId The local identifier of the phantom user to merge.
+         * @return `MergeResult.Success` if the merge completed; `MergeResult.NotClaimed` if there is no local state
+         *         or the state is not `CLAIMED`; `MergeResult.Error` with a message on failure (e.g., missing claimer
+         *         information or an exception during the merge).
+         */
+        override suspend fun mergeIfClaimed(phantomLocalUserId: String): MergeResult =
         withContext(Dispatchers.IO) {
             try {
                 val state = connectionStateDao.get(phantomLocalUserId)
@@ -197,6 +258,12 @@ class ConnectionManagerImpl @Inject constructor(
             }
         }
 
+    /**
+     * Observes live connection state for the given phantom local user.
+     *
+     * @param phantomLocalUserId The local identifier of the phantom user whose connection state should be observed.
+     * @return A Flow that emits the current ConnectionStateEntity for the phantom user, or `null` if none exists; emits updates whenever the stored state changes.
+     */
     override fun observeConnectionState(phantomLocalUserId: String): Flow<ConnectionStateEntity?> {
         return connectionStateDao.observe(phantomLocalUserId)
     }

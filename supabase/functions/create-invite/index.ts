@@ -81,7 +81,11 @@ interface CreateInviteResponse {
   expiresAt: string
 }
 
-// Generate a secure random invite token
+/**
+ * Generate a cryptographically secure invite token prefixed with `inv_`.
+ *
+ * @returns The invite token string, prefixed with `inv_` followed by 32 lowercase hexadecimal characters.
+ */
 async function generateInviteToken(): Promise<string> {
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
