@@ -20,4 +20,13 @@ interface UserDao {
 
     @Query("SELECT * FROM users LIMIT 1")
     fun getAnyUser(): Flow<User?>
+
+    /**
+     * Delete a user by ID.
+     * Used for phantom cleanup after merge.
+     * Note: FK CASCADE will clean up connection_states automatically.
+     */
+    @Query("DELETE FROM users WHERE id = :userId")
+    suspend fun deleteUser(userId: String)
 }
+

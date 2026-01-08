@@ -1,6 +1,7 @@
 package com.splitease.data.local.converters
 
 import androidx.room.TypeConverter
+import com.splitease.data.local.entities.ConnectionStatus
 import com.splitease.data.local.entities.SyncStatus
 import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncFailureType
@@ -68,6 +69,20 @@ class Converters {
             } catch (e: IllegalArgumentException) {
                 throw IllegalStateException("Unknown SyncFailureType: $it", e)
             }
+        }
+    }
+
+    @TypeConverter
+    fun fromConnectionStatus(status: ConnectionStatus): String {
+        return status.name
+    }
+
+    @TypeConverter
+    fun toConnectionStatus(value: String): ConnectionStatus {
+        return try {
+            ConnectionStatus.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalStateException("Unknown ConnectionStatus: $value", e)
         }
     }
 }

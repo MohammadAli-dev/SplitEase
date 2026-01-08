@@ -56,4 +56,13 @@ interface GroupDao {
      */
     @Query("SELECT id, name AS value FROM expense_groups WHERE id IN (:ids)")
     suspend fun getNamesByIds(ids: List<String>): List<IdValuePair>
+
+    // ========== Phantom Merge Operations ==========
+
+    /**
+     * Update userId for all group memberships where userId matches the phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE group_members SET userId = :newUserId WHERE userId = :oldUserId")
+    suspend fun updateMemberUserId(oldUserId: String, newUserId: String)
 }

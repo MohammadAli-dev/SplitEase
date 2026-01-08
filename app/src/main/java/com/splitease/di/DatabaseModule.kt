@@ -7,6 +7,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.splitease.data.local.AppDatabase
+import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SyncDao
@@ -95,6 +96,30 @@ object DatabaseModule {
         }
     }
 
+    /**
+     * Migration from version 6 to 7:
+     * - Add connection_states table for tracking invite/claim lifecycle.
+     * - FK to users table with CASCADE delete for automatic cleanup.
+     */
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS connection_states (
+                    phantomLocalUserId TEXT NOT NULL PRIMARY KEY,
+                    inviteToken TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    claimedByCloudUserId TEXT,
+                    claimedByName TEXT,
+                    lastCheckedAt INTEGER NOT NULL,
+                    FOREIGN KEY (phantomLocalUserId) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """.trimIndent())
+            
+            // Create unique index on phantomLocalUserId
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_connection_states_phantomLocalUserId ON connection_states(phantomLocalUserId)")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -107,6 +132,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_3_4)
             .addMigrations(MIGRATION_4_5)
             .addMigrations(MIGRATION_5_6)
+            .addMigrations(MIGRATION_6_7)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -135,5 +161,9 @@ object DatabaseModule {
     fun provideSettlementDao(db: AppDatabase): SettlementDao {
         return db.settlementDao()
     }
-}
 
+    @Provides
+    fun provideConnectionStateDao(db: AppDatabase): ConnectionStateDao {
+        return db.connectionStateDao()
+    }
+}

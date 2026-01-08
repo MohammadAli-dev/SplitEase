@@ -44,4 +44,34 @@ interface SettlementDao {
      */
     @Query("SELECT id, amount AS value FROM settlements WHERE id IN (:ids)")
     suspend fun getAmountsByIds(ids: List<String>): List<IdValuePair>
+
+    // ========== Phantom Merge Operations ==========
+
+    /**
+     * Update fromUserId for all settlements where fromUserId matches the phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE settlements SET fromUserId = :newUserId WHERE fromUserId = :oldUserId")
+    suspend fun updateFromUserId(oldUserId: String, newUserId: String)
+
+    /**
+     * Update toUserId for all settlements where toUserId matches the phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE settlements SET toUserId = :newUserId WHERE toUserId = :oldUserId")
+    suspend fun updateToUserId(oldUserId: String, newUserId: String)
+
+    /**
+     * Update createdByUserId for all settlements created by phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE settlements SET createdByUserId = :newUserId WHERE createdByUserId = :oldUserId")
+    suspend fun updateCreatedByUserId(oldUserId: String, newUserId: String)
+
+    /**
+     * Update lastModifiedByUserId for all settlements last modified by phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE settlements SET lastModifiedByUserId = :newUserId WHERE lastModifiedByUserId = :oldUserId")
+    suspend fun updateLastModifiedByUserId(oldUserId: String, newUserId: String)
 }

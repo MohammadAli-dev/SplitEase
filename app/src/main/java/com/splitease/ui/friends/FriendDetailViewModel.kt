@@ -3,7 +3,12 @@ package com.splitease.ui.friends
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.splitease.data.connection.ClaimStatus
+import com.splitease.data.connection.ConnectionManager
+import com.splitease.data.connection.InviteResult
+import com.splitease.data.connection.MergeResult
 import com.splitease.data.local.dao.UserDao
+import com.splitease.data.local.entities.ConnectionStatus
 import com.splitease.data.repository.BalanceSummaryRepository
 import com.splitease.data.repository.FriendLedgerItem
 import com.splitease.data.repository.FriendTransactionsRepository
@@ -17,13 +22,27 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
 
+/**
+ * Connection status for UI display.
+ */
+sealed class ConnectionUiState {
+    object None : ConnectionUiState()
+    object Loading : ConnectionUiState()
+    data class InviteCreated(val inviteToken: String) : ConnectionUiState()
+    data class Claimed(val claimerName: String) : ConnectionUiState()
+    object Merged : ConnectionUiState()
+    data class Error(val message: String) : ConnectionUiState()
+}
+
 data class FriendDetailUiState(
     val friendId: String = "",
     val friendName: String = "",
     val balance: BigDecimal = BigDecimal.ZERO, // Positive = they owe you, Negative = you owe them
     val balanceDisplayText: String = "",
     val transactions: List<FriendLedgerItem> = emptyList(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val connectionState: ConnectionUiState = ConnectionUiState.None,
+    val isMerging: Boolean = false
 )
 
 @HiltViewModel
@@ -31,7 +50,8 @@ class FriendDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val friendTransactionsRepository: FriendTransactionsRepository,
     private val balanceSummaryRepository: BalanceSummaryRepository,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val connectionManager: ConnectionManager
 ) : ViewModel() {
     
     private val friendId: String = savedStateHandle.get<String>("friendId") ?: ""
@@ -41,6 +61,7 @@ class FriendDetailViewModel @Inject constructor(
     
     init {
         loadFriendDetails()
+        observeConnectionState()
     }
     
     private fun loadFriendDetails() {
@@ -60,7 +81,7 @@ class FriendDetailViewModel @Inject constructor(
                     else -> "settled up"
                 }
                 
-                FriendDetailUiState(
+                _uiState.value.copy(
                     friendId = friendId,
                     friendName = friend?.name ?: friendId.take(8),
                     balance = balance,
@@ -73,4 +94,94 @@ class FriendDetailViewModel @Inject constructor(
             }
         }
     }
+
+    private fun observeConnectionState() {
+        viewModelScope.launch {
+            connectionManager.observeConnectionState(friendId).collectLatest { entity ->
+                val connectionUiState = when (entity?.status) {
+                    ConnectionStatus.INVITE_CREATED -> ConnectionUiState.InviteCreated(entity.inviteToken)
+                    ConnectionStatus.CLAIMED -> ConnectionUiState.Claimed(entity.claimedByName ?: "Someone")
+                    ConnectionStatus.MERGED -> ConnectionUiState.Merged
+                    null -> ConnectionUiState.None
+                }
+                _uiState.value = _uiState.value.copy(connectionState = connectionUiState)
+            }
+        }
+    }
+
+    /**
+     * Create an invite for this phantom user.
+     */
+    fun createInvite() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(connectionState = ConnectionUiState.Loading)
+            when (val result = connectionManager.createInvite(friendId)) {
+                is InviteResult.Success -> {
+                    _uiState.value = _uiState.value.copy(
+                        connectionState = ConnectionUiState.InviteCreated(result.inviteToken)
+                    )
+                }
+                is InviteResult.Error -> {
+                    _uiState.value = _uiState.value.copy(
+                        connectionState = ConnectionUiState.Error(result.message)
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Refresh connection status from server.
+     * Called when user opens Friend Detail screen or manually refreshes.
+     */
+    fun refreshConnectionStatus() {
+        viewModelScope.launch {
+            when (val result = connectionManager.checkInviteStatus(friendId)) {
+                is ClaimStatus.Claimed -> {
+                    _uiState.value = _uiState.value.copy(
+                        connectionState = ConnectionUiState.Claimed(result.name)
+                    )
+                }
+                is ClaimStatus.Error -> {
+                    // Don't overwrite current state on error
+                }
+                else -> {
+                    // Pending, NotFound, Expired - handled by observeConnectionState
+                }
+            }
+        }
+    }
+
+    /**
+     * Finalize connection by merging phantom into real user.
+     * Only works when status is CLAIMED.
+     */
+    fun finalizeConnection() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isMerging = true)
+            when (val result = connectionManager.mergeIfClaimed(friendId)) {
+                is MergeResult.Success -> {
+                    // Note: After merge, the phantom user is deleted
+                    // The screen should navigate back or refresh
+                    _uiState.value = _uiState.value.copy(
+                        connectionState = ConnectionUiState.Merged,
+                        isMerging = false
+                    )
+                }
+                is MergeResult.NotClaimed -> {
+                    _uiState.value = _uiState.value.copy(
+                        connectionState = ConnectionUiState.Error("Cannot merge - invite not claimed"),
+                        isMerging = false
+                    )
+                }
+                is MergeResult.Error -> {
+                    _uiState.value = _uiState.value.copy(
+                        connectionState = ConnectionUiState.Error(result.message),
+                        isMerging = false
+                    )
+                }
+            }
+        }
+    }
 }
+

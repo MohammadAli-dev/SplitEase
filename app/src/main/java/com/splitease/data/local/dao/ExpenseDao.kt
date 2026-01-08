@@ -97,4 +97,34 @@ interface ExpenseDao {
     /** One-shot suspend query for splits by expense ID (for reconciliation). */
     @Query("SELECT * FROM expense_splits WHERE expenseId = :expenseId")
     suspend fun getSplitsSync(expenseId: String): List<ExpenseSplit>
+
+    // ========== Phantom Merge Operations ==========
+
+    /**
+     * Update payerId field for all expenses where payerId matches the phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE expenses SET payerId = :newUserId WHERE payerId = :oldUserId")
+    suspend fun updatePayerId(oldUserId: String, newUserId: String)
+
+    /**
+     * Update userId field for all expense splits where userId matches the phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE expense_splits SET userId = :newUserId WHERE userId = :oldUserId")
+    suspend fun updateSplitUserId(oldUserId: String, newUserId: String)
+
+    /**
+     * Update createdByUserId for all expenses created by phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE expenses SET createdByUserId = :newUserId WHERE createdByUserId = :oldUserId")
+    suspend fun updateCreatedByUserId(oldUserId: String, newUserId: String)
+
+    /**
+     * Update lastModifiedByUserId for all expenses last modified by phantom user.
+     * Used during phantom → real identity merge.
+     */
+    @Query("UPDATE expenses SET lastModifiedByUserId = :newUserId WHERE lastModifiedByUserId = :oldUserId")
+    suspend fun updateLastModifiedByUserId(oldUserId: String, newUserId: String)
 }

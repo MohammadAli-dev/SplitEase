@@ -117,6 +117,16 @@ fun FriendDetailScreen(
                     )
                 }
             }
+
+            // Connection Status Banner
+            ConnectionStatusBanner(
+                connectionState = uiState.connectionState,
+                friendName = uiState.friendName,
+                isMerging = uiState.isMerging,
+                onCreateInvite = { viewModel.createInvite() },
+                onRefresh = { viewModel.refreshConnectionStatus() },
+                onFinalize = { viewModel.finalizeConnection() }
+            )
             
             if (uiState.transactions.isEmpty()) {
                 Box(
@@ -144,6 +154,186 @@ fun FriendDetailScreen(
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Banner to display connection status for phantom users.
+ */
+@Composable
+private fun ConnectionStatusBanner(
+    connectionState: ConnectionUiState,
+    friendName: String,
+    isMerging: Boolean,
+    onCreateInvite: () -> Unit,
+    onRefresh: () -> Unit,
+    onFinalize: () -> Unit
+) {
+    when (connectionState) {
+        is ConnectionUiState.None -> {
+            // Show "Invite" option for phantom users
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Connect $friendName to a real account",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    androidx.compose.material3.TextButton(onClick = onCreateInvite) {
+                        Text("Invite")
+                    }
+                }
+            }
+        }
+        is ConnectionUiState.Loading -> {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.padding(horizontal = 8.dp))
+                    Text("Creating invite...")
+                }
+            }
+        }
+        is ConnectionUiState.InviteCreated -> {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFFFFF8E1) // Amber light
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = Color(0xFFFF9800),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                        Text(
+                            text = "Waiting for $friendName to join...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFFFF6F00)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        androidx.compose.material3.TextButton(onClick = onRefresh) {
+                            Text("Check Status")
+                        }
+                        // TODO: Add share button for invite link
+                    }
+                }
+            }
+        }
+        is ConnectionUiState.Claimed -> {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFFE8F5E9) // Green light
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                        Text(
+                            text = "✓ ${connectionState.claimerName} joined — Tap to finalize",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF2E7D32)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.compose.material3.Button(
+                        onClick = onFinalize,
+                        enabled = !isMerging,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isMerging) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                            Text("Merging...")
+                        } else {
+                            Text("Finalize Connection")
+                        }
+                    }
+                }
+            }
+        }
+        is ConnectionUiState.Merged -> {
+            // Don't show anything - phantom is gone
+        }
+        is ConnectionUiState.Error -> {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFFFFEBEE) // Red light
+                )
+            ) {
+                Text(
+                    text = "Error: ${connectionState.message}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD32F2F),
+                    modifier = Modifier.padding(12.dp)
+                )
             }
         }
     }

@@ -1,6 +1,17 @@
 package com.splitease.data.auth
 
+import android.content.Context
 import android.util.Log
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.splitease.data.identity.IdentityLinkStateStore
+import com.splitease.data.identity.LocalUserManager
+import com.splitease.worker.IdentityLinkingWorker
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,12 +62,16 @@ interface AuthManager {
 
 @Singleton
 class AuthManagerImpl @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val authService: AuthService,
-    private val tokenManager: TokenManager
+    private val tokenManager: TokenManager,
+    private val identityLinkStateStore: IdentityLinkStateStore,
+    private val localUserManager: LocalUserManager
 ) : AuthManager {
 
     companion object {
         private const val TAG = "AuthManager"
+        private const val IDENTITY_LINK_WORK_NAME = "identity_link_work"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -121,6 +136,11 @@ class AuthManagerImpl @Inject constructor(
                 if (cloudUserId != null) {
                     tokenManager.saveCloudUserId(cloudUserId)
                     _authState.value = AuthState.Authenticated(cloudUserId)
+                    
+                    // Enqueue identity linking if not already linked
+                    // NOTE: Multiple enqueues are safe due to backend idempotency.
+                    // IdentityLinkStateStore is updated only on success.
+                    enqueueIdentityLinkingIfNeeded()
                 } else {
                     // No user ID in response - shouldn't happen, but handle gracefully
                     return@withContext Result.failure(IllegalStateException("No user ID in auth response"))
@@ -136,14 +156,54 @@ class AuthManagerImpl @Inject constructor(
         }
     }
 
-    override suspend fun logout() = withContext(Dispatchers.IO) {
-        // Clear tokens (atomic)
-        tokenManager.clearTokens()
-        
-        // Update state
-        _authState.value = AuthState.Unauthenticated
-        
-        // NOTE: Local data is NOT deleted. Offline-first preserved.
+    /**
+     * Enqueue identity linking worker if not already linked.
+     * Safe to call multiple times - uses KEEP policy to avoid duplicate work.
+     */
+    private suspend fun enqueueIdentityLinkingIfNeeded() {
+        val isLinked = identityLinkStateStore.isLinked().first()
+        if (isLinked) {
+            Log.d(TAG, "Identity already linked, skipping worker enqueue")
+            return
+        }
+
+        val localUserId = localUserManager.userId.first()
+        Log.d(TAG, "Enqueueing identity linking worker for localUserId: $localUserId")
+
+        val workRequest = OneTimeWorkRequestBuilder<IdentityLinkingWorker>()
+            .setInputData(
+                workDataOf(IdentityLinkingWorker.KEY_LOCAL_USER_ID to localUserId)
+            )
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(
+                IDENTITY_LINK_WORK_NAME,
+                ExistingWorkPolicy.KEEP, // Don't replace if already running
+                workRequest
+            )
+    }
+
+    override suspend fun logout() {
+        withContext(Dispatchers.IO) {
+            // Clear tokens (atomic)
+            tokenManager.clearTokens()
+
+            // CRITICAL: Reset identity linking state to prevent cross-user contamination
+            // Without this, User B would skip linking after User A logs out
+            identityLinkStateStore.reset()
+
+            // Update state
+            _authState.value = AuthState.Unauthenticated
+
+            // NOTE: Local data is NOT deleted. Offline-first preserved.
+            Log.d(TAG, "Logout complete - tokens cleared, linking state reset")
+        }
     }
 
     override suspend fun refreshAccessToken(): Boolean = refreshMutex.withLock {
@@ -191,7 +251,9 @@ class AuthManagerImpl @Inject constructor(
                 // Network error during refresh - don't logout, allow retry on next request
                 Log.e(TAG, "Network error during refresh: ${e.javaClass.simpleName}")
                 false
-            }        }    }
+            }
+        }
+    }
 }
 
 /**
@@ -207,3 +269,4 @@ sealed class RefreshResult {
     object Success : RefreshResult()
     object Failed : RefreshResult()
 }
+
