@@ -15,7 +15,10 @@ import kotlinx.coroutines.flow.Flow
 interface ConnectionStateDao {
 
     /**
-     * Observe connection state for a specific phantom user.
+     * Observes the connection state for a specific phantom user.
+     *
+     * @param phantomId Local ID of the phantom user whose connection state is observed.
+     * @return The current connection state entity for the given phantom user, or `null` if none exists.
      */
     @Query("SELECT * FROM connection_states WHERE phantomLocalUserId = :phantomId")
     fun observe(phantomId: String): Flow<ConnectionStateEntity?>
@@ -28,27 +31,36 @@ interface ConnectionStateDao {
     fun observeByStatus(status: ConnectionStatus): Flow<List<ConnectionStateEntity>>
 
     /**
-     * Get connection state synchronously (for use in transactions).
+     * Fetches the connection state for the given phantom local user ID.
+     *
+     * @param phantomId The phantom local user ID to query.
+     * @return The corresponding ConnectionStateEntity, or `null` if none exists.
      */
     @Query("SELECT * FROM connection_states WHERE phantomLocalUserId = :phantomId")
     suspend fun get(phantomId: String): ConnectionStateEntity?
 
     /**
-     * Insert or update connection state.
+     * Inserts the given connection state into the database or replaces an existing record with the same primary key.
+     *
+     * @param state The connection state entity to insert or update.
      */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(state: ConnectionStateEntity)
 
     /**
-     * Delete connection state by phantom ID.
-     * Note: This is also triggered automatically via FK CASCADE when phantom user is deleted.
+     * Delete the connection state for the specified phantom local user.
+     *
+     * This operation is also triggered automatically via foreign-key cascade when the phantom user is deleted.
+     *
+     * @param phantomId The local identifier of the phantom user whose connection state should be removed.
      */
     @Query("DELETE FROM connection_states WHERE phantomLocalUserId = :phantomId")
     suspend fun delete(phantomId: String)
 
     /**
-     * Delete all connection states.
-     * Used for cleanup on logout or data reset.
+     * Deletes all connection state records from the local database.
+     *
+     * Typically used for cleanup on logout or when resetting local data.
      */
     @Query("DELETE FROM connection_states")
     suspend fun deleteAll()

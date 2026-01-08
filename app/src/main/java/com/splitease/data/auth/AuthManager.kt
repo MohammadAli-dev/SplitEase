@@ -109,6 +109,12 @@ class AuthManagerImpl @Inject constructor(
         }
     }
 
+    /**
+     * Authenticate using a Google ID token, persist returned tokens and cloud user ID, update the observable auth state, and enqueue identity linking when appropriate.
+     *
+     * @param idToken The Google ID token obtained from the client sign-in flow.
+     * @return A `Result<Unit>` that's `success` when authentication completed and tokens were saved, or `failure` containing an exception describing why authentication failed.
+     */
     override suspend fun loginWithGoogle(idToken: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             // Check if auth is configured
@@ -157,8 +163,10 @@ class AuthManagerImpl @Inject constructor(
     }
 
     /**
-     * Enqueue identity linking worker if not already linked.
-     * Safe to call multiple times - uses KEEP policy to avoid duplicate work.
+     * Enqueues a one-time WorkManager job to link the local user identity when not already linked.
+     *
+     * Checks the identity link state and, if linking is needed, schedules an IdentityLinkingWorker
+     * with a network-connected constraint and a unique KEEP policy to avoid duplicate work.
      */
     private suspend fun enqueueIdentityLinkingIfNeeded() {
         val isLinked = identityLinkStateStore.isLinked().first()
@@ -189,6 +197,11 @@ class AuthManagerImpl @Inject constructor(
             )
     }
 
+    /**
+     * Signs the current user out by clearing stored authentication tokens, resetting identity-linking state, and setting the authentication state to unauthenticated.
+     *
+     * Local application data is preserved; only authentication-related state and identity-linking status are cleared.
+     */
     override suspend fun logout() {
         withContext(Dispatchers.IO) {
             // Clear tokens (atomic)
@@ -206,6 +219,16 @@ class AuthManagerImpl @Inject constructor(
         }
     }
 
+    /**
+     * Attempts to refresh the stored access token using the saved refresh token and updates stored credentials on success.
+     *
+     * This operation is serialized so only one refresh runs at a time. On a successful refresh the new access and refresh
+     * tokens are persisted and the cloud user id is updated if present. If the server responds with 401 or 403 the
+     * manager will clear authentication state (logout). Network or other failures result in no state change and a `false`
+     * result.
+     *
+     * @return `true` if tokens were refreshed and saved, `false` otherwise.
+     */
     override suspend fun refreshAccessToken(): Boolean = refreshMutex.withLock {
         // Synchronized refresh - only one at a time
         withContext(Dispatchers.IO) {
@@ -269,4 +292,3 @@ sealed class RefreshResult {
     object Success : RefreshResult()
     object Failed : RefreshResult()
 }
-

@@ -82,6 +82,14 @@ class FriendDetailViewModel @Inject constructor(
         observeConnectionState()
     }
     
+    /**
+     * Loads and observes friend details, transactions, and dashboard summary then updates the UI state accordingly.
+     *
+     * Observes the friend entity, their transactions, and the dashboard summary; computes the friend's numeric balance and a
+     * human-readable balance display string ("owes you ₹<amount>", "you owe ₹<amount>", or "settled up"); and updates
+     * the ViewModel's internal `_uiState` with `friendId`, `friendName` (falls back to the first 8 chars of the id if the
+     * user record is missing), `balance`, `balanceDisplayText`, `transactions`, and sets `isLoading` to false.
+     */
     private fun loadFriendDetails() {
         viewModelScope.launch {
             combine(
@@ -115,6 +123,13 @@ class FriendDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Observes connection status changes for the current friend and updates the UI state accordingly.
+     *
+     * Collects updates from the connection manager, maps remote connection statuses to `ConnectionUiState`
+     * variants (e.g., `InviteCreated`, `Claimed`, `Merged`, `None`), and applies the mapped value to the
+     * view model's `uiState.connectionState`.
+     */
     private fun observeConnectionState() {
         viewModelScope.launch {
             connectionManager.observeConnectionState(friendId).collectLatest { entity ->
@@ -130,7 +145,10 @@ class FriendDetailViewModel @Inject constructor(
     }
 
     /**
-     * Create an invite for this phantom user.
+     * Initiates creation of an invite for the current friend and updates the UI connection state.
+     *
+     * Sets the connection state to `Loading`, then to `InviteCreated(inviteToken)` on success
+     * or to `Error(message)` on failure.
      */
     fun createInvite() {
         viewModelScope.launch {
@@ -147,8 +165,10 @@ class FriendDetailViewModel @Inject constructor(
     }
 
     /**
-     * Refresh connection status from server.
-     * Called when user opens Friend Detail screen or manually refreshes.
+     * Refreshes the connection status for the current friend and updates UI state when the invite is claimed.
+     *
+     * If the server reports the invite as claimed, the `connectionState` is updated to `ConnectionUiState.Claimed`.
+     * On error the existing UI state is preserved; other statuses (pending, not found, expired) are handled by the connection observer.
      */
     fun refreshConnectionStatus() {
         viewModelScope.launch {
@@ -167,11 +187,12 @@ class FriendDetailViewModel @Inject constructor(
     }
 
     /**
-     * Finalize connection by merging phantom into real user.
-     * Only works when status is CLAIMED.
+     * Merge the phantom friend into its claimed real user when the invite has been claimed.
      *
-     * After successful merge, emits [FriendDetailEvent.NavigateBackAfterMerge]
-     * because the phantom user is deleted.
+     * While running, sets the UI to a merging state. On success, updates the connection state to
+     * `Merged`, clears the merging flag, and emits FriendDetailEvent.NavigateBackAfterMerge.
+     * If the invite is not claimed or an error occurs, updates the connection state to an `Error`
+     * with an explanatory message and clears the merging flag.
      */
     fun finalizeConnection() {
         viewModelScope.launch {
