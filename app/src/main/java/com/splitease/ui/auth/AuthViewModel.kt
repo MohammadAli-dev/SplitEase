@@ -50,11 +50,16 @@ class AuthViewModel @Inject constructor(
         // Automatically trigger navigation when AuthState becomes Authenticated.
         // This decouples the "how" (Google, Email, etc) from the "what" (User is logged in).
         viewModelScope.launch {
-            authManager.authState.collect { state ->
-                if (state is AuthState.Authenticated) {
-                    Log.d(TAG, "Auth state is Authenticated, emitting loginSuccess")
+            var previousState: AuthState? = null
+            authManager.authState.collect { currentState ->
+                if (currentState is AuthState.Authenticated && 
+                    previousState != null && 
+                    previousState !is AuthState.Authenticated
+                ) {
+                    Log.d(TAG, "Auth state transition to Authenticated, emitting loginSuccess")
                     _loginSuccess.emit(Unit)
                 }
+                previousState = currentState
             }
         }
     }

@@ -69,6 +69,7 @@ fun ClaimInviteScreen(
     LaunchedEffect(uiState.claimSuccess) {
         if (uiState.claimSuccess != null) {
             onNavigateToDashboard()
+            viewModel.consumeClaimSuccess()
         }
     }
 

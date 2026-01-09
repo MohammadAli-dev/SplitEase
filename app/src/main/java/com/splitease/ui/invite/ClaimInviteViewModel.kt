@@ -157,6 +157,15 @@ class ClaimInviteViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Resets the claimSuccess state to null.
+     * Must be called by the UI after handling the success event (navigation)
+     * to prevent unwanted re-navigation on recomposition.
+     */
+    fun consumeClaimSuccess() {
+        _uiState.update { it.copy(claimSuccess = null) }
+    }
+
     private fun mapClaimError(error: ClaimError): Pair<String, Boolean> {
         return when (error) {
             is ClaimError.AlreadyClaimed -> "This invite has already been claimed" to true

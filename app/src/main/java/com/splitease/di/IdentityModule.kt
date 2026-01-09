@@ -103,12 +103,10 @@ abstract class IdentityModule {
             @EdgeFunctionsClient okHttpClient: OkHttpClient
         ): IdentityApiService {
             val baseUrl = AuthConfig.supabaseBaseUrl
-
-            // Use a non-empty URL for Retrofit (required), but calls will fail if not configured
-            val effectiveUrl = baseUrl.ifEmpty { "https://not-configured.invalid" }
+            require(baseUrl.isNotEmpty()) { "AuthConfig.supabaseBaseUrl is not configured" }
 
             return Retrofit.Builder()
-                .baseUrl("$effectiveUrl/")
+                .baseUrl("$baseUrl/")
                 .client(okHttpClient)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

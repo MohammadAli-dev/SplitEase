@@ -30,9 +30,8 @@ interface UserDao {
      *
      * @return A Flow that emits the first stored [User], or `null` if no users exist. The Flow will emit again if the underlying data changes.
      */
-    @Query("SELECT * FROM users LIMIT 1")
+    @Query("SELECT * FROM users ORDER BY id LIMIT 1")
     fun getAnyUser(): Flow<User?>
-
     /**
      * Removes the user with the given ID from the users table.
      *

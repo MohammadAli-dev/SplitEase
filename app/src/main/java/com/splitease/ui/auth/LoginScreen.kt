@@ -105,6 +105,8 @@ fun LoginScreen(
         viewModel.loginSuccess.collect {
             android.util.Log.d("LoginScreen", "Login success, setting AUTH_RESULT and navigating")
             // Set AUTH_RESULT for previous screen (ClaimInvite resume pattern)
+            // TODO: Revisit this assumption. If LoginScreen is a start destination, previousBackStackEntry is null.
+            // Future Sprint: Decouple from backstack (use global/graph-scoped state).
             navController.previousBackStackEntry?.savedStateHandle?.set(
                 NavResultKeys.AUTH_RESULT, AuthResult.SUCCESS.name
             )

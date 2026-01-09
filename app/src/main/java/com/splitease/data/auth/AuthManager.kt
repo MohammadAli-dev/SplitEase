@@ -52,9 +52,14 @@ interface AuthManager {
     val authInfo: SharedFlow<String>
 
     /**
-     * Login with email and password via Supabase.
+     * Attempts to log in using email and password.
      *
-     * @return Result.success on success, Result.failure with exception on error.
+     * Contract:
+     * - Result.success(Unit) indicates the request was processed successfully.
+     * - Authentication success is signaled ONLY via AuthState.Authenticated.
+     * - Blocked states (e.g., unverified email) do NOT return failure.
+     *   They emit an informational message via authInfo and leave AuthState.Unauthenticated.
+     * - Result.failure(...) is reserved for true errors (network, invalid credentials, server errors).
      */
     suspend fun loginWithEmail(email: String, password: String): Result<Unit>
 
@@ -152,9 +157,14 @@ class AuthManagerImpl @Inject constructor(
     }
 
     /**
-     * Login with email and password via Supabase.
-     * Emits Authenticating → Authenticated on success.
-     * Emits error via authError SharedFlow on failure.
+     * Attempts to log in using email and password.
+     *
+     * Contract:
+     * - Result.success(Unit) indicates the request was processed successfully.
+     * - Authentication success is signaled ONLY via AuthState.Authenticated.
+     * - Blocked states (e.g., unverified email) do NOT return failure.
+     *   They emit an informational message via authInfo and leave AuthState.Unauthenticated.
+     * - Result.failure(...) is reserved for true errors (network, invalid credentials, server errors).
      */
     override suspend fun loginWithEmail(email: String, password: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {

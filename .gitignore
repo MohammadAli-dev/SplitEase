@@ -73,8 +73,11 @@ Thumbs.db
 .idea/misc.xml
 .idea/deployment.xml
 
-# # spec files
-# specs*.md*
+# spec files
+specs*.md*
 
 #settings
 .vscode/
+
+#antigravity
+AntigravityContextDump.md
