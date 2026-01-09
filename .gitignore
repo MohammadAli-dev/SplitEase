@@ -79,5 +79,5 @@ specs*.md*
 #settings
 .vscode/
 
-#antigravity
-AntigravityContextDump.md
+#contextdump
+*ContextDump.*
