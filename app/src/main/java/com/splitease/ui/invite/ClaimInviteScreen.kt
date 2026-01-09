@@ -19,11 +19,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavController
+import com.splitease.ui.navigation.AuthResult
+import com.splitease.ui.navigation.NavResultKeys
 
 /**
  * Screen for claiming an invite received via deep link.
@@ -37,16 +43,33 @@ import androidx.hilt.navigation.compose.hiltViewModel
  */
 @Composable
 fun ClaimInviteScreen(
+    navController: NavController,
     viewModel: ClaimInviteViewModel = hiltViewModel(),
     onNavigateToLogin: () -> Unit,
     onNavigateToDashboard: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    // Observe auth result via SavedStateHandle LiveData at composable top level
+    val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
+    val authResultLiveData = savedStateHandle?.getLiveData<String>(NavResultKeys.AUTH_RESULT)
+    val authResult by authResultLiveData?.observeAsState() ?: remember { mutableStateOf(null) }
+
+    // Handle auth result
+    LaunchedEffect(authResult) {
+        if (authResult == AuthResult.SUCCESS.name) {
+            android.util.Log.d("ClaimInviteScreen", "Auth result received: SUCCESS, calling onAuthResumed")
+            viewModel.onAuthResumed()
+            // Clear the result to prevent re-triggering
+            savedStateHandle?.remove<String>(NavResultKeys.AUTH_RESULT)
+        }
+    }
+
     // Navigate on success
     LaunchedEffect(uiState.claimSuccess) {
         if (uiState.claimSuccess != null) {
             onNavigateToDashboard()
+            viewModel.consumeClaimSuccess()
         }
     }
 

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -79,14 +80,37 @@ class ClaimInviteViewModel @Inject constructor(
     }
 
     /**
-     * Refresh auth state (called when returning from login).
+     * Guard to ensure auth resume happens exactly once.
+     * Prevents double-retry due to backstack quirks or recomposition.
      */
-    fun refreshAuthState() {
-        viewModelScope.launch {
-            val authState = authManager.authState.first()
-            val isAuthenticated = authState is AuthState.Authenticated
-            _uiState.value = _uiState.value.copy(isAuthenticated = isAuthenticated)
+    private var hasResumedAfterAuth = false
+
+    /**
+     * Called when returning from login screen after successful authentication.
+     * Uses StateFlow.value (not first()) to avoid blocking.
+     * Guarded to run exactly once per navigation cycle.
+     */
+    fun onAuthResumed() {
+        if (hasResumedAfterAuth) {
+            android.util.Log.d("ClaimInviteVM", "onAuthResumed: already resumed, skipping")
+            return
         }
+        hasResumedAfterAuth = true
+
+        val authState = authManager.authState.value
+        android.util.Log.d("ClaimInviteVM", "onAuthResumed: authState=$authState")
+
+        if (authState is AuthState.Authenticated) {
+            _uiState.update { it.copy(isAuthenticated = true) }
+            claimInvite()
+        }
+    }
+
+    /**
+     * Reset the resume guard (if user returns to login and back again).
+     */
+    fun resetResumeGuard() {
+        hasResumedAfterAuth = false
     }
 
     /**
@@ -131,6 +155,15 @@ class ClaimInviteViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Resets the claimSuccess state to null.
+     * Must be called by the UI after handling the success event (navigation)
+     * to prevent unwanted re-navigation on recomposition.
+     */
+    fun consumeClaimSuccess() {
+        _uiState.update { it.copy(claimSuccess = null) }
     }
 
     private fun mapClaimError(error: ClaimError): Pair<String, Boolean> {

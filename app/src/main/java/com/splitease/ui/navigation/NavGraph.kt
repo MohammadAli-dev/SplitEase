@@ -22,6 +22,7 @@ fun SplitEaseNavGraph(
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Screen.Login.route) {
             LoginScreen(
+                navController = navController,
                 onNavigateToSignup = { navController.navigate(Screen.Signup.route) },
                 onLoginSuccess = {
                     navController.navigate(Screen.Dashboard.route) {
@@ -32,7 +33,8 @@ fun SplitEaseNavGraph(
         }
         composable(Screen.Signup.route) {
             SignupScreen(
-                onNavigateToLogin = { navController.navigate(Screen.Login.route) },
+                navController = navController,
+                onNavigateToLogin = { navController.popBackStack() },
                 onSignupSuccess = {
                     navController.navigate(Screen.Dashboard.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }
@@ -45,6 +47,7 @@ fun SplitEaseNavGraph(
         }
         composable(Screen.ClaimInvite.route) {
             ClaimInviteScreen(
+                navController = navController,
                 onNavigateToLogin = {
                     navController.navigate(Screen.Login.route) {
                         // Keep ClaimInvite in backstack so user returns after login

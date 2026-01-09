@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Email
@@ -21,6 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,12 +34,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.splitease.data.auth.AuthState
 import java.util.TimeZone
 
 @Composable
-fun AccountScreen(viewModel: AccountViewModel = hiltViewModel()) {
+fun AccountScreen(
+    viewModel: AccountViewModel = hiltViewModel(),
+    onLogout: () -> Unit = {}
+) {
     val currentUser by viewModel.currentUser.collectAsState(initial = null)
     val friendSuggestionEnabled by viewModel.friendSuggestionEnabled.collectAsState()
+    val authState by viewModel.authState.collectAsState()
+
+    val isAuthenticated = authState is AuthState.Authenticated
+
+    // Debug: Log authState to diagnose logout button visibility
+    android.util.Log.d("AccountScreen", "authState: $authState, isAuthenticated: $isAuthenticated")
 
     Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -97,6 +109,33 @@ fun AccountScreen(viewModel: AccountViewModel = hiltViewModel()) {
         AccountSection(title = "Support") {
             DisabledActionItem(text = "Contact Us")
             DisabledActionItem(text = "Feedback")
+        }
+
+        // Account Actions (Logout)
+        if (isAuthenticated) {
+            AccountSection(title = "Account") {
+                OutlinedButton(
+                    onClick = {
+                        viewModel.logout()
+                        onLogout()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ExitToApp,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("Log Out")
+                }
+                Text(
+                    text = "Your local data will be preserved.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         }
 
         // Danger Zone

@@ -17,7 +17,6 @@ import androidx.lifecycle.viewModelScope
 import com.splitease.data.deeplink.DeepLinkHandler
 import com.splitease.data.deeplink.DeepLinkResult
 import com.splitease.data.invite.PendingInviteStore
-import com.splitease.data.repository.AuthRepository
 import com.splitease.ui.navigation.Screen
 import com.splitease.ui.navigation.SplitEaseNavGraph
 import dagger.hilt.android.AndroidEntryPoint
@@ -30,11 +29,12 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    authRepository: AuthRepository,
+    authManager: com.splitease.data.auth.AuthManager,
     private val deepLinkHandler: DeepLinkHandler,
     private val pendingInviteStore: PendingInviteStore
 ) : ViewModel() {
-    val currentUser = authRepository.getCurrentUser()
+    /** Observable auth state for determining start destination */
+    val authState = authManager.authState
 
     /**
      * One-shot navigation events using Channel.
@@ -84,11 +84,11 @@ class MainActivity : ComponentActivity() {
         viewModel.handleDeepLink(intent)
 
         setContent {
-            val currentUser by viewModel.currentUser.collectAsState(initial = null)
+            val authState by viewModel.authState.collectAsState()
             val navController = androidx.navigation.compose.rememberNavController()
             
-            // Stable startDestination based ONLY on auth state (no deep link influence)
-            val startDestination = if (currentUser != null) {
+            // Stable startDestination based on auth TOKEN state (not local user existence)
+            val startDestination = if (authState is com.splitease.data.auth.AuthState.Authenticated) {
                 Screen.Dashboard.route
             } else {
                 Screen.Login.route

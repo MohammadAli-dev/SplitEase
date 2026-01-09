@@ -55,14 +55,9 @@ CREATE POLICY "Creators can insert own invites" ON connection_invites
 -- service-role key, NOT via direct client queries with RLS.
 -- This ensures invite tokens act as bearer secrets without exposing rows.
 
--- Update only for claiming (by the claimer)
-CREATE POLICY "Claimers can update to claim" ON connection_invites
-    FOR UPDATE
-    USING (claimed_by_cloud_user_id IS NULL) -- Only unclaimed invites
-    WITH CHECK (
-        claimed_by_cloud_user_id = auth.uid() AND -- Claimer must be the caller
-        expires_at > NOW() -- Not expired
-    );
+-- NOTE: Updates (claiming) are performed exclusively via Edge Functions using
+-- the service-role key. There is NO client-side UPDATE policy.
+-- This enforces that claiming logic (atomic checks, notification) must go through the API.
 
 COMMENT ON TABLE connection_invites IS 'Tracks invite lifecycle for phantom → real user connections';
 COMMENT ON COLUMN connection_invites.invite_token IS 'Shareable token (format: inv_<hex>). Acts as bearer auth for claiming.';

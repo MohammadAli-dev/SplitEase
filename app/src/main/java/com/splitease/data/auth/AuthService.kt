@@ -47,4 +47,35 @@ interface AuthService {
         @Query("grant_type") grantType: String = "refresh_token",
         @Body request: RefreshTokenRequest
     ): Response<AuthResponse>
+
+    /**
+     * Sign up with email and password.
+     *
+     * Endpoint: POST /auth/v1/signup
+     *
+     * @param apiKey Supabase public/anon key
+     * @param request Contains email, password, and optional user metadata (name)
+     * @return AuthResponse with access_token, refresh_token, expires_in, and user info
+     */
+    @POST("auth/v1/signup")
+    suspend fun signUp(
+        @Header("apikey") apiKey: String,
+        @Body request: EmailSignupRequest
+    ): Response<AuthResponse>
+
+    /**
+     * Sign in with email and password.
+     *
+     * Endpoint: POST /auth/v1/token?grant_type=password
+     *
+     * @param apiKey Supabase public/anon key
+     * @param request Contains email and password
+     * @return AuthResponse with access_token, refresh_token, expires_in, and user info
+     */
+    @POST("auth/v1/token")
+    suspend fun signInWithPassword(
+        @Header("apikey") apiKey: String,
+        @Query("grant_type") grantType: String = "password",
+        @Body request: PasswordLoginRequest
+    ): Response<AuthResponse>
 }

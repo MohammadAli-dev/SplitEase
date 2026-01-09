@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Required for Supabase auth, invite claiming, and background sync -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:name=".SplitEaseApp"
         android:allowBackup="true"
