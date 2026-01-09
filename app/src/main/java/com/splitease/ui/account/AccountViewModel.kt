@@ -6,11 +6,14 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.splitease.data.auth.AuthManager
+import com.splitease.data.auth.AuthState
 import com.splitease.data.local.entities.User
 import com.splitease.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -19,6 +22,7 @@ import javax.inject.Inject
 @HiltViewModel
 class AccountViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val authManager: AuthManager,
     private val dataStore: DataStore<Preferences>
 ) : ViewModel() {
 
@@ -28,6 +32,9 @@ class AccountViewModel @Inject constructor(
     }
 
     val currentUser: Flow<User?> = authRepository.getCurrentUser()
+
+    /** Observable auth state for UI */
+    val authState: StateFlow<AuthState> = authManager.authState
 
     val friendSuggestionEnabled = dataStore.data
         .map { preferences ->
@@ -49,7 +56,7 @@ class AccountViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch {
-            authRepository.logout()
+            authManager.logout()
         }
     }
 }
