@@ -14,7 +14,10 @@ fun Context.shareInviteLink(deepLink: String) {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, text)
     }
-    startActivity(Intent.createChooser(intent, "Share invite"))
+    val chooser = Intent.createChooser(intent, "Share invite").apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    startActivity(chooser)
 }
 
 /**

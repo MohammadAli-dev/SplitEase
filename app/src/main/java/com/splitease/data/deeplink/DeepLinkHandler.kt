@@ -42,8 +42,8 @@ class DeepLinkHandlerImpl : DeepLinkHandler {
     }
 
     override fun parse(uri: Uri): DeepLinkResult {
-        // Validate host
-        if (uri.host != HOST_SPLITEASE) {
+        // Validate host (case-insensitive per RFC 3986)
+        if (!uri.host.equals(HOST_SPLITEASE, ignoreCase = true)) {
             return DeepLinkResult.Unknown
         }
 

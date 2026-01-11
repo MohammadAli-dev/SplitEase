@@ -40,12 +40,13 @@ data class CheckStatusResponse(
 
 /**
  * Information about who claimed the invite.
+ * Fields are nullable to handle Gson deserialization when backend returns null values.
  */
 data class ClaimerInfo(
     @SerializedName("cloudUserId")
-    val cloudUserId: String,
+    val cloudUserId: String?,
     @SerializedName("name")
-    val name: String
+    val name: String?
 )
 
 /**

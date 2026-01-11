@@ -35,8 +35,8 @@ abstract class ConnectionModule {
         /**
          * Provides a singleton Retrofit-based ConnectionApiService configured with the app's Supabase base URL.
          *
-         * If AuthConfig.supabaseBaseUrl is empty, a non-empty placeholder URL is used so Retrofit can be constructed; resulting calls will fail at runtime until a real base URL is configured.
-         *
+         * @throws IllegalArgumentException if AuthConfig.supabaseBaseUrl is blank.
+         *         SUPABASE_URL must be configured in local.properties or BuildConfig.
          * @return A configured ConnectionApiService instance.
          */
         @Provides
