@@ -64,10 +64,10 @@ interface ConnectionManager {
     suspend fun mergeIfClaimed(phantomLocalUserId: String): MergeResult
 
     /**
- * Observe the stored connection state for a phantom user and emit updates when it changes.
+ * Observe updates to the stored connection state for the given phantom user.
  *
- * @param phantomLocalUserId The local identifier of the phantom user whose connection state to observe.
- * @return The current ConnectionStateEntity for the phantom user, or `null` if none exists; emits a new value whenever the stored state changes.
+ * @param phantomLocalUserId Local identifier of the phantom user whose connection state is observed.
+ * @return The current `ConnectionStateEntity` for the phantom user, or `null` if none exists; emits a new value whenever the stored state changes.
  */
     fun observeConnectionState(phantomLocalUserId: String): Flow<ConnectionStateEntity?>
 

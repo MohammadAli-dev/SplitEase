@@ -218,10 +218,16 @@ class AuthManagerImpl @Inject constructor(
     }
 
     /**
-     * Sign up with email and password via Supabase.
-     * Emits Authenticating → Authenticated on success.
-     * Emits error via authError SharedFlow on failure.
-     */
+      * Creates a new user account with the provided email and password and updates authentication state on success.
+      *
+      * @param name Optional display name to include in signup metadata; pass `null` to omit.
+      * @param email The user's email address.
+      * @param password The user's password.
+      * @return `Result.success(Unit)` if signup completed and the session was established.
+      *         `Result.failure(AuthException)` if signup succeeded but account verification is required or if the server rejected the signup.
+      *         `Result.failure(IllegalStateException)` if authentication is not configured.
+      *         `Result.failure(Exception)` for network or unexpected errors.
+      */
     override suspend fun signupWithEmail(name: String?, email: String, password: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (!AuthConfig.isConfigured) {
@@ -281,6 +287,20 @@ class AuthManagerImpl @Inject constructor(
      * @return `Result.success(Unit)` if authentication completed and the session was established;
      *         `Result.failure(AuthException)` if authentication was incomplete (e.g., verification required) or
      *         `Result.failure(Exception)` for network/server/other errors.
+    /**
+     * Exchanges a provider ID token for a Supabase session and updates the stored authentication state.
+     *
+     * Attempts to sign in using the given provider and ID token; on success persists tokens and sets
+     * the auth state to Authenticated. Emits user-facing error/info messages via the auth event flows
+     * when configuration is missing, verification is required, or an error occurs.
+     *
+     * @param provider The third-party authentication provider to use (e.g., Google, Apple).
+     * @param idToken The provider-issued ID token to exchange for a Supabase session.
+     * @param nonce An optional nonce required by some providers (nullable).
+     * @return `Result.success(Unit)` if authentication completed and the manager moved to Authenticated;
+     *         `Result.failure(AuthException)` if authentication was incomplete (e.g., verification required)
+     *         or the server returned an auth error; `Result.failure(Exception)` for network or unexpected errors.
+     */
     override suspend fun loginWithIdToken(
         provider: AuthProvider,
         idToken: String,
