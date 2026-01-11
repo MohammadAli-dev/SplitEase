@@ -268,12 +268,19 @@ class AuthManagerImpl @Inject constructor(
     }
 
     /**
-     * Login with OAuth ID token obtained from external provider (Google, Apple, etc).
-     * Provider-agnostic: AuthManager only handles Supabase token exchange.
+     * Exchanges an external provider ID token for a Supabase session and updates authentication state.
      *
-     * POST /auth/v1/token?grant_type=id_token
-     * Body: { provider: "google", id_token: "...", nonce: "..." (optional) }
-     */
+     * Attempts to sign in using the given provider and ID token; on success tokens are persisted and authState
+     * becomes Authenticated. On partial success that requires email verification the function returns failure
+     * while emitting an informational message. On error the function sets authState to Unauthenticated and
+     * emits an error message via the authError flow.
+     *
+     * @param provider The external auth provider to use (e.g., Google, Apple).
+     * @param idToken The ID token obtained from the external provider.
+     * @param nonce Optional nonce used when exchanging the ID token.
+     * @return `Result.success(Unit)` if authentication completed and the session was established;
+     *         `Result.failure(AuthException)` if authentication was incomplete (e.g., verification required) or
+     *         `Result.failure(Exception)` for network/server/other errors.
     override suspend fun loginWithIdToken(
         provider: AuthProvider,
         idToken: String,

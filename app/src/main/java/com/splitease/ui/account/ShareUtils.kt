@@ -8,6 +8,11 @@ import android.content.Intent
 /**
  * Shares the invite link via Android system share sheet.
  */
+/**
+ * Opens the system share sheet to share an invite message that includes the given deep link.
+ *
+ * @param deepLink The invite deep link to include in the shared message.
+ */
 fun Context.shareInviteLink(deepLink: String) {
     val text = "Join me on SplitEase:\n$deepLink"
     val intent = Intent(Intent.ACTION_SEND).apply {

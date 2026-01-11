@@ -119,7 +119,13 @@ serve(async (req: Request): Promise<Response> => {
   });
 });
 
-// ── Helper: JSON error response ───────────────────────────────
+/**
+ * Create an HTTP JSON error response containing an `error` message.
+ *
+ * @param message - Error message to include in the response body
+ * @param status - HTTP status code for the response
+ * @returns A Response with a JSON body `{ error: message }` and the provided HTTP status
+ */
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
 }

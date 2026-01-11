@@ -49,6 +49,16 @@ import com.splitease.data.auth.AuthState
 import kotlinx.coroutines.launch
 import java.util.TimeZone
 
+/**
+ * Displays the account screen composed of profile, connections, preferences, privacy, support,
+ * account actions, and a danger zone.
+ *
+ * Shows profile information when available and exposes actions that depend on authentication state
+ * (for example, an "Invite a Friend" action and a "Log Out" action). When an invite becomes
+ * available the composable presents an invite bottom sheet with the deep link; invite errors are
+ * surfaced via a snackbar. The "Log Out" action also invokes the provided `onLogout` callback.
+ *
+ * @param onLogout Callback invoked after the user triggers logout. */
 @Composable
 fun AccountScreen(
     viewModel: AccountViewModel = hiltViewModel(),
@@ -256,6 +266,12 @@ fun AccountScreen(
         }
     }
 }
+/**
+ * Renders a titled section with a card container for grouping account-related UI elements.
+ *
+ * @param title The section title displayed above the card.
+ * @param containerColor The background color used for the card container.
+ * @param content Composable slot rendered inside the card. */
 @Composable
 fun AccountSection(
         title: String,

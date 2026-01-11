@@ -58,8 +58,11 @@ class AccountViewModel @Inject constructor(
     val inviteState: StateFlow<InviteUiState> = _inviteState.asStateFlow()
 
     /**
-     * Creates a user invite. Caller should check network before calling.
-     * Sets inviteState to Loading → Available/Error.
+     * Initiates creation of a user invite and updates `inviteState` accordingly.
+     *
+     * If an invite creation is already in progress the call is ignored. Sets
+     * `inviteState` to `Loading`, then to `Available` with the invite deep link on
+     * success or to `Error` with the failure message on error.
      */
     fun createInvite() {
         if (_inviteState.value is InviteUiState.Loading) return
@@ -82,13 +85,19 @@ class AccountViewModel @Inject constructor(
     }
 
     /**
-     * Resets invite state to Idle.
-     * Call after UI has handled Available or Error state.
+     * Reset the invite UI state to Idle.
      */
     fun consumeInvite() {
         _inviteState.value = InviteUiState.Idle
     }
 
+    /**
+     * Persistently enables or disables the friend suggestion feature.
+     *
+     * Updates the stored preference that controls whether friend suggestions are shown.
+     *
+     * @param enabled `true` to enable friend suggestions, `false` to disable them.
+     */
     fun toggleFriendSuggestion(enabled: Boolean) {
         viewModelScope.launch {
             dataStore.edit { preferences ->

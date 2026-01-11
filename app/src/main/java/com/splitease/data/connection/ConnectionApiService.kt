@@ -39,7 +39,10 @@ interface ConnectionApiService {
 
     /**
      * Creates a user-level invite (no phantom context).
-     * Server is idempotent: returns existing active invite if one exists.
+     *
+     * The server is idempotent and returns an existing active invite if one already exists.
+     *
+     * @return A Response containing a CreateUserInviteResponse with the created or existing active invite.
      */
     @POST("functions/v1/create-user-invite")
     suspend fun createUserInvite(): Response<CreateUserInviteResponse>

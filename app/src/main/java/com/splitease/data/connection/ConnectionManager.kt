@@ -72,11 +72,12 @@ interface ConnectionManager {
     fun observeConnectionState(phantomLocalUserId: String): Flow<ConnectionStateEntity?>
 
     /**
-     * Creates a user-level invite (no phantom context).
-     * Every call goes to server; reuse is server-decided.
-     * 
-     * @return UserInviteResult.Success with deep link, or Error with user-safe message.
-     */
+ * Requests a new user-level invite from the backend and returns a shareable deep link.
+ *
+ * The returned deep link has the form `https://splitease.app/connect/{inviteToken}` when successful.
+ *
+ * @return `UserInviteResult.Success` containing the invite deep link, or `UserInviteResult.Error` with a user-facing message.
+ */
     suspend fun createUserInvite(): UserInviteResult
 }
 
@@ -293,8 +294,10 @@ class ConnectionManagerImpl @Inject constructor(
     }
 
     /**
-     * Creates a user-level invite via the remote data source.
-     * Maps backend failures to user-safe messages.
+     * Creates a user-level invite and returns a deep link that can be shared with another user.
+     *
+     * @return `UserInviteResult.Success` containing the deep link `https://splitease.app/connect/{inviteToken}` on success, or
+     * `UserInviteResult.Error` with a user-facing message on failure.
      */
     override suspend fun createUserInvite(): UserInviteResult = withContext(Dispatchers.IO) {
         try {
