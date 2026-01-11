@@ -4,6 +4,8 @@ import com.splitease.data.auth.AuthConfig
 import com.splitease.data.connection.ConnectionApiService
 import com.splitease.data.connection.ConnectionManager
 import com.splitease.data.connection.ConnectionManagerImpl
+import com.splitease.data.connection.ConnectionRemoteDataSource
+import com.splitease.data.connection.ConnectionRemoteDataSourceImpl
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -21,14 +23,13 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 abstract class ConnectionModule {
 
-    /**
-     * Binds the concrete ConnectionManagerImpl as the singleton implementation for ConnectionManager in the DI graph.
-     *
-     * @return The bound ConnectionManager instance (provided as a singleton).
-     */
     @Binds
     @Singleton
     abstract fun bindConnectionManager(impl: ConnectionManagerImpl): ConnectionManager
+
+    @Binds
+    @Singleton
+    abstract fun bindConnectionRemoteDataSource(impl: ConnectionRemoteDataSourceImpl): ConnectionRemoteDataSource
 
     companion object {
         /**

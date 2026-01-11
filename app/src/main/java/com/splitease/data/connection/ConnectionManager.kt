@@ -70,13 +70,22 @@ interface ConnectionManager {
  * @return The current ConnectionStateEntity for the phantom user, or `null` if none exists; emits a new value whenever the stored state changes.
  */
     fun observeConnectionState(phantomLocalUserId: String): Flow<ConnectionStateEntity?>
+
+    /**
+     * Creates a user-level invite (no phantom context).
+     * Every call goes to server; reuse is server-decided.
+     * 
+     * @return UserInviteResult.Success with deep link, or Error with user-safe message.
+     */
+    suspend fun createUserInvite(): UserInviteResult
 }
 
 @Singleton
 class ConnectionManagerImpl @Inject constructor(
     private val connectionApiService: ConnectionApiService,
     private val connectionStateDao: ConnectionStateDao,
-    private val appDatabase: AppDatabase
+    private val appDatabase: AppDatabase,
+    private val remoteDataSource: ConnectionRemoteDataSource
 ) : ConnectionManager {
 
     companion object {
@@ -281,5 +290,21 @@ class ConnectionManagerImpl @Inject constructor(
      */
     override fun observeConnectionState(phantomLocalUserId: String): Flow<ConnectionStateEntity?> {
         return connectionStateDao.observe(phantomLocalUserId)
+    }
+
+    /**
+     * Creates a user-level invite via the remote data source.
+     * Maps backend failures to user-safe messages.
+     */
+    override suspend fun createUserInvite(): UserInviteResult = withContext(Dispatchers.IO) {
+        try {
+            val response = remoteDataSource.createUserInvite()
+            val deepLink = "https://splitease.app/connect/${response.inviteToken}"
+            Log.d(TAG, "createUserInvite: success, token=${response.inviteToken.take(8)}...")
+            UserInviteResult.Success(deepLink)
+        } catch (e: Exception) {
+            Log.e(TAG, "createUserInvite: failed - ${e.message}", e)
+            UserInviteResult.Error("Could not create invite. Try again.")
+        }
     }
 }

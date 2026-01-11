@@ -352,6 +352,12 @@ class AuthManagerImpl @Inject constructor(
                 expiresInSeconds = expiresIn
             )
             tokenManager.saveCloudUserId(cloudUserId)
+            
+            // TODO: REMOVE AFTER TESTING - Temporary log for Edge Function testing
+            Log.d("AuthDebug", "========== SUPABASE ACCESS TOKEN START ==========")
+            Log.d("AuthDebug", accessToken)
+            Log.d("AuthDebug", "========== SUPABASE ACCESS TOKEN END ============")
+            
             _authState.value = AuthState.Authenticated(cloudUserId)
             enqueueIdentityLinkingIfNeeded()
             return true
