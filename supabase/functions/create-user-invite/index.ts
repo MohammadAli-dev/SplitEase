@@ -34,13 +34,20 @@ serve(async (req: Request): Promise<Response> => {
     return jsonError("Missing or invalid Authorization header", 401);
   }
 
+  // ── Validate environment ─────────────────────────────────────
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error("Missing required environment variables: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    return jsonError("Server configuration error", 500);
+  }
+
   // Create Supabase client with service-role key but forward user's JWT
   // so that auth.getUser() resolves the caller's identity.
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    { global: { headers: { Authorization: authHeader } } }
-  );
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
 
   // ── Identify caller ─────────────────────────────────────────
   const {

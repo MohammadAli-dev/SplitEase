@@ -326,9 +326,6 @@ class AuthManagerImpl @Inject constructor(
 
     /**
      * Handle successful authentication response (shared by all login methods).
-     */
-    /**
-     * Handle successful authentication response (shared by all login methods).
      * If tokens are missing (e.g., email confirmation required), emits an error message
      * and does NOT transition to Authenticated state.
      * 
@@ -494,7 +491,7 @@ class AuthManagerImpl @Inject constructor(
 
                 if (response.isSuccessful && response.body() != null) {
                     val authResponse = response.body()!!
-                    handleSuccessfulAuth(authResponse)
+                    return@withContext handleSuccessfulAuth(authResponse)
                 } else {
                     // Check if this is an auth error vs server error
                     if (response.code() == 401 || response.code() == 403) {
