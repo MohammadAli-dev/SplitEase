@@ -40,12 +40,13 @@ data class CheckStatusResponse(
 
 /**
  * Information about who claimed the invite.
+ * Fields are nullable to handle Gson deserialization when backend returns null values.
  */
 data class ClaimerInfo(
     @SerializedName("cloudUserId")
-    val cloudUserId: String,
+    val cloudUserId: String?,
     @SerializedName("name")
-    val name: String
+    val name: String?
 )
 
 /**
@@ -78,4 +79,25 @@ sealed class MergeResult {
     object Success : MergeResult()
     object NotClaimed : MergeResult()
     data class Error(val message: String) : MergeResult()
+}
+
+// ============ USER INVITE (Sprint 13E) ============
+
+/**
+ * Response from create-user-invite endpoint.
+ * expiresAt is included for future-proofing but not currently consumed.
+ */
+data class CreateUserInviteResponse(
+    @SerializedName("inviteToken")
+    val inviteToken: String,
+    @SerializedName("expiresAt")
+    val expiresAt: String
+)
+
+/**
+ * Result from creating a user invite.
+ */
+sealed class UserInviteResult {
+    data class Success(val deepLink: String) : UserInviteResult()
+    data class Error(val message: String) : UserInviteResult()
 }

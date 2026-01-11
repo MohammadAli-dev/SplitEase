@@ -36,4 +36,14 @@ interface ConnectionApiService {
     suspend fun checkInviteStatus(
         @Body request: CheckStatusRequest
     ): Response<CheckStatusResponse>
+
+    /**
+     * Creates a user-level invite (no phantom context).
+     *
+     * The server is idempotent and returns an existing active invite if one already exists.
+     *
+     * @return A Response containing a CreateUserInviteResponse with the created or existing active invite.
+     */
+    @POST("functions/v1/create-user-invite")
+    suspend fun createUserInvite(): Response<CreateUserInviteResponse>
 }

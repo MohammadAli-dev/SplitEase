@@ -4,6 +4,8 @@ import com.splitease.data.auth.AuthConfig
 import com.splitease.data.connection.ConnectionApiService
 import com.splitease.data.connection.ConnectionManager
 import com.splitease.data.connection.ConnectionManagerImpl
+import com.splitease.data.connection.ConnectionRemoteDataSource
+import com.splitease.data.connection.ConnectionRemoteDataSourceImpl
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -22,21 +24,31 @@ import javax.inject.Singleton
 abstract class ConnectionModule {
 
     /**
-     * Binds the concrete ConnectionManagerImpl as the singleton implementation for ConnectionManager in the DI graph.
+     * Binds ConnectionManagerImpl as the implementation for the ConnectionManager interface.
      *
-     * @return The bound ConnectionManager instance (provided as a singleton).
+     * @param impl The concrete ConnectionManagerImpl instance to bind.
+     * @return The bound ConnectionManager.
      */
     @Binds
     @Singleton
     abstract fun bindConnectionManager(impl: ConnectionManagerImpl): ConnectionManager
 
+    /**
+     * Binds the concrete implementation to the ConnectionRemoteDataSource interface in the DI graph.
+     *
+     * @param impl The ConnectionRemoteDataSourceImpl instance to bind.
+     * @return The bound ConnectionRemoteDataSource.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindConnectionRemoteDataSource(impl: ConnectionRemoteDataSourceImpl): ConnectionRemoteDataSource
+
     companion object {
         /**
-         * Provides a singleton Retrofit-based ConnectionApiService configured with the app's Supabase base URL.
+         * Provides a singleton Retrofit ConnectionApiService configured with the app's Supabase base URL.
          *
-         * If AuthConfig.supabaseBaseUrl is empty, a non-empty placeholder URL is used so Retrofit can be constructed; resulting calls will fail at runtime until a real base URL is configured.
-         *
-         * @return A configured ConnectionApiService instance.
+         * @throws IllegalArgumentException if `AuthConfig.supabaseBaseUrl` is blank.
+         * @return A configured `ConnectionApiService` instance.
          */
         @Provides
         @Singleton
