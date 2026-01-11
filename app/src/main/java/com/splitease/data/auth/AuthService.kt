@@ -78,4 +78,24 @@ interface AuthService {
         @Query("grant_type") grantType: String = "password",
         @Body request: PasswordLoginRequest
     ): Response<AuthResponse>
+
+    /**
+     * Update user profile (name) or email.
+     * Requires Authorization header with access token.
+     *
+     * Endpoint: PUT /auth/v1/user
+     *
+     * Note: Returns User object, NOT AuthResponse. We use Response<Unit>
+     * and treat success as any 2xx response.
+     *
+     * @param apiKey Supabase public/anon key
+     * @param authHeader Bearer token (format: "Bearer <access_token>")
+     * @param request Contains optional email and/or data (name) updates
+     */
+    @retrofit2.http.PUT("auth/v1/user")
+    suspend fun updateUser(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") authHeader: String,
+        @Body request: UpdateUserRequest
+    ): Response<Unit>
 }

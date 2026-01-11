@@ -1,5 +1,6 @@
 package com.splitease.ui.account
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,9 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -26,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -47,41 +50,39 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.auth.AuthState
 import kotlinx.coroutines.launch
-import java.util.TimeZone
 
-/**
- * Displays the account screen composed of profile, connections, preferences, privacy, support,
- * account actions, and a danger zone.
- *
- * Shows profile information when available and exposes actions that depend on authentication state
- * (for example, an "Invite a Friend" action and a "Log Out" action). When an invite becomes
- * available the composable presents an invite bottom sheet with the deep link; invite errors are
- * surfaced via a snackbar. The "Log Out" action also invokes the provided `onLogout` callback.
- *
- * @param onLogout Callback invoked after the user triggers logout. */
 @Composable
 fun AccountScreen(
     viewModel: AccountViewModel = hiltViewModel(),
     onLogout: () -> Unit = {}
 ) {
-    val currentUser by viewModel.currentUser.collectAsState(initial = null)
-    val friendSuggestionEnabled by viewModel.friendSuggestionEnabled.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
     val authState by viewModel.authState.collectAsState()
+    val currency by viewModel.currency.collectAsState()
+    val timezone by viewModel.timezone.collectAsState()
+    val friendSuggestionEnabled by viewModel.friendSuggestionEnabled.collectAsState()
     val inviteState by viewModel.inviteState.collectAsState()
+    val profileUpdateState by viewModel.profileUpdateState.collectAsState()
 
     val isAuthenticated = authState is AuthState.Authenticated
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var showBottomSheet by remember { mutableStateOf(false) }
+    
+    // Dialog/Sheet states
+    var showInviteBottomSheet by remember { mutableStateOf(false) }
     var currentDeepLink by remember { mutableStateOf("") }
+    var showEditNameDialog by remember { mutableStateOf(false) }
+    var showEditEmailDialog by remember { mutableStateOf(false) }
+    var showCurrencyPicker by remember { mutableStateOf(false) }
+    var showTimezonePicker by remember { mutableStateOf(false) }
 
     // Handle invite state changes
     LaunchedEffect(inviteState) {
         when (val state = inviteState) {
             is InviteUiState.Available -> {
                 currentDeepLink = state.deepLink
-                showBottomSheet = true
+                showInviteBottomSheet = true
             }
             is InviteUiState.Error -> {
                 snackbarHostState.showSnackbar(state.message)
@@ -91,16 +92,73 @@ fun AccountScreen(
         }
     }
 
-    // Show bottom sheet when invite is available
-    if (showBottomSheet && currentDeepLink.isNotEmpty()) {
+    // Handle profile update state changes
+    LaunchedEffect(profileUpdateState) {
+        when (val state = profileUpdateState) {
+            is ProfileUpdateState.Success -> {
+                snackbarHostState.showSnackbar(state.message)
+                viewModel.consumeProfileUpdateState()
+            }
+            is ProfileUpdateState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                viewModel.consumeProfileUpdateState()
+            }
+            else -> {}
+        }
+    }
+
+    // Show dialogs/sheets
+    if (showInviteBottomSheet && currentDeepLink.isNotEmpty()) {
         InviteBottomSheet(
             deepLink = currentDeepLink,
             onDismiss = {
-                showBottomSheet = false
+                showInviteBottomSheet = false
                 viewModel.consumeInvite()
             },
             onShowSnackbar = { message ->
                 scope.launch { snackbarHostState.showSnackbar(message) }
+            }
+        )
+    }
+
+    if (showEditNameDialog) {
+        EditNameDialog(
+            currentName = userProfile?.name ?: "",
+            onDismiss = { showEditNameDialog = false },
+            onConfirm = { newName ->
+                showEditNameDialog = false
+                viewModel.updateName(newName)
+            }
+        )
+    }
+
+    if (showEditEmailDialog) {
+        EditEmailDialog(
+            currentEmail = userProfile?.email ?: "",
+            onDismiss = { showEditEmailDialog = false },
+            onConfirm = { newEmail ->
+                showEditEmailDialog = false
+                viewModel.updateEmail(newEmail)
+            }
+        )
+    }
+
+    if (showCurrencyPicker) {
+        CurrencyPickerSheet(
+            currentCurrency = currency,
+            onDismiss = { showCurrencyPicker = false },
+            onSelect = { newCurrency ->
+                viewModel.setCurrency(newCurrency)
+            }
+        )
+    }
+
+    if (showTimezonePicker) {
+        TimezonePickerSheet(
+            currentTimezone = timezone,
+            onDismiss = { showTimezonePicker = false },
+            onSelect = { newTimezone ->
+                viewModel.setTimezone(newTimezone)
             }
         )
     }
@@ -118,16 +176,46 @@ fun AccountScreen(
         ) {
             Text(text = "Account", style = MaterialTheme.typography.headlineMedium)
 
-            // Profile Section
-            currentUser?.let { user ->
+            // Profile Section (from AuthManager, not Room)
+            if (isAuthenticated && userProfile != null) {
+                val isLoading = profileUpdateState is ProfileUpdateState.Loading
+                
                 AccountSection(title = "Profile") {
-                    ProfileItem(icon = Icons.Default.AccountCircle, label = "Name", value = user.name)
+                    EditableProfileItem(
+                        icon = Icons.Default.AccountCircle,
+                        label = "Name",
+                        value = userProfile?.name ?: "Not set",
+                        onClick = { showEditNameDialog = true },
+                        enabled = !isLoading
+                    )
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    ProfileItem(
+                    EditableProfileItem(
                         icon = Icons.Default.Email,
                         label = "Email",
-                        value = user.email ?: "Not set"
+                        value = userProfile?.email ?: "Not set",
+                        onClick = { showEditEmailDialog = true },
+                        enabled = !isLoading
                     )
+                    
+                    if (isLoading) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Text(
+                                text = "Updating...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 
@@ -160,11 +248,21 @@ fun AccountScreen(
                 }
             }
 
-            // Preferences Section
+            // Preferences Section (editable)
             AccountSection(title = "Preferences") {
-                PreferenceDisplayItem(label = "Currency", value = "INR")
+                EditablePreferenceItem(
+                    icon = Icons.Default.ShoppingCart,
+                    label = "Currency",
+                    value = currency,
+                    onClick = { showCurrencyPicker = true }
+                )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                PreferenceDisplayItem(label = "Timezone", value = TimeZone.getDefault().id)
+                EditablePreferenceItem(
+                    icon = Icons.Default.DateRange,
+                    label = "Timezone",
+                    value = timezone,
+                    onClick = { showTimezonePicker = true }
+                )
             }
 
             // Privacy Section
@@ -266,12 +364,7 @@ fun AccountScreen(
         }
     }
 }
-/**
- * Renders a titled section with a card container for grouping account-related UI elements.
- *
- * @param title The section title displayed above the card.
- * @param containerColor The background color used for the card container.
- * @param content Composable slot rendered inside the card. */
+
 @Composable
 fun AccountSection(
         title: String,
@@ -293,40 +386,91 @@ fun AccountSection(
     }
 }
 
+/**
+ * Editable profile item that shows current value and edit icon.
+ */
 @Composable
-fun ProfileItem(icon: ImageVector, label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+fun EditableProfileItem(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 4.dp)
+    ) {
         Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.size(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(text = value, style = MaterialTheme.typography.bodyLarge)
+        }
+        Icon(
+            imageVector = Icons.Default.Edit,
+            contentDescription = "Edit $label",
+            tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant 
+                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+/**
+ * Editable preference item with icon.
+ */
+@Composable
+fun EditablePreferenceItem(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.size(16.dp))
-        Column {
-            Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(text = value, style = MaterialTheme.typography.bodyLarge)
+            Spacer(modifier = Modifier.size(16.dp))
+            Text(text = label, style = MaterialTheme.typography.bodyLarge)
         }
-    }
-}
-
-@Composable
-fun PreferenceDisplayItem(label: String, value: String) {
-    Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(text = label, style = MaterialTheme.typography.bodyLarge)
-        Text(
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = "Edit $label",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 
