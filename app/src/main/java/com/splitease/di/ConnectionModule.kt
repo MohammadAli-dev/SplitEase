@@ -23,21 +23,32 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 abstract class ConnectionModule {
 
+    /**
+     * Binds ConnectionManagerImpl as the implementation for the ConnectionManager interface.
+     *
+     * @param impl The concrete ConnectionManagerImpl instance to bind.
+     * @return The bound ConnectionManager.
+     */
     @Binds
     @Singleton
     abstract fun bindConnectionManager(impl: ConnectionManagerImpl): ConnectionManager
 
+    /**
+     * Binds the concrete implementation to the ConnectionRemoteDataSource interface in the DI graph.
+     *
+     * @param impl The ConnectionRemoteDataSourceImpl instance to bind.
+     * @return The bound ConnectionRemoteDataSource.
+     */
     @Binds
     @Singleton
     abstract fun bindConnectionRemoteDataSource(impl: ConnectionRemoteDataSourceImpl): ConnectionRemoteDataSource
 
     companion object {
         /**
-         * Provides a singleton Retrofit-based ConnectionApiService configured with the app's Supabase base URL.
+         * Provides a singleton Retrofit ConnectionApiService configured with the app's Supabase base URL.
          *
-         * @throws IllegalArgumentException if AuthConfig.supabaseBaseUrl is blank.
-         *         SUPABASE_URL must be configured in local.properties or BuildConfig.
-         * @return A configured ConnectionApiService instance.
+         * @throws IllegalArgumentException if `AuthConfig.supabaseBaseUrl` is blank.
+         * @return A configured `ConnectionApiService` instance.
          */
         @Provides
         @Singleton

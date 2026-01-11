@@ -41,6 +41,17 @@ class DeepLinkHandlerImpl : DeepLinkHandler {
         private const val PATH_CONNECT = "connect"
     }
 
+    /**
+     * Parses an incoming deep link URI into a DeepLinkResult.
+     *
+     * Recognizes URIs of the form https://splitease.app/connect/{inviteToken}; when the host matches
+     * "splitease.app" (case-insensitive) and a non-blank `{inviteToken}` is present, returns `ClaimInvite`.
+     * For any other URI, returns `Unknown`.
+     *
+     * @param uri The deep link URI to parse.
+     * @return `ClaimInvite(inviteToken)` when the URI matches the expected pattern with a non-blank token,
+     *         `Unknown` otherwise.
+     */
     override fun parse(uri: Uri): DeepLinkResult {
         // Validate host (case-insensitive per RFC 3986)
         if (!uri.host.equals(HOST_SPLITEASE, ignoreCase = true)) {

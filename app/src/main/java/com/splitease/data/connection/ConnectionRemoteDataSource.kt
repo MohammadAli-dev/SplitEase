@@ -9,9 +9,11 @@ import javax.inject.Inject
  */
 interface ConnectionRemoteDataSource {
     /**
-     * Creates a user-level invite.
-     * @throws IOException on network or parsing failure
-     */
+ * Creates a user invite on the remote service.
+ *
+ * @return The created `CreateUserInviteResponse` containing invite details.
+ * @throws IOException if the network request fails or the response body cannot be parsed.
+ */
     suspend fun createUserInvite(): CreateUserInviteResponse
 }
 
@@ -19,6 +21,12 @@ class ConnectionRemoteDataSourceImpl @Inject constructor(
     private val api: ConnectionApiService
 ) : ConnectionRemoteDataSource {
 
+    /**
+     * Creates a user invite via the remote API and returns the parsed response.
+     *
+     * @return The created CreateUserInviteResponse.
+     * @throws IOException if the HTTP request is unsuccessful or the response body is null.
+     */
     override suspend fun createUserInvite(): CreateUserInviteResponse {
         val response = api.createUserInvite()
         val body = response.body()
