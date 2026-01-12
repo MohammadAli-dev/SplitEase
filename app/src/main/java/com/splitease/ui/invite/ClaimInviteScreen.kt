@@ -65,11 +65,12 @@ fun ClaimInviteScreen(
         }
     }
 
-    // Navigate on success
+    // Navigate on success — consume state BEFORE navigation to prevent
+    // double navigation on recomposition
     LaunchedEffect(uiState.claimSuccess) {
         if (uiState.claimSuccess != null) {
-            onNavigateToDashboard()
             viewModel.consumeClaimSuccess()
+            onNavigateToDashboard()
         }
     }
 
