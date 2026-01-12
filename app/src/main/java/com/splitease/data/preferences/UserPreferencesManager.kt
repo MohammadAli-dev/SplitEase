@@ -58,12 +58,31 @@ class UserPreferencesManagerImpl @Inject constructor(
         private val KEY_TIMEZONE = stringPreferencesKey("user_timezone")
         
         // Default values
-        private const val DEFAULT_CURRENCY = "USD"
         private val DEFAULT_TIMEZONE = TimeZone.getDefault().id
     }
 
+    // Evaluated once per app process; persists until process death
+    // This stability prevents specific edge cases where system locale changes mid-session
+    private val detectedDefaultCurrency: String by lazy {
+        try {
+            // Use Android resources to get the system's primary locale
+            val locale = android.content.res.Resources.getSystem().configuration.locales[0]
+            val code = java.util.Currency.getInstance(locale).currencyCode
+
+            // Product Constraint: Defaults must be in the supported list
+            if (code in CurrencyList.SUPPORTED) {
+                code
+            } else {
+                "USD"
+            }
+        } catch (e: Exception) {
+            // Fallback safely on any error (no locale, no country, unknown currency)
+            "USD"
+        }
+    }
+
     override val currency: Flow<String> = dataStore.data.map { preferences ->
-        preferences[KEY_CURRENCY] ?: DEFAULT_CURRENCY
+        preferences[KEY_CURRENCY] ?: detectedDefaultCurrency
     }
 
     override val timezone: Flow<String> = dataStore.data.map { preferences ->
