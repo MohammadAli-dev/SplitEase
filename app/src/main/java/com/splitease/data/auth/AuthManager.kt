@@ -448,6 +448,11 @@ class AuthManagerImpl @Inject constructor(
     /**
      * Check if the error indicates "Email not confirmed".
      * Checks error_code "email_not_confirmed" or legacy message string.
+     * 
+     * DIAGNOSTIC CONTRACT:
+     * - Best-effort check for email verification errors
+     * - Falls back to raw string check if JSON parsing fails
+     * - Logs parsing failures at DEBUG level for diagnostics
      */
     private fun isUnverifiedEmailError(code: Int, errorBody: String?): Boolean {
         if (code != 400 || errorBody.isNullOrBlank()) return false
@@ -463,8 +468,11 @@ class AuthManagerImpl @Inject constructor(
             val msg = error.message ?: error.errorDescription
             msg?.contains("Email not confirmed", ignoreCase = true) == true
         } catch (e: Exception) {
-            // If parsing fails, fall back to simple string check strictly on the body if allowed?
-            // Safer to return false usually, but for user request we can check body string too.
+            // Log at DEBUG level — this is diagnostic, not an error condition.
+            // Truncate body to avoid leaking sensitive data in logs.
+            val truncatedBody = errorBody.take(200) + if (errorBody.length > 200) "..." else ""
+            Log.d(TAG, "isUnverifiedEmailError: Failed parsing, checking raw: $truncatedBody", e)
+            // Defensive fallback: raw string check for resilience against schema changes
             errorBody.contains("Email not confirmed", ignoreCase = true)
         }
     }
