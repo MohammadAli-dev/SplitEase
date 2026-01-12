@@ -1,5 +1,9 @@
 # SplitEase — Architectural Contracts for Review Bots
 
+| Version | Last Updated | Applies To |
+|---------|--------------|------------|
+| 1.0 | 2026-01-12 | SplitEase Android App |
+
 This repository follows **strict architectural contracts**. Automated review feedback **MUST respect** the following rules. These contracts are authoritative and override heuristic-based suggestions.
 
 ---
@@ -32,6 +36,14 @@ This repository follows **strict architectural contracts**. Automated review fee
 - UI **MUST NOT** use AuthState transitions to infer operation completion.
 - Navigation is **command-driven**, not inferred from auth state.
 
+### ViewModel Responsibility (Logout)
+
+- ViewModels MUST invoke `AuthManager.logout()` from a coroutine (`viewModelScope`).
+- ViewModels MUST NOT expose fire-and-forget logout APIs to the UI.
+- UI code may call `viewModel.logout()` synchronously.
+- Completion semantics are enforced at the **ViewModel → AuthManager boundary**.
+- **Do NOT** suggest UI-level await/observe patterns for logout.
+
 ---
 
 ## 2. StateFlow Mutation Contract
@@ -51,7 +63,10 @@ This repository follows **strict architectural contracts**. Automated review fee
 | Reading for guards/conditions | `val state = _uiState.value` |
 
 - **Atomic `update {}`** is used when concurrency exists (e.g., inside coroutines).
-- **Snapshot `.copy()`** is allowed when intent serialization is guaranteed (e.g., before launching a coroutine).
+- **Snapshot `.copy()`** is allowed ONLY when:
+  - Mutation happens on a single coroutine
+  - No other concurrent writers exist
+  - The mutation occurs before any suspension point
 
 ---
 
