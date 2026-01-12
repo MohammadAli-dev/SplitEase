@@ -25,10 +25,10 @@ interface PendingInviteStore {
     suspend fun save(inviteToken: String)
 
     /**
-     * Consume the stored token without removing it.
+     * Get the stored token without removing it.
      * @return The token if present, null otherwise.
      */
-    suspend fun consume(): String?
+    suspend fun get(): String?
 
     /**
      * Clear any stored invite token.
@@ -50,7 +50,7 @@ class PendingInviteStoreImpl @Inject constructor(
         }
     }
 
-    override suspend fun consume(): String? {
+    override suspend fun get(): String? {
         return dataStore.data.map { prefs ->
             prefs[tokenKey]
         }.first()

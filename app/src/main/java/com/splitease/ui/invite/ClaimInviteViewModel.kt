@@ -63,7 +63,8 @@ class ClaimInviteViewModel @Inject constructor(
 
     private fun loadInitialState() {
         viewModelScope.launch {
-            val token = pendingInviteStore.consume()
+            // Read token without clearing — allows retry on failure
+            val token = pendingInviteStore.get()
             val authState = authManager.authState.first()
             val isAuthenticated = authState is AuthState.Authenticated
 
@@ -136,6 +137,8 @@ class ClaimInviteViewModel @Inject constructor(
 
             when (val result = claimManager.claim(token)) {
                 is ClaimResult.Success -> {
+                    // Clear the pending token ONLY on successful claim
+                    pendingInviteStore.clear()
                     _uiState.value = _uiState.value.copy(
                         isClaimInProgress = false,
                         claimSuccess = ClaimSuccessInfo(
