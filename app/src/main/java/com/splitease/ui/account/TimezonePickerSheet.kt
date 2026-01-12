@@ -85,7 +85,7 @@ fun TimezonePickerSheet(
             )
             
             LazyColumn {
-                items(filteredTimezones.toList()) { timezone ->
+                items(filteredTimezones) { timezone ->
                     TimezoneItem(
                         timezone = timezone,
                         isSelected = timezone == currentTimezone,
