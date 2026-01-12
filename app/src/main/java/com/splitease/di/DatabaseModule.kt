@@ -142,7 +142,9 @@ object DatabaseModule {
                 )
             """.trimIndent())
             
-            // Create unique index on phantomLocalUserId
+            // NOTE: Explicit unique index is technically redundant (PRIMARY KEY implies uniqueness)
+            // but kept intentionally — this table enforces a hard one-to-one invariant for
+            // identity linking. Redundancy is defensive correctness. Do not remove.
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_connection_states_phantomLocalUserId ON connection_states(phantomLocalUserId)")
         }
     }
