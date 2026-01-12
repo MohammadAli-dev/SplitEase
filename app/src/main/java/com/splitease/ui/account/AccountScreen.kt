@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -58,6 +60,7 @@ fun AccountScreen(
 ) {
     val userProfile by viewModel.userProfile.collectAsState()
     val authState by viewModel.authState.collectAsState()
+    val emailUiState by viewModel.emailUiState.collectAsState()
     val currency by viewModel.currency.collectAsState()
     val timezone by viewModel.timezone.collectAsState()
     val friendSuggestionEnabled by viewModel.friendSuggestionEnabled.collectAsState()
@@ -200,14 +203,29 @@ fun AccountScreen(
                         onClick = { showEditNameDialog = true },
                         enabled = !isLoading
                     )
+
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    EditableProfileItem(
-                        icon = Icons.Default.Email,
-                        label = "Email",
-                        value = userProfile?.email ?: "Not set",
-                        onClick = { showEditEmailDialog = true },
-                        enabled = !isLoading
-                    )
+
+                    // Email Item (Stable OR Pending)
+                    when (val uiState = emailUiState) {
+                        is EmailUiState.Stable -> {
+                            EditableProfileItem(
+                                icon = Icons.Default.Email,
+                                label = "Email",
+                                value = uiState.email.ifEmpty { userProfile?.email ?: "Not set" },
+                                onClick = { showEditEmailDialog = true },
+                                enabled = !isLoading
+                            )
+                        }
+                        is EmailUiState.Pending -> {
+                            PendingEmailItem(
+                                currentEmail = uiState.currentEmail,
+                                newEmail = uiState.newEmail,
+                                expiresAt = uiState.expiresAt,
+                                onCancel = viewModel::cancelPendingEmailChange
+                            )
+                        }
+                    }
                     
                     if (isLoading) {
                         Row(
@@ -503,5 +521,72 @@ fun DisabledActionItem(text: String) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         )
+    }
+}
+
+/**
+ * Visualization for a pending email change.
+ */
+@Composable
+fun PendingEmailItem(
+    currentEmail: String,
+    newEmail: String,
+    expiresAt: Long,
+    onCancel: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Header with current email
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Email,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.size(16.dp))
+                Column {
+                    Text(
+                        text = "Email Change Pending",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = newEmail,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Confirmation sent. Link expires in ~${kotlin.math.max(0, (expiresAt - System.currentTimeMillis()) / 60000)} min.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            Text(
+                text = "Current email: $currentEmail",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.height(32.dp).align(Alignment.End),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+            ) {
+                Text("Cancel Request", style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }

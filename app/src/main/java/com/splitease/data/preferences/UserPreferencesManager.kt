@@ -9,6 +9,15 @@ import kotlinx.coroutines.flow.map
 import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.datastore.preferences.core.longPreferencesKey
+
+/**
+ * Transient state for a pending email change.
+ */
+data class PendingEmailChange(
+    val newEmail: String,
+    val requestedAt: Long // Epoch Millis
+)
 
 /**
  * Manages app-owned user preferences (currency, timezone).
@@ -46,6 +55,22 @@ interface UserPreferencesManager {
      * @throws IllegalArgumentException if timezoneId is invalid.
      */
     suspend fun setTimezone(timezoneId: String)
+    /**
+     * Observable pending email change state.
+     * returns null if no valid pending change exists.
+     */
+    val pendingEmailChange: Flow<PendingEmailChange?>
+
+    /**
+     * Sets a pending email change request.
+     * @param email The new email address being verified.
+     */
+    suspend fun setPendingEmailChange(email: String)
+
+    /**
+     * Clears any pending email change state.
+     */
+    suspend fun clearPendingEmailChange()
 }
 
 @Singleton
@@ -56,6 +81,8 @@ class UserPreferencesManagerImpl @Inject constructor(
     companion object {
         private val KEY_CURRENCY = stringPreferencesKey("user_currency")
         private val KEY_TIMEZONE = stringPreferencesKey("user_timezone")
+        private val KEY_PENDING_EMAIL = stringPreferencesKey("pending_email_new")
+        private val KEY_PENDING_EMAIL_TIMESTAMP = longPreferencesKey("pending_email_timestamp")
         
         // Default values
         private val DEFAULT_TIMEZONE = TimeZone.getDefault().id
@@ -89,6 +116,16 @@ class UserPreferencesManagerImpl @Inject constructor(
         preferences[KEY_TIMEZONE] ?: DEFAULT_TIMEZONE
     }
 
+    override val pendingEmailChange: Flow<PendingEmailChange?> = dataStore.data.map { preferences ->
+        val email = preferences[KEY_PENDING_EMAIL]
+        val timestamp = preferences[KEY_PENDING_EMAIL_TIMESTAMP]
+        if (email != null && timestamp != null) {
+            PendingEmailChange(email, timestamp)
+        } else {
+            null
+        }
+    }
+
     override suspend fun setCurrency(currencyCode: String) {
         // Validate currency is in supported list
         require(currencyCode in CurrencyList.SUPPORTED) {
@@ -109,6 +146,21 @@ class UserPreferencesManagerImpl @Inject constructor(
 
         dataStore.edit { preferences ->
             preferences[KEY_TIMEZONE] = timezoneId
+        }
+    }
+
+    override suspend fun setPendingEmailChange(email: String) {
+        val now = System.currentTimeMillis()
+        dataStore.edit { preferences ->
+            preferences[KEY_PENDING_EMAIL] = email
+            preferences[KEY_PENDING_EMAIL_TIMESTAMP] = now
+        }
+    }
+
+    override suspend fun clearPendingEmailChange() {
+        dataStore.edit { preferences ->
+            preferences.remove(KEY_PENDING_EMAIL)
+            preferences.remove(KEY_PENDING_EMAIL_TIMESTAMP)
         }
     }
 }

@@ -12,6 +12,7 @@ import com.splitease.data.auth.AuthState
 import com.splitease.data.auth.UserProfile
 import com.splitease.data.connection.ConnectionManager
 import com.splitease.data.connection.UserInviteResult
+import com.splitease.data.preferences.PendingEmailChange
 import com.splitease.data.preferences.UserPreferencesManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,6 +37,18 @@ sealed class ProfileUpdateState {
     data class Error(val message: String) : ProfileUpdateState()
 }
 
+/**
+ * UI state for email display (Stable vs Pending Change).
+ */
+sealed interface EmailUiState {
+    data class Stable(val email: String) : EmailUiState
+    data class Pending(
+        val currentEmail: String,
+        val newEmail: String,
+        val expiresAt: Long // Raw timestamp, UI handles relative formatting
+    ) : EmailUiState
+}
+
 @HiltViewModel
 class AccountViewModel @Inject constructor(
     private val authManager: AuthManager,
@@ -46,6 +60,33 @@ class AccountViewModel @Inject constructor(
     companion object {
         private const val TAG = "AccountViewModel"
         private val FRIEND_SUGGESTION_KEY = booleanPreferencesKey("friend_suggestion_enabled")
+        
+        // TTL for pending email change: 1 Hour (matches Supabase link expiry)
+        private const val PENDING_EMAIL_TTL_MS = 60 * 60 * 1000L
+    }
+
+    init {
+        // Monitor pending email for automatic cleanup (Expiry & Success)
+        viewModelScope.launch {
+            combine(
+                userPreferencesManager.pendingEmailChange,
+                authManager.userProfile
+            ) { pending, profile ->
+                Pair(pending, profile)
+            }.collect { (pending, profile) ->
+                if (pending != null) {
+                    val now = System.currentTimeMillis()
+                    val isExpired = now > pending.requestedAt + PENDING_EMAIL_TTL_MS
+                    // Success invariant: If auth profile email matches pending new email
+                    val isSuccess = profile?.email == pending.newEmail
+
+                    if (isExpired || isSuccess) {
+                        Log.d(TAG, "Cleaning up pending email (Expired=$isExpired, Success=$isSuccess)")
+                        userPreferencesManager.clearPendingEmailChange()
+                    }
+                }
+            }
+        }
     }
 
     // ========== PROFILE FROM AUTH (not Room) ==========
@@ -58,6 +99,36 @@ class AccountViewModel @Inject constructor(
 
     /** Observable auth state for UI */
     val authState: StateFlow<AuthState> = authManager.authState
+
+    /**
+     * Derived UI state for Email (Stable vs Pending).
+     * Combines Auth Profile + Local Preference + TTL Logic.
+     */
+    val emailUiState: StateFlow<EmailUiState> = combine(
+        authManager.userProfile,
+        userPreferencesManager.pendingEmailChange
+    ) { profile, pending ->
+        val currentEmail = profile?.email ?: ""
+        
+        if (pending != null) {
+            val now = System.currentTimeMillis()
+            val expiryTime = pending.requestedAt + PENDING_EMAIL_TTL_MS
+            if (now < expiryTime) {
+                EmailUiState.Pending(currentEmail, pending.newEmail, expiryTime)
+            } else {
+                // Expired pending items are filtered out of UI state immediately
+                // Cleanup side-effect handles the actual removal
+                EmailUiState.Stable(currentEmail)
+            }
+        } else {
+            EmailUiState.Stable(currentEmail)
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = EmailUiState.Stable("")
+    )
+
 
     // ========== PREFERENCES FROM DATASTORE ==========
 
@@ -132,6 +203,8 @@ class AccountViewModel @Inject constructor(
                     _profileUpdateState.value = ProfileUpdateState.Success(
                         "A confirmation link has been sent to your new email address."
                     )
+                    // Set pending state (triggers UI banner)
+                    userPreferencesManager.setPendingEmailChange(email)
                 }
                 .onFailure { e ->
                     Log.e(TAG, "updateEmail: error - ${e.message}")
@@ -146,6 +219,16 @@ class AccountViewModel @Inject constructor(
      */
     fun consumeProfileUpdateState() {
         _profileUpdateState.value = ProfileUpdateState.Idle
+    }
+
+    /**
+     * Explicitly cancels the pending email change request in UX.
+     * Does not affect the backend request, just clears the local banner.
+     */
+    fun cancelPendingEmailChange() {
+        viewModelScope.launch {
+            userPreferencesManager.clearPendingEmailChange()
+        }
     }
 
     // ========== PREFERENCES UPDATES (Optimistic) ==========
@@ -224,6 +307,8 @@ class AccountViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch {
+            // Clear pending state on logout to ensure clean slate for next user/session
+            userPreferencesManager.clearPendingEmailChange()
             authManager.logout()
         }
     }
