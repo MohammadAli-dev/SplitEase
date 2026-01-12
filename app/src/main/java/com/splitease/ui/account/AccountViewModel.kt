@@ -14,9 +14,11 @@ import com.splitease.data.connection.ConnectionManager
 import com.splitease.data.connection.UserInviteResult
 import com.splitease.data.preferences.UserPreferencesManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -155,6 +157,7 @@ class AccountViewModel @Inject constructor(
                 Log.d(TAG, "setCurrency: $code")
             } catch (e: Exception) {
                 Log.e(TAG, "setCurrency failed: ${e.message}")
+                _uiEvents.emit(AccountUiEvent.PreferenceSaveFailed("Failed to save currency"))
             }
         }
     }
@@ -166,9 +169,19 @@ class AccountViewModel @Inject constructor(
                 Log.d(TAG, "setTimezone: $id")
             } catch (e: Exception) {
                 Log.e(TAG, "setTimezone failed: ${e.message}")
+                _uiEvents.emit(AccountUiEvent.PreferenceSaveFailed("Failed to save timezone"))
             }
         }
     }
+
+    // ========== ONE-SHOT EVENTS ==========
+
+    sealed class AccountUiEvent {
+        data class PreferenceSaveFailed(val message: String) : AccountUiEvent()
+    }
+
+    private val _uiEvents = MutableSharedFlow<AccountUiEvent>()
+    val uiEvents = _uiEvents.asSharedFlow()
 
     // ========== INVITE STATE ==========
     

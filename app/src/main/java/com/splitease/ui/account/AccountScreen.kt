@@ -107,6 +107,18 @@ fun AccountScreen(
         }
     }
 
+    // Handle one-shot UI events
+    LaunchedEffect(Unit) {
+        viewModel.uiEvents.collect { event ->
+            when (event) {
+                is AccountViewModel.AccountUiEvent.PreferenceSaveFailed -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+                else -> { /* Future events */ }
+            }
+        }
+    }
+
     // Show dialogs/sheets
     if (showInviteBottomSheet && currentDeepLink.isNotEmpty()) {
         InviteBottomSheet(
