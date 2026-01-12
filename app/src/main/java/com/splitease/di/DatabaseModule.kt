@@ -115,7 +115,7 @@ object DatabaseModule {
      */
     private val MIGRATION_6_7 = object : Migration(6, 7) {
         /**
-         * Creates the `connection_states` table and a unique index on `phantomLocalUserId`.
+         * Creates the `connection_states` table.
          *
          * The table has columns:
          * - `phantomLocalUserId` (TEXT, primary key, not null)
@@ -126,6 +126,7 @@ object DatabaseModule {
          * - `lastCheckedAt` (INTEGER, not null)
          *
          * A foreign key constraint references `users(id)` with `ON DELETE CASCADE`.
+         * Note: PRIMARY KEY implicitly creates a unique index in SQLite.
          *
          * @param db The database to apply the migration to.
          */
@@ -141,9 +142,6 @@ object DatabaseModule {
                     FOREIGN KEY (phantomLocalUserId) REFERENCES users(id) ON DELETE CASCADE
                 )
             """.trimIndent())
-            
-            // Create unique index on phantomLocalUserId
-            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_connection_states_phantomLocalUserId ON connection_states(phantomLocalUserId)")
         }
     }
 
