@@ -423,6 +423,12 @@ class AuthManagerImpl @Inject constructor(
 
     /**
      * Parse error message from Supabase error response.
+     * 
+     * DIAGNOSTIC CONTRACT:
+     * - Best-effort decoder, never a failure source
+     * - Returns null on any parsing failure (graceful degradation)
+     * - Logs parsing failures at DEBUG level for diagnostics only
+     * - Truncates error body in logs for security
      */
     private fun parseAuthError(errorBody: String?): String? {
         if (errorBody.isNullOrBlank()) return null
@@ -431,6 +437,10 @@ class AuthManagerImpl @Inject constructor(
             val error = gson.fromJson(errorBody, AuthError::class.java)
             error.getDisplayMessage()
         } catch (e: Exception) {
+            // Log at DEBUG level — this is diagnostic, not an error condition.
+            // Truncate body to avoid leaking sensitive data in logs.
+            val truncatedBody = errorBody.take(200) + if (errorBody.length > 200) "..." else ""
+            Log.d(TAG, "parseAuthError: Failed parsing error response: $truncatedBody", e)
             null
         }
     }
