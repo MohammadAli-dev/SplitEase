@@ -1,6 +1,10 @@
+# Explicit context files for CodeRabbit to respect
+context:
+  - ".coderabbit/context.md"
+
 reviews:
-  use_repository_context: true
-  deep_review: true
+  use_repository_context: true  # ← Reads .coderabbit/context.md
+  deep_review: true             # ← Avoids shallow pattern-matching
   auto_review:
     enabled: true
     branches:
