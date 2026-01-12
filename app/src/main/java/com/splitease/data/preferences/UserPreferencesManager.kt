@@ -15,6 +15,10 @@ import javax.inject.Singleton
  * 
  * These settings are stored locally in Preferences DataStore and are NOT synced to the server.
  * They are completely app-managed with optimistic UI updates.
+ *
+ * This class serves as an invariant-enforcing boundary:
+ * - All setters validate inputs before persistence.
+ * - Invalid inputs cause immediate exceptions (fail-fast).
  */
 interface UserPreferencesManager {
     /**
@@ -32,12 +36,14 @@ interface UserPreferencesManager {
     /**
      * Update currency preference.
      * @param currencyCode Must be one of [CurrencyList.SUPPORTED].
+     * @throws IllegalArgumentException if currencyCode is not supported.
      */
     suspend fun setCurrency(currencyCode: String)
 
     /**
      * Update timezone preference.
      * @param timezoneId Valid timezone ID from java.time.ZoneId.
+     * @throws IllegalArgumentException if timezoneId is invalid.
      */
     suspend fun setTimezone(timezoneId: String)
 }
