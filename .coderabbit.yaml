@@ -1,4 +1,6 @@
 reviews:
+  use_repository_context: true
+  deep_review: true
   auto_review:
     enabled: true
     branches:
