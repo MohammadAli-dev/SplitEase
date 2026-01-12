@@ -59,6 +59,16 @@ import java.util.TimeZone
  * surfaced via a snackbar. The "Log Out" action also invokes the provided `onLogout` callback.
  *
  * @param onLogout Callback invoked after the user triggers logout. */
+/**
+ * Renders the Account screen UI, including profile, connections, preferences, privacy, support,
+ * account actions, and a danger zone.
+ *
+ * The screen reacts to authentication and invite state: it shows invite-related UI and a
+ * shareable invite bottom sheet when an invite becomes available, and displays logout controls
+ * only for authenticated users. It also surfaces snackbars for invite errors.
+ *
+ * @param onLogout Callback invoked after the view model initiates logout; intended for host-level
+ * navigation or teardown. */
 @Composable
 fun AccountScreen(
     viewModel: AccountViewModel = hiltViewModel(),
@@ -330,6 +340,11 @@ fun PreferenceDisplayItem(label: String, value: String) {
     }
 }
 
+/**
+ * Displays a non-interactive action row with a primary label and a "Coming soon" indicator.
+ *
+ * @param text The primary action label to display; shown in a visually disabled style.
+ */
 @Composable
 fun DisabledActionItem(text: String) {
     Row(

@@ -45,7 +45,7 @@ abstract class ConnectionModule {
 
     companion object {
         /**
-         * Provides a singleton Retrofit ConnectionApiService configured with the app's Supabase base URL.
+         * Creates a singleton ConnectionApiService configured with the app's Supabase base URL.
          *
          * @throws IllegalArgumentException if `AuthConfig.supabaseBaseUrl` is blank.
          * @return A configured `ConnectionApiService` instance.

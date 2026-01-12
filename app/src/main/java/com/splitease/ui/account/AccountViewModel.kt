@@ -58,11 +58,11 @@ class AccountViewModel @Inject constructor(
     val inviteState: StateFlow<InviteUiState> = _inviteState.asStateFlow()
 
     /**
-     * Initiates creation of a user invite and updates `inviteState` accordingly.
+     * Starts creating a user invite and updates `inviteState` to reflect progress.
      *
-     * If an invite creation is already in progress the call is ignored. Sets
-     * `inviteState` to `Loading`, then to `Available` with the invite deep link on
-     * success or to `Error` with the failure message on error.
+     * If an invite creation is already in progress, the call is ignored.
+     * Sets `inviteState` to `Loading`, then to `Available` with the invite deep link on success
+     * or to `Error` with the failure message on error.
      */
     fun createInvite() {
         if (_inviteState.value is InviteUiState.Loading) return
@@ -85,7 +85,7 @@ class AccountViewModel @Inject constructor(
     }
 
     /**
-     * Reset the invite UI state to Idle.
+     * Resets the invite UI state to Idle.
      */
     fun consumeInvite() {
         _inviteState.value = InviteUiState.Idle
@@ -106,6 +106,11 @@ class AccountViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Initiates user logout.
+     *
+     * Triggers the AuthManager to perform logout using the ViewModel's coroutine scope.
+     */
     fun logout() {
         viewModelScope.launch {
             authManager.logout()

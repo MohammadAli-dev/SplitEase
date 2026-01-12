@@ -13,6 +13,11 @@ import android.content.Intent
  *
  * @param deepLink The invite deep link to include in the shared message.
  */
+/**
+ * Opens the system share sheet to share an invite message containing the given deep link.
+ *
+ * @param deepLink The deep link to include in the invite message. 
+ */
 fun Context.shareInviteLink(deepLink: String) {
     val text = "Join me on SplitEase:\n$deepLink"
     val intent = Intent(Intent.ACTION_SEND).apply {
@@ -26,7 +31,9 @@ fun Context.shareInviteLink(deepLink: String) {
 }
 
 /**
- * Copies text to clipboard.
+ * Places the given text into the system clipboard as plain text labeled "Invite Link".
+ *
+ * @param text The text to copy to the clipboard.
  */
 fun Context.copyToClipboard(text: String) {
     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

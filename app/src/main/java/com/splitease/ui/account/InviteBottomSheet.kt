@@ -33,6 +33,16 @@ import androidx.compose.ui.unit.dp
  * @param onDismiss Callback invoked to dismiss the bottom sheet.
  * @param onShowSnackbar Callback used to show a snackbar message; called with the confirmation text when the link is copied.
  */
+/**
+ * Displays a modal bottom sheet that shows an invite deep link and provides actions to share or copy the link.
+ *
+ * Tapping "Share" opens the platform share sheet for the provided link and then dismisses the bottom sheet.
+ * Tapping "Copy link" copies the link to the clipboard, invokes `onShowSnackbar` with "Link copied", and then dismisses the sheet.
+ *
+ * @param deepLink The invite URL to display and act upon.
+ * @param onDismiss Callback invoked to dismiss the bottom sheet.
+ * @param onShowSnackbar Callback invoked with a confirmation message when the link is copied.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InviteBottomSheet(
