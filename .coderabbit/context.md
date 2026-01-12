@@ -87,7 +87,7 @@ This repository follows **strict architectural contracts**. Automated review fee
 
 ### Current Migration Chain
 
-```
+```text
 Version 2 → 3: Add expenseDate, trip dates, sync status
 Version 3 → 4: No-op (enum type converters)
 Version 4 → 5: Add failureType to sync_operations
@@ -150,7 +150,7 @@ These are **one-shot commands**, not reactive observers.
 
 ### Claim Flow
 
-```
+```text
 Deep Link → Store Token → Load VM (read only) → Claim API → Clear Token (on success only)
 ```
 
@@ -271,7 +271,7 @@ Architectural contracts documented in this repository **override** tool suggesti
 
 When dismissing suggestions, use this format:
 
-```
+```text
 Dismissed: False positive.
 
 Reason:
