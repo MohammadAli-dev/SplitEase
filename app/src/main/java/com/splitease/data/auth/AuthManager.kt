@@ -87,8 +87,16 @@ interface AuthManager {
     ): Result<Unit>
 
     /**
-     * Logout and clear tokens.
-     * Preserves all local data.
+     * LOGOUT CONTRACT:
+     * - This function is a **blocking suspend boundary**.
+     * - When it returns, **ALL logout side effects are complete**:
+     *   - Tokens cleared from secure storage
+     *   - Identity-link state reset
+     *   - userProfile cleared (null)
+     *   - authState = AuthState.Unauthenticated
+     * - Callers may **safely navigate immediately** after invocation.
+     * - UI MUST NOT infer logout completion from AuthState observation.
+     * - Preserves all local data (expenses, groups, etc.).
      */
     suspend fun logout()
 
