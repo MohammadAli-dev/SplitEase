@@ -91,6 +91,7 @@ class ConnectionManagerImpl @Inject constructor(
 
     companion object {
         private const val TAG = "ConnectionManager"
+        private const val DEEP_LINK_BASE_URL = "https://splitease.app/connect/"
     }
 
     /**
@@ -302,7 +303,7 @@ class ConnectionManagerImpl @Inject constructor(
     override suspend fun createUserInvite(): UserInviteResult = withContext(Dispatchers.IO) {
         try {
             val response = remoteDataSource.createUserInvite()
-            val deepLink = "https://splitease.app/connect/${response.inviteToken}"
+            val deepLink = DEEP_LINK_BASE_URL + response.inviteToken
             Log.d(TAG, "createUserInvite: success, token=${response.inviteToken.take(8)}...")
             UserInviteResult.Success(deepLink)
         } catch (e: Exception) {
