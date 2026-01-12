@@ -125,36 +125,37 @@ class ClaimInviteViewModel @Inject constructor(
         // Idempotency gate - prevent duplicate claims
         if (currentState.isClaimInProgress) return
         if (token.isNullOrBlank()) {
-            _uiState.value = currentState.copy(
+            _uiState.update { it.copy(
                 errorMessage = "No invite token available",
                 isTerminalError = true
-            )
+            ) }
             return
         }
 
         viewModelScope.launch {
-            _uiState.value = currentState.copy(isClaimInProgress = true, errorMessage = null)
+            // Atomic update to set loading state
+            _uiState.update { it.copy(isClaimInProgress = true, errorMessage = null) }
 
             when (val result = claimManager.claim(token)) {
                 is ClaimResult.Success -> {
                     // Clear the pending token ONLY on successful claim
                     pendingInviteStore.clear()
-                    _uiState.value = _uiState.value.copy(
+                    _uiState.update { it.copy(
                         isClaimInProgress = false,
                         claimSuccess = ClaimSuccessInfo(
                             friendId = result.friendId,
                             friendName = result.friendName
                         ),
                         errorMessage = null
-                    )
+                    ) }
                 }
                 is ClaimResult.Failure -> {
                     val (message, isTerminal) = mapClaimError(result.error)
-                    _uiState.value = _uiState.value.copy(
+                    _uiState.update { it.copy(
                         isClaimInProgress = false,
                         errorMessage = message,
                         isTerminalError = isTerminal
-                    )
+                    ) }
                 }
             }
         }
