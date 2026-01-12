@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.BufferOverflow
 import javax.inject.Inject
 
 /**
@@ -240,7 +241,7 @@ class AccountViewModel @Inject constructor(
                 Log.d(TAG, "setCurrency: $code")
             } catch (e: Exception) {
                 Log.e(TAG, "setCurrency failed: ${e.message}")
-                _uiEvents.emit(AccountUiEvent.PreferenceSaveFailed("Failed to save currency"))
+                _uiEvents.tryEmit(AccountUiEvent.PreferenceSaveFailed("Failed to save currency"))
             }
         }
     }
@@ -252,7 +253,7 @@ class AccountViewModel @Inject constructor(
                 Log.d(TAG, "setTimezone: $id")
             } catch (e: Exception) {
                 Log.e(TAG, "setTimezone failed: ${e.message}")
-                _uiEvents.emit(AccountUiEvent.PreferenceSaveFailed("Failed to save timezone"))
+                _uiEvents.tryEmit(AccountUiEvent.PreferenceSaveFailed("Failed to save timezone"))
             }
         }
     }
@@ -263,7 +264,10 @@ class AccountViewModel @Inject constructor(
         data class PreferenceSaveFailed(val message: String) : AccountUiEvent()
     }
 
-    private val _uiEvents = MutableSharedFlow<AccountUiEvent>()
+    private val _uiEvents = MutableSharedFlow<AccountUiEvent>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val uiEvents = _uiEvents.asSharedFlow()
 
     // ========== INVITE STATE ==========
