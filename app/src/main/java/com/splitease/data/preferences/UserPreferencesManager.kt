@@ -75,7 +75,13 @@ class UserPreferencesManagerImpl @Inject constructor(
     }
 
     override suspend fun setTimezone(timezoneId: String) {
-        // No strict validation — accept any valid ZoneId string
+        // Validate timezone ID before persisting
+        try {
+            java.time.ZoneId.of(timezoneId)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Invalid timezone: $timezoneId", e)
+        }
+
         dataStore.edit { preferences ->
             preferences[KEY_TIMEZONE] = timezoneId
         }
