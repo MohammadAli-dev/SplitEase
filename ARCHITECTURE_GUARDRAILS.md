@@ -1,5 +1,7 @@
 # Architecture & Build Guardrails — SplitEase
 
+> **NOTE:** Automated review tools must follow [`.coderabbit/context.md`](.coderabbit/context.md).
+
 This document defines **non-negotiable rules** for build configuration, dependency management, and architectural boundaries. These guardrails exist to prevent known failure modes encountered during early project setup.
 
 Violating these rules is considered a **breaking change** and must not be merged.
