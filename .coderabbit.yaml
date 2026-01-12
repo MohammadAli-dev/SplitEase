@@ -4,10 +4,4 @@
     base_branches:
       - main
       - MVP1
-  deep_review: true             # Avoids shallow pattern-matching
   review_status: false
-  auto_review:
-    enabled: true
-    branches:
-      - main
-      - MVP1
