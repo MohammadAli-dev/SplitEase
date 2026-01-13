@@ -264,6 +264,9 @@ class AccountViewModel @Inject constructor(
         data class PreferenceSaveFailed(val message: String) : AccountUiEvent()
     }
 
+    // Buffered to allow "fire-and-forget" emission (tryEmit) without suspending the VM.
+    // DROP_OLDEST handles "slow consumer" scenarios by prioritizing recent events.
+    // This risk of lost/stale events is acceptable for transient UI feedback (snackbars).
     private val _uiEvents = MutableSharedFlow<AccountUiEvent>(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
