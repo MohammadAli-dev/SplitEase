@@ -145,3 +145,40 @@ data class AuthError(
         return errorDescription ?: message ?: error ?: "Authentication failed"
     }
 }
+
+// ============ UPDATE USER ============
+
+/**
+ * Request body for PUT /auth/v1/user
+ * Used to update user email or profile metadata (name).
+ */
+data class UpdateUserRequest(
+    @SerializedName("email")
+    val email: String? = null,
+    
+    @SerializedName("data")
+    val data: UserMetadataUpdate? = null
+)
+
+/**
+ * User metadata update payload for profile changes.
+ */
+data class UserMetadataUpdate(
+    @SerializedName("name")
+    val name: String? = null
+)
+
+// ============ USER PROFILE ============
+
+/**
+ * Observable user profile derived from auth session.
+ * Used by AccountScreen to display/edit user info.
+ * 
+ * This is NOT persisted to Room — it's derived from in-memory auth state.
+ */
+data class UserProfile(
+    val cloudUserId: String,
+    val name: String?,
+    val email: String?
+)
+

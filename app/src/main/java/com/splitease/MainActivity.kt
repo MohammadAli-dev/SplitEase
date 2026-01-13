@@ -118,6 +118,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         // Handle deep link on warm start
         viewModel.handleDeepLink(intent)
     }

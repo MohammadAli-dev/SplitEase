@@ -87,8 +87,16 @@ interface AuthManager {
     ): Result<Unit>
 
     /**
-     * Logout and clear tokens.
-     * Preserves all local data.
+     * LOGOUT CONTRACT:
+     * - This function is a **blocking suspend boundary**.
+     * - When it returns, **ALL logout side effects are complete**:
+     *   - Tokens cleared from secure storage
+     *   - Identity-link state reset
+     *   - userProfile cleared (null)
+     *   - authState = AuthState.Unauthenticated
+     * - Callers may **safely navigate immediately** after invocation.
+     * - UI MUST NOT infer logout completion from AuthState observation.
+     * - Preserves all local data (expenses, groups, etc.).
      */
     suspend fun logout()
 
@@ -99,6 +107,31 @@ interface AuthManager {
      * @return true if refresh succeeded, false otherwise.
      */
     suspend fun refreshAccessToken(): Boolean
+
+    /**
+     * Observable user profile (name, email) derived from in-memory auth session.
+     *
+     * DERIVATION RULE:
+     * - Populated from JWT claims / auth response during login/refresh
+     * - Updated locally ONLY after successful updateProfile() calls
+     * - Email is updated ONLY after token refresh (post-verification)
+     * - NO polling or periodic fetches of /auth/v1/user
+     */
+    val userProfile: StateFlow<UserProfile?>
+
+    /**
+     * Update user display name.
+     * On success, updates the in-memory userProfile.
+     * @return Result.success on success, Result.failure on error.
+     */
+    suspend fun updateProfile(name: String): Result<Unit>
+
+    /**
+     * Update user email. Requires verification on new email.
+     * Does NOT update userProfile.email — email remains unchanged until verified.
+     * @return Result.success if verification email sent, Result.failure on error.
+     */
+    suspend fun updateEmail(email: String): Result<Unit>
 }
 
 @Singleton
@@ -128,6 +161,9 @@ class AuthManagerImpl @Inject constructor(
 
     private val _authInfo = MutableSharedFlow<String>(extraBufferCapacity = 1)
     override val authInfo: SharedFlow<String> = _authInfo.asSharedFlow()
+
+    private val _userProfile = MutableStateFlow<UserProfile?>(null)
+    override val userProfile: StateFlow<UserProfile?> = _userProfile.asStateFlow()
 
     init {
         // Initialize auth state based on TokenManager (no network call)
@@ -281,6 +317,7 @@ class AuthManagerImpl @Inject constructor(
      * @return `Result.success(Unit)` if authentication completed and the session was established;
      *         `Result.failure(AuthException)` if authentication was incomplete (e.g., verification required) or
      *         `Result.failure(Exception)` for network/server/other errors.
+     */
     override suspend fun loginWithIdToken(
         provider: AuthProvider,
         idToken: String,
@@ -356,6 +393,17 @@ class AuthManagerImpl @Inject constructor(
                 expiresInSeconds = expiresIn
             )
             tokenManager.saveCloudUserId(cloudUserId)
+            
+            // Populate userProfile from auth response
+            val name = authResponse.user?.userMetadata?.name 
+                ?: authResponse.user?.userMetadata?.fullName
+            val email = authResponse.user?.email
+            _userProfile.value = UserProfile(
+                cloudUserId = cloudUserId,
+                name = name,
+                email = email
+            )
+            
             _authState.value = AuthState.Authenticated(cloudUserId)
             enqueueIdentityLinkingIfNeeded()
             return true
@@ -375,6 +423,12 @@ class AuthManagerImpl @Inject constructor(
 
     /**
      * Parse error message from Supabase error response.
+     * 
+     * DIAGNOSTIC CONTRACT:
+     * - Best-effort decoder, never a failure source
+     * - Returns null on any parsing failure (graceful degradation)
+     * - Logs parsing failures at DEBUG level for diagnostics only
+     * - Truncates error body in logs for security
      */
     private fun parseAuthError(errorBody: String?): String? {
         if (errorBody.isNullOrBlank()) return null
@@ -383,6 +437,10 @@ class AuthManagerImpl @Inject constructor(
             val error = gson.fromJson(errorBody, AuthError::class.java)
             error.getDisplayMessage()
         } catch (e: Exception) {
+            // Log at DEBUG level — this is diagnostic, not an error condition.
+            // Truncate body to avoid leaking sensitive data in logs.
+            val truncatedBody = errorBody.take(200) + if (errorBody.length > 200) "..." else ""
+            Log.d(TAG, "parseAuthError: Failed parsing error response: $truncatedBody", e)
             null
         }
     }
@@ -390,6 +448,11 @@ class AuthManagerImpl @Inject constructor(
     /**
      * Check if the error indicates "Email not confirmed".
      * Checks error_code "email_not_confirmed" or legacy message string.
+     * 
+     * DIAGNOSTIC CONTRACT:
+     * - Best-effort check for email verification errors
+     * - Falls back to raw string check if JSON parsing fails
+     * - Logs parsing failures at DEBUG level for diagnostics
      */
     private fun isUnverifiedEmailError(code: Int, errorBody: String?): Boolean {
         if (code != 400 || errorBody.isNullOrBlank()) return false
@@ -405,8 +468,11 @@ class AuthManagerImpl @Inject constructor(
             val msg = error.message ?: error.errorDescription
             msg?.contains("Email not confirmed", ignoreCase = true) == true
         } catch (e: Exception) {
-            // If parsing fails, fall back to simple string check strictly on the body if allowed?
-            // Safer to return false usually, but for user request we can check body string too.
+            // Log at DEBUG level — this is diagnostic, not an error condition.
+            // Truncate body to avoid leaking sensitive data in logs.
+            val truncatedBody = errorBody.take(200) + if (errorBody.length > 200) "..." else ""
+            Log.d(TAG, "isUnverifiedEmailError: Failed parsing, checking raw: $truncatedBody", e)
+            // Defensive fallback: raw string check for resilience against schema changes
             errorBody.contains("Email not confirmed", ignoreCase = true)
         }
     }
@@ -460,11 +526,14 @@ class AuthManagerImpl @Inject constructor(
             // Without this, User B would skip linking after User A logs out
             identityLinkStateStore.reset()
 
+            // Clear user profile
+            _userProfile.value = null
+
             // Update state
             _authState.value = AuthState.Unauthenticated
 
             // NOTE: Local data is NOT deleted. Offline-first preserved.
-            Log.d(TAG, "Logout complete - tokens cleared, linking state reset")
+            Log.d(TAG, "Logout complete - tokens cleared, linking state reset, profile cleared")
         }
     }
 
@@ -513,6 +582,87 @@ class AuthManagerImpl @Inject constructor(
                 Log.e(TAG, "Network error during refresh: ${e.javaClass.simpleName}")
                 false
             }
+        }
+    }
+
+    /**
+     * Update user display name via Supabase Auth.
+     * On success, updates the in-memory userProfile with the new name.
+     */
+    override suspend fun updateProfile(name: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            if (!AuthConfig.isConfigured) {
+                return@withContext Result.failure(AuthException("Authentication not configured"))
+            }
+
+            val accessToken = tokenManager.getAccessToken()
+            if (accessToken.isNullOrBlank()) {
+                return@withContext Result.failure(AuthException("Not authenticated"))
+            }
+
+            val response = authService.updateUser(
+                apiKey = AuthConfig.supabasePublicKey,
+                authHeader = "Bearer $accessToken",
+                request = UpdateUserRequest(
+                    data = UserMetadataUpdate(name = name)
+                )
+            )
+
+            if (response.isSuccessful) {
+                // Update local userProfile with new name
+                val currentProfile = _userProfile.value
+                if (currentProfile != null) {
+                    _userProfile.value = currentProfile.copy(name = name)
+                }
+                Log.d(TAG, "updateProfile: success, name updated")
+                Result.success(Unit)
+            } else {
+                val errorBody = response.errorBody()?.string()
+                val errorMsg = parseAuthError(errorBody) ?: "Failed to update profile"
+                Log.e(TAG, "updateProfile: failed - ${response.code()} - $errorBody")
+                Result.failure(AuthException(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "updateProfile: exception - ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Update user email via Supabase Auth.
+     * Does NOT update local userProfile — email remains unchanged until verified and token refreshed.
+     */
+    override suspend fun updateEmail(email: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            if (!AuthConfig.isConfigured) {
+                return@withContext Result.failure(AuthException("Authentication not configured"))
+            }
+
+            val accessToken = tokenManager.getAccessToken()
+            if (accessToken.isNullOrBlank()) {
+                return@withContext Result.failure(AuthException("Not authenticated"))
+            }
+
+            val response = authService.updateUser(
+                apiKey = AuthConfig.supabasePublicKey,
+                authHeader = "Bearer $accessToken",
+                request = UpdateUserRequest(email = email)
+            )
+
+            if (response.isSuccessful) {
+                // Do NOT update local email — requires verification first
+                Log.d(TAG, "updateEmail: success, verification email sent")
+                _authInfo.tryEmit("A confirmation link has been sent to your new email address.")
+                Result.success(Unit)
+            } else {
+                val errorBody = response.errorBody()?.string()
+                val errorMsg = parseAuthError(errorBody) ?: "Failed to update email"
+                Log.e(TAG, "updateEmail: failed - ${response.code()} - $errorBody")
+                Result.failure(AuthException(errorMsg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "updateEmail: exception - ${e.message}")
+            Result.failure(e)
         }
     }
 }

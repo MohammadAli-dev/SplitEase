@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.splitease.data.preferences.UserPreferencesManager
+import com.splitease.data.preferences.UserPreferencesManagerImpl
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -36,4 +38,10 @@ object AppModule {
                 produceFile = { context.preferencesDataStoreFile("settings") }
         )
     }
+
+    @Provides
+    @Singleton
+    fun provideUserPreferencesManager(
+        dataStore: DataStore<Preferences>
+    ): UserPreferencesManager = UserPreferencesManagerImpl(dataStore)
 }

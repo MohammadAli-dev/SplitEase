@@ -1,5 +1,7 @@
 # Architecture & Build Guardrails — SplitEase
 
+> **NOTE:** Automated review tools must follow [`.coderabbit/context.md`](.coderabbit/context.md).
+
 This document defines **non-negotiable rules** for build configuration, dependency management, and architectural boundaries. These guardrails exist to prevent known failure modes encountered during early project setup.
 
 Violating these rules is considered a **breaking change** and must not be merged.
@@ -58,8 +60,7 @@ This project uses Material 3 exclusively. MaterialComponents (M2) themes are for
 ## 3. Data & Domain Guardrails
 
 ### 3.1 BigDecimal Arithmetic
-- **Strict Comparison**: Always use `.compareTo(BigDecimal.ZERO)` for comparisons. Avoid relyng on operator overloading (`>`, `<=`) which can be brittle across Kotlin compiler versions or mixed Java/Kotlin modules.
-
+- **Strict Comparison**: Always use `.compareTo(BigDecimal.ZERO)` for comparisons. Avoid relying on operator overloading (`>`, `<=`) which can be brittle across Kotlin compiler versions or mixed Java/Kotlin modules.
 ❌ **Forbidden:**
 ```kotlin
 if (amount > BigDecimal.ZERO) { ... }

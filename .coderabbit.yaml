@@ -1,6 +1,7 @@
 reviews:
   auto_review:
     enabled: true
-    branches:
+    base_branches:
       - main
       - MVP1
+  review_status: false
