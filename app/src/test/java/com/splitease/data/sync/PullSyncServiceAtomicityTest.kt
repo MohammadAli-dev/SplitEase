@@ -65,98 +65,87 @@ class PullSyncServiceAtomicityTest {
 
     @Test
     fun `INSERT path calls atomic insertExpenseWithSplits`() = runTest {
-        try {
-            // Arrange
-            val remoteExpense = createRemoteExpense("exp-1", 1000L)
-            val remoteSplits = listOf(createRemoteSplit("exp-1", "u1", 10.0))
-            
-            // Explicitly stub for this test (though setupCommonMocks covers groups/settlements)
-            coEvery { api.getExpenseUpdates(any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
-            coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(remoteSplits)
-            coEvery { expenseDao.getExpenseById("exp-1") } returns null // Doesn't exist -> Insert
+        // Arrange
+        val remoteExpense = createRemoteExpense("exp-1", 1000L)
+        val remoteSplits = listOf(createRemoteSplit("exp-1", "u1", 10.0))
+        
+        // Explicitly stub for this test (though setupCommonMocks covers groups/settlements)
+        coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
+        coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(remoteSplits)
+        coEvery { expenseDao.getExpenseById("exp-1") } returns null // Doesn't exist -> Insert
 
-            // Act
-            service.performPullSync()
-            
-            // Debug: Verify execution flow
-            coVerify { api.getExpenseUpdates(any(), any(), any(), any()) }
-            coVerify { api.getExpenseSplits(any(), any(), any()) }
-            coVerify { expenseDao.getExpenseById("exp-1") }
+        // Act
+        val result = service.performPullSync()
+        
+        // Assert - result should be success
+        assert(result is PullSyncResult.Success) { "Expected Success but got $result" }
 
-            // Assert
-            coVerify(exactly = 1) { 
-                expenseDao.insertExpenseWithSplits(any(), any()) 
-            }
-            coVerify(exactly = 0) { 
-                expenseDao.insertExpense(any()) 
-                expenseDao.insertSplits(any())
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            throw e
+        // Assert - atomic method should be called
+        coVerify(exactly = 1) { 
+            expenseDao.insertExpenseWithSplits(any(), any()) 
         }
+        
+        // Assert - non-atomic methods should NOT be called
+        coVerify(exactly = 0) { expenseDao.insertExpense(any()) }
+        coVerify(exactly = 0) { expenseDao.insertSplits(any()) }
     }
 
     @Test
     fun `UPDATE path calls atomic updateExpenseWithSplits`() = runTest {
-        try {
-            // Arrange
-            val remoteExpense = createRemoteExpense("exp-1", 2000L) // Newer
-            val remoteSplits = listOf(createRemoteSplit("exp-1", "u1", 20.0))
-            
-            val localExpense = mockk<Expense>(relaxed = true) {
-                coEvery { updatedAt } returns 1000L // Older
-            }
-
-            coEvery { api.getExpenseUpdates(any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
-            coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(remoteSplits)
-            coEvery { expenseDao.getExpenseById("exp-1") } returns localExpense
-            coEvery { syncDao.hasPendingOperationForEntity("exp-1") } returns false // Not dirty
-
-            // Act
-            service.performPullSync()
-
-            // Assert
-            coVerify(exactly = 1) { 
-                expenseDao.updateExpenseWithSplits(eq("exp-1"), any(), any()) 
-            }
-            coVerify(exactly = 0) { 
-                expenseDao.deleteSplitsForExpense(any())
-                expenseDao.insertExpense(any())
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            throw e
+        // Arrange
+        val remoteExpense = createRemoteExpense("exp-1", 2000L) // Newer
+        val remoteSplits = listOf(createRemoteSplit("exp-1", "u1", 20.0))
+        
+        val localExpense = mockk<Expense>(relaxed = true) {
+            coEvery { updatedAt } returns 1000L // Older
         }
+
+        coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
+        coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(remoteSplits)
+        coEvery { expenseDao.getExpenseById("exp-1") } returns localExpense
+        coEvery { syncDao.hasPendingOperationForEntity("exp-1") } returns false // Not dirty
+
+        // Act
+        val result = service.performPullSync()
+        
+        // Assert - result should be success
+        assert(result is PullSyncResult.Success) { "Expected Success but got $result" }
+
+        // Assert - atomic method should be called
+        coVerify(exactly = 1) { 
+            expenseDao.updateExpenseWithSplits(eq("exp-1"), any(), any()) 
+        }
+        
+        // Assert - non-atomic methods should NOT be called
+        coVerify(exactly = 0) { expenseDao.deleteSplitsForExpense(any()) }
+        coVerify(exactly = 0) { expenseDao.insertExpense(any()) }
     }
 
     @Test
     fun `DELETE path calls atomic deleteExpenseWithSplits`() = runTest {
-        try {
-            // Arrange
-            val remoteExpense = createRemoteExpense("exp-1", 2000L, "2024-01-01T12:00:00Z") // Deleted
-            
-            coEvery { api.getExpenseUpdates(any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
-            // No splits fetch for deleted item (or ignored)
-            
-            val localExpense = mockk<Expense>(relaxed = true)
-            coEvery { expenseDao.getExpenseById("exp-1") } returns localExpense
+        // Arrange
+        val remoteExpense = createRemoteExpense("exp-1", 2000L, "2024-01-01T12:00:00Z") // Deleted
+        
+        coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
+        coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(emptyList()) // Deleted expenses still trigger split fetch
+        
+        val localExpense = mockk<Expense>(relaxed = true)
+        coEvery { expenseDao.getExpenseById("exp-1") } returns localExpense
 
-            // Act
-            service.performPullSync()
+        // Act
+        val result = service.performPullSync()
+        
+        // Assert - result should be success
+        assert(result is PullSyncResult.Success) { "Expected Success but got $result" }
 
-            // Assert
-            coVerify(exactly = 1) { 
-                expenseDao.deleteExpenseWithSplits("exp-1") 
-            }
-            coVerify(exactly = 0) { 
-                expenseDao.deleteSplitsForExpense(any())
-                expenseDao.deleteExpense(any())
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            throw e
+        // Assert - atomic method should be called
+        coVerify(exactly = 1) { 
+            expenseDao.deleteExpenseWithSplits("exp-1") 
         }
+        
+        // Assert - non-atomic methods should NOT be called
+        coVerify(exactly = 0) { expenseDao.deleteSplitsForExpense(any()) }
+        coVerify(exactly = 0) { expenseDao.deleteExpense(any()) }
     }
 
     private fun setupCommonMocks() {
@@ -164,8 +153,15 @@ class PullSyncServiceAtomicityTest {
         coEvery { syncMetadataStore.getLastSyncedAt() } returns "1970-01-01T00:00:00Z"
         // Empty responses for groups/settlements to minimize noise
         // Use explicit generics to ensure Mockk matches the return type correctly
-        coEvery { api.getGroupUpdates(any(), any(), any(), any()) } returns Response.success(emptyList<RemoteGroup>())
-        coEvery { api.getSettlementUpdates(any(), any(), any(), any()) } returns Response.success(emptyList<RemoteSettlement>())
+        // Note: API methods have 5 parameters: authHeader, apiKey, updatedAtFilter, order, rangeHeader
+        coEvery { api.getGroupUpdates(any(), any(), any(), any(), any()) } returns Response.success(emptyList<RemoteGroup>())
+        coEvery { api.getSettlementUpdates(any(), any(), any(), any(), any()) } returns Response.success(emptyList<RemoteSettlement>())
+        
+        // Explicitly stub atomic methods to ensure we verify calls to them, 
+        // and to prevent any potential fall-through to default implementations.
+        coEvery { expenseDao.insertExpenseWithSplits(any(), any()) } returns Unit
+        coEvery { expenseDao.updateExpenseWithSplits(any(), any(), any()) } returns Unit
+        coEvery { expenseDao.deleteExpenseWithSplits(any()) } returns Unit
     }
 
     private fun createRemoteExpense(id: String, updatedAt: Long, deletedAt: String? = null): RemoteExpense {

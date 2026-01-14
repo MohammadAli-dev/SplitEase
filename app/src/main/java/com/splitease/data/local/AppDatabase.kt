@@ -31,7 +31,7 @@ import com.splitease.data.local.entities.User
         SyncOperation::class,
         ConnectionStateEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
