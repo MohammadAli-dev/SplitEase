@@ -317,8 +317,7 @@ class PullSyncServiceImpl @Inject constructor(
         // Soft delete check
         if (remote.deleted_at != null) {
             if (local != null) {
-                expenseDao.deleteSplitsForExpense(remote.id)
-                expenseDao.deleteExpense(remote.id)
+                expenseDao.deleteExpenseWithSplits(remote.id)
                 Log.d(TAG, "Reconcile[EXPENSE:${remote.id}]: DELETE (remote soft-deleted)")
                 return ReconcileAction.DELETE
             }
@@ -330,8 +329,7 @@ class PullSyncServiceImpl @Inject constructor(
             // INSERT: Remote exists, local missing
             val expense = mapRemoteToLocalExpense(remote, remoteUpdatedAt)
             val splits = remoteSplits.map { mapRemoteToLocalSplit(it) }
-            expenseDao.insertExpense(expense)
-            expenseDao.insertSplits(splits)
+            expenseDao.insertExpenseWithSplits(expense, splits)
             Log.d(TAG, "Reconcile[EXPENSE:${remote.id}]: INSERT")
             return ReconcileAction.INSERT
         }
@@ -354,9 +352,7 @@ class PullSyncServiceImpl @Inject constructor(
                 // Remote is newer -> Overwrite local
                 val expense = mapRemoteToLocalExpense(remote, remoteUpdatedAt)
                 val splits = remoteSplits.map { mapRemoteToLocalSplit(it) }
-                expenseDao.deleteSplitsForExpense(remote.id)
-                expenseDao.insertExpense(expense)
-                expenseDao.insertSplits(splits)
+                expenseDao.updateExpenseWithSplits(remote.id, expense, splits)
                 Log.d(TAG, "Reconcile[EXPENSE:${remote.id}]: UPDATE (R=$remoteUpdatedAt > L=$localUpdatedAt)")
                 return ReconcileAction.UPDATE
             }
