@@ -278,6 +278,14 @@ class PullSyncServiceImpl @Inject constructor(
         apiKey: String,
         expenseIds: List<String>
     ): List<RemoteExpenseSplit> {
+        // TODO(Sprint 14): Implement batching if expenseIds > 150
+        // See: https://github.com/MohammadAli-dev/SplitEase/issues/40
+        // Current limit: ~221 UUIDs before hitting 8KB URL limit (37 chars per UUID)
+        require(expenseIds.size <= 200) {
+            "Too many expense IDs for single fetch: ${expenseIds.size}. " +
+            "Batching will be implemented in Sprint 14. See issue #40"
+        }
+        
         // PostgREST "in" filter: expense_id=in.(id1,id2,id3)
         val filter = "in.(${expenseIds.joinToString(",")})"
         val response = api.getExpenseSplits(
