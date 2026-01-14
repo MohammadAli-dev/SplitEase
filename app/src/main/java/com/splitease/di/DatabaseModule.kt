@@ -150,6 +150,36 @@ object DatabaseModule {
     }
 
     /**
+     * Migration from version 7 to 8:
+     * - Add updatedAt (LONG, NOT NULL, DEFAULT 0) to expenses, expense_groups, settlements.
+     * - Add deletedAt (LONG, NULLABLE, DEFAULT NULL) to expenses, expense_groups, settlements.
+     * - Add indexes on updatedAt for future pull query performance.
+     *
+     * Rationale:
+     * - updatedAt = 0 ensures existing local-only data does NOT appear "newer" than server data.
+     * - Server Authority: Only server-provided timestamps are trusted for conflict resolution.
+     * - NO client-time values are written during migration.
+     */
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Expenses
+            db.execSQL("ALTER TABLE expenses ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE expenses ADD COLUMN deletedAt INTEGER DEFAULT NULL")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_expenses_updatedAt ON expenses(updatedAt)")
+
+            // Groups (table name: expense_groups)
+            db.execSQL("ALTER TABLE expense_groups ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE expense_groups ADD COLUMN deletedAt INTEGER DEFAULT NULL")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_expense_groups_updatedAt ON expense_groups(updatedAt)")
+
+            // Settlements
+            db.execSQL("ALTER TABLE settlements ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE settlements ADD COLUMN deletedAt INTEGER DEFAULT NULL")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_settlements_updatedAt ON settlements(updatedAt)")
+        }
+    }
+
+    /**
      * Provides the singleton Room AppDatabase configured for the application's schema.
      *
      * The database is built with migrations from versions 2→3, 3→4, 4→5, 5→6, and 6→7, and uses
@@ -170,6 +200,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_4_5)
             .addMigrations(MIGRATION_5_6)
             .addMigrations(MIGRATION_6_7)
+            .addMigrations(MIGRATION_7_8)
             .fallbackToDestructiveMigration()
             .build()
     }

@@ -2,6 +2,7 @@ package com.splitease.ui.dashboard
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,8 +23,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.math.BigDecimal
@@ -67,6 +72,24 @@ fun DashboardScreen(
     
     // Dialog state for no groups
     var showNoGroupsDialog by remember { mutableStateOf(false) }
+
+    // Pull-to-refresh state
+    val pullRefreshState = rememberPullToRefreshState()
+    
+    // Trigger sync when pull is triggered
+    LaunchedEffect(pullRefreshState.isRefreshing) {
+        if (pullRefreshState.isRefreshing) {
+            viewModel.triggerSync()
+        }
+    }
+    
+    
+    // End refresh when syncing completes
+    LaunchedEffect(uiState.isSyncing) {
+        if (!uiState.isSyncing && pullRefreshState.isRefreshing) {
+            pullRefreshState.endRefresh()
+        }
+    }
 
     // FAB Options Bottom Sheet
     if (showFabOptionsSheet) {
@@ -246,130 +269,147 @@ fun DashboardScreen(
             return@Scaffold
         }
 
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp)
         ) {
-            Text(
-                text = "Dashboard",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            // Total Balance Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(pullRefreshState.nestedScrollConnection)
+                    .padding(horizontal = 16.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                // Dashboard Title
+                item {
                     Text(
-                        text = "Total Balance",
-                        style = MaterialTheme.typography.titleMedium
+                        text = "Dashboard",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.padding(top = 16.dp, bottom = 16.dp)
                     )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
+                }
 
-                    if (uiState.totalOwed == BigDecimal.ZERO && uiState.totalOwing == BigDecimal.ZERO) {
-                        Text(
-                            text = "All settled up!",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.Gray
-                        )
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
+                // Total Balance Card
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Total Balance",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            if (uiState.totalOwed == BigDecimal.ZERO && uiState.totalOwing == BigDecimal.ZERO) {
                                 Text(
-                                    text = "You owe",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    text = "All settled up!",
+                                    style = MaterialTheme.typography.bodyLarge,
                                     color = Color.Gray
                                 )
-                                Text(
-                                    text = "₹${uiState.totalOwing}",
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = Color.Red
-                                )
-                            }
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "You owe",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = "₹${uiState.totalOwing}",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            color = Color.Red
+                                        )
+                                    }
 
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "You are owed",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.Gray
-                                )
-                                Text(
-                                    text = "₹${uiState.totalOwed}",
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = Color.Green
-                                )
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "You are owed",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = "₹${uiState.totalOwed}",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            color = Color.Green
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+                }
+                
+                // Friends Section Header
+                if (uiState.friendBalances.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Friends",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
+                        )
+                    }
+                    
+                    // Friends Card Container
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                uiState.friendBalances.forEachIndexed { index, friendBalance ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { 
+                                                onNavigateToFriendDetail(friendBalance.friendId)
+                                            }
+                                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = friendBalance.friendName,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Text(
+                                                text = friendBalance.displayText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (friendBalance.balance > java.math.BigDecimal.ZERO) 
+                                                    Color(0xFF4CAF50) else Color(0xFFFF9800)
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = "View details",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (index < uiState.friendBalances.size - 1) {
+                                        HorizontalDivider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Bottom padding for FAB clearance
+                item {
+                    Spacer(modifier = Modifier.height(80.dp))
                 }
             }
             
-            // Friends Balance Section
-            if (uiState.friendBalances.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "Friends",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        uiState.friendBalances.forEach { friendBalance ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { 
-                                        onNavigateToFriendDetail(friendBalance.friendId)
-                                    }
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = friendBalance.friendName,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        text = friendBalance.displayText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (friendBalance.balance > java.math.BigDecimal.ZERO) 
-                                            Color(0xFF4CAF50) else Color(0xFFFF9800)
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    contentDescription = "View details",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            if (friendBalance != uiState.friendBalances.last()) {
-                                HorizontalDivider()
-                            }
-                        }
-                    }
-                }
-            } else if (uiState.totalOwed == java.math.BigDecimal.ZERO && uiState.totalOwing == java.math.BigDecimal.ZERO) {
-                // No balances at all - show empty state
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "No outstanding balances",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
+            PullToRefreshContainer(
+                state = pullRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 }

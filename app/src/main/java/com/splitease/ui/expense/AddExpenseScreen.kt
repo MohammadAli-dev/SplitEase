@@ -110,6 +110,7 @@ fun AddExpenseScreen(
         )
     }
     
+    
     if (showPayerSelector) {
         ModalBottomSheet(
             onDismissRequest = { showPayerSelector = false },

@@ -18,5 +18,9 @@ data class Group(
     /** Trip end date (epoch millis), null if hasTripDates = false */
     val tripEndDate: Long? = null,
     val createdByUserId: String = IdentityConstants.LEGACY_USER_ID,
-    val lastModifiedByUserId: String = IdentityConstants.LEGACY_USER_ID
+    val lastModifiedByUserId: String = IdentityConstants.LEGACY_USER_ID,
+    /** Server-authoritative timestamp (epoch millis). 0 = never synced. */
+    val updatedAt: Long = 0,
+    /** Soft-delete timestamp (epoch millis). NULL = not deleted. */
+    val deletedAt: Long? = null
 )

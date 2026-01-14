@@ -78,6 +78,42 @@ interface ExpenseDao {
         insertSyncOp(syncOp)
     }
 
+    // ========== Aggregate Atomicity Methods ==========
+    // Expense + ExpenseSplits form a strict aggregate. All mutations must be atomic.
+    // If you add attachments, notes, tags, or audit rows, they MUST join these transactions.
+
+    /**
+     * Atomically update an expense and replace all its splits.
+     * Used during pull sync when remote is newer than local.
+     *
+     * Transaction ensures:
+     * - Old splits are deleted
+     * - New expense is inserted (REPLACE strategy)
+     * - New splits are inserted
+     * All succeed or all fail. No orphaned expenses or splits possible.
+     */
+    @Transaction
+    suspend fun updateExpenseWithSplits(expenseId: String, expense: Expense, splits: List<ExpenseSplit>) {
+        deleteSplitsForExpense(expenseId)
+        insertExpense(expense)
+        insertSplits(splits)
+    }
+
+    /**
+     * Atomically delete an expense and all its splits.
+     * Used during pull sync for soft-deleted remote expenses.
+     *
+     * Transaction ensures:
+     * - Splits are deleted
+     * - Expense is deleted
+     * No dangling expense or orphaned splits possible on crash.
+     */
+    @Transaction
+    suspend fun deleteExpenseWithSplits(expenseId: String) {
+        deleteSplitsForExpense(expenseId)
+        deleteExpense(expenseId)
+    }
+
     /**
      * Checks if an expense exists by ID. **For diagnostics/tests only — do NOT use as insert
      * guard.** Database REPLACE strategy enforces idempotency.

@@ -51,6 +51,12 @@ interface GroupDao {
     suspend fun deleteGroup(groupId: String)
 
     /**
+     * One-shot suspend query for group by ID (for reconciliation).
+     */
+    @Query("SELECT * FROM expense_groups WHERE id = :groupId")
+    suspend fun getGroupById(groupId: String): Group?
+
+    /**
      * Fetches group names for the given group IDs as id/value pairs.
      *
      * @param ids The group IDs to look up.

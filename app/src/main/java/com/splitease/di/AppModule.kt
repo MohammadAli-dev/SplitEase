@@ -44,4 +44,10 @@ object AppModule {
     fun provideUserPreferencesManager(
         dataStore: DataStore<Preferences>
     ): UserPreferencesManager = UserPreferencesManagerImpl(dataStore)
+
+    @Provides
+    @Singleton
+    fun provideSyncMetadataStore(
+        @ApplicationContext context: Context
+    ): com.splitease.data.sync.SyncMetadataStore = com.splitease.data.sync.SyncMetadataStoreImpl(context)
 }
