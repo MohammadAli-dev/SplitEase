@@ -53,21 +53,25 @@ class DashboardViewModel @Inject constructor(
 
     /**
      * Trigger a manual sync (pull-to-refresh).
-     * Uses SyncRepository to enqueue the sync work.
+     * Observes actual WorkManager completion instead of using a hardcoded delay.
      */
     fun triggerSync() {
         if (_uiState.value.isSyncing) return // Prevent double-tap
         
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSyncing = true)
-            try {
-                // Trigger the existing sync mechanism (WorkManager-based)
-                syncRepository.triggerManualSync()
-            } finally {
-                // Brief delay to let sync complete, then reset
-                kotlinx.coroutines.delay(2000)
-                _uiState.value = _uiState.value.copy(isSyncing = false)
-            }
+            
+            // Trigger the sync work
+            syncRepository.triggerManualSync()
+            
+            // Observe the work completion
+            syncRepository.observeManualSyncWork()
+                .collect { isFinished ->
+                    if (isFinished) {
+                        _uiState.value = _uiState.value.copy(isSyncing = false)
+                        return@collect
+                    }
+                }
         }
     }
 

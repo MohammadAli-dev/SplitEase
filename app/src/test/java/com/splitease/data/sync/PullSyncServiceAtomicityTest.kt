@@ -7,16 +7,20 @@ import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.Expense
-import com.splitease.data.local.entities.ExpenseSplit
-import com.splitease.data.remote.RemoteExpense
-import com.splitease.data.remote.RemoteExpenseSplit
+import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.remote.RemoteGroup
 import com.splitease.data.remote.RemoteSettlement
 import com.splitease.data.remote.SplitEaseApi
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import retrofit2.Response
 
@@ -37,37 +41,42 @@ class PullSyncServiceAtomicityTest {
         expenseDao, groupDao, settlementDao, syncDao, db
     )
 
-    @org.junit.Before
+    @Before
     fun setup() {
-        io.mockk.mockkStatic(android.util.Log::class)
-        io.mockk.every { android.util.Log.d(any<String>(), any<String>()) } returns 0
-        io.mockk.every { android.util.Log.d(any<String>(), any<String>(), any<Throwable>()) } returns 0
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any<String>(), any<String>()) } returns 0
+        every { android.util.Log.d(any<String>(), any<String>(), any<Throwable>()) } returns 0
         
-        io.mockk.every { android.util.Log.e(any<String>(), any<String>()) } answers {
+        every { android.util.Log.e(any<String>(), any<String>()) } answers {
             println("ERROR: ${firstArg<String>()}: ${secondArg<String>()}")
             0
         }
-        io.mockk.every { android.util.Log.e(any<String>(), any<String>(), any<Throwable>()) } answers {
+        every { android.util.Log.e(any<String>(), any<String>(), any<Throwable>()) } answers {
             println("ERROR: ${firstArg<String>()}: ${secondArg<String>()}")
             thirdArg<Throwable>().printStackTrace()
             0
         }
 
-        io.mockk.every { android.util.Log.w(any<String>(), any<String>()) } returns 0
-        io.mockk.every { android.util.Log.w(any<String>(), any<Throwable>()) } returns 0
-        io.mockk.every { android.util.Log.w(any<String>(), any<String>(), any<Throwable>()) } returns 0
+        every { android.util.Log.w(any<String>(), any<String>()) } returns 0
+        every { android.util.Log.w(any<String>(), any<Throwable>()) } returns 0
+        every { android.util.Log.w(any<String>(), any<String>(), any<Throwable>()) } returns 0
         
-        io.mockk.every { android.util.Log.i(any<String>(), any<String>()) } returns 0
-        io.mockk.every { android.util.Log.v(any<String>(), any<String>()) } returns 0
+        every { android.util.Log.i(any<String>(), any<String>()) } returns 0
+        every { android.util.Log.v(any<String>(), any<String>()) } returns 0
         
         setupCommonMocks()
+    }
+
+    @After
+    fun teardown() {
+        unmockkStatic(android.util.Log::class)
     }
 
     @Test
     fun `INSERT path calls atomic insertExpenseWithSplits`() = runTest {
         // Arrange
-        val remoteExpense = createRemoteExpense("exp-1", 1000L)
-        val remoteSplits = listOf(createRemoteSplit("exp-1", "u1", 10.0))
+        val remoteExpense = PullSyncTestFixtures.createRemoteExpense("exp-1", updatedAtMillis = 1000L)
+        val remoteSplits = listOf(PullSyncTestFixtures.createRemoteSplit("exp-1", "u1", 10.0))
         
         // Explicitly stub for this test (though setupCommonMocks covers groups/settlements)
         coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
@@ -78,7 +87,7 @@ class PullSyncServiceAtomicityTest {
         val result = service.performPullSync()
         
         // Assert - result should be success
-        assert(result is PullSyncResult.Success) { "Expected Success but got $result" }
+        assertTrue("Expected Success but got $result", result is PullSyncResult.Success)
 
         // Assert - atomic method should be called
         coVerify(exactly = 1) { 
@@ -93,8 +102,8 @@ class PullSyncServiceAtomicityTest {
     @Test
     fun `UPDATE path calls atomic updateExpenseWithSplits`() = runTest {
         // Arrange
-        val remoteExpense = createRemoteExpense("exp-1", 2000L) // Newer
-        val remoteSplits = listOf(createRemoteSplit("exp-1", "u1", 20.0))
+        val remoteExpense = PullSyncTestFixtures.createRemoteExpense("exp-1", updatedAtMillis = 2000L) // Newer
+        val remoteSplits = listOf(PullSyncTestFixtures.createRemoteSplit("exp-1", "u1", 20.0))
         
         val localExpense = mockk<Expense>(relaxed = true) {
             coEvery { updatedAt } returns 1000L // Older
@@ -103,13 +112,13 @@ class PullSyncServiceAtomicityTest {
         coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
         coEvery { api.getExpenseSplits(any(), any(), any(), any(), any()) } returns Response.success(remoteSplits)
         coEvery { expenseDao.getExpenseById("exp-1") } returns localExpense
-        coEvery { syncDao.hasPendingOperationForEntity("exp-1") } returns false // Not dirty
+        coEvery { syncDao.hasPendingOperationForEntity("exp-1", SyncEntityType.EXPENSE) } returns false // Not dirty
 
         // Act
         val result = service.performPullSync()
         
         // Assert - result should be success
-        assert(result is PullSyncResult.Success) { "Expected Success but got $result" }
+        assertTrue("Expected Success but got $result", result is PullSyncResult.Success)
 
         // Assert - atomic method should be called
         coVerify(exactly = 1) { 
@@ -124,7 +133,11 @@ class PullSyncServiceAtomicityTest {
     @Test
     fun `DELETE path calls atomic deleteExpenseWithSplits`() = runTest {
         // Arrange
-        val remoteExpense = createRemoteExpense("exp-1", 2000L, "2024-01-01T12:00:00Z") // Deleted
+        val remoteExpense = PullSyncTestFixtures.createRemoteExpense(
+            id = "exp-1", 
+            updatedAtMillis = 2000L, 
+            deletedAt = "2024-01-01T12:00:00Z"
+        )
         
         coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
         coEvery { api.getExpenseSplits(any(), any(), any(), any(), any()) } returns Response.success(emptyList()) // Deleted expenses still trigger split fetch
@@ -136,7 +149,7 @@ class PullSyncServiceAtomicityTest {
         val result = service.performPullSync()
         
         // Assert - result should be success
-        assert(result is PullSyncResult.Success) { "Expected Success but got $result" }
+        assertTrue("Expected Success but got $result", result is PullSyncResult.Success)
 
         // Assert - atomic method should be called
         coVerify(exactly = 1) { 
@@ -162,21 +175,5 @@ class PullSyncServiceAtomicityTest {
         coEvery { expenseDao.insertExpenseWithSplits(any(), any()) } returns Unit
         coEvery { expenseDao.updateExpenseWithSplits(any(), any(), any()) } returns Unit
         coEvery { expenseDao.deleteExpenseWithSplits(any()) } returns Unit
-    }
-
-    private fun createRemoteExpense(id: String, updatedAt: Long, deletedAt: String? = null): RemoteExpense {
-        return RemoteExpense(
-            id = id, group_id = "g1", title = "T", amount = "10.0", currency = "USD", 
-            date = "2024-01-01T10:00:00Z", payer_id = "u1", created_by = "Me", 
-            updated_at = java.time.Instant.ofEpochMilli(updatedAt).toString(),
-            deleted_at = deletedAt,
-            created_by_user_id = "u1", last_modified_by_user_id = "u1",
-            sync_status = "SYNCED",
-            expense_date = 1704103200000L // 2024-01-01
-        )
-    }
-
-    private fun createRemoteSplit(expenseId: String, userId: String, amount: Double): RemoteExpenseSplit {
-        return RemoteExpenseSplit(expense_id = expenseId, user_id = userId, amount = amount.toString())
     }
 }

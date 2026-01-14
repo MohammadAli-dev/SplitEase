@@ -12,6 +12,7 @@ import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.remote.RemoteExpense
 import com.splitease.data.remote.RemoteExpenseSplit
 import com.splitease.data.remote.RemoteGroup
@@ -60,8 +61,10 @@ sealed class PullSyncResult {
         val expensesDeleted: Int,
         val groupsInserted: Int,
         val groupsUpdated: Int,
+        val groupsDeleted: Int,
         val settlementsInserted: Int,
-        val settlementsUpdated: Int
+        val settlementsUpdated: Int,
+        val settlementsDeleted: Int
     ) : PullSyncResult()
 
     data class Error(val message: String) : PullSyncResult()
@@ -112,8 +115,10 @@ class PullSyncServiceImpl @Inject constructor(
             var expensesDeleted = 0
             var groupsInserted = 0
             var groupsUpdated = 0
+            var groupsDeleted = 0
             var settlementsInserted = 0
             var settlementsUpdated = 0
+            var settlementsDeleted = 0
             var maxRemoteTimestamp = lastSyncedAt
 
             // 1. Fetch and reconcile Groups first (expenses depend on groups)
@@ -123,7 +128,7 @@ class PullSyncServiceImpl @Inject constructor(
                 when (result) {
                     ReconcileAction.INSERT -> groupsInserted++
                     ReconcileAction.UPDATE -> groupsUpdated++
-                    ReconcileAction.DELETE -> {} // tracked separately
+                    ReconcileAction.DELETE -> groupsDeleted++
                     ReconcileAction.SKIP -> {}
                 }
                 if (remoteGroup.updated_at > maxRemoteTimestamp) {
@@ -162,7 +167,7 @@ class PullSyncServiceImpl @Inject constructor(
                 when (result) {
                     ReconcileAction.INSERT -> settlementsInserted++
                     ReconcileAction.UPDATE -> settlementsUpdated++
-                    ReconcileAction.DELETE -> {} // tracked separately
+                    ReconcileAction.DELETE -> settlementsDeleted++
                     ReconcileAction.SKIP -> {}
                 }
                 if (remoteSettlement.updated_at > maxRemoteTimestamp) {
@@ -182,8 +187,10 @@ class PullSyncServiceImpl @Inject constructor(
                 expensesDeleted = expensesDeleted,
                 groupsInserted = groupsInserted,
                 groupsUpdated = groupsUpdated,
+                groupsDeleted = groupsDeleted,
                 settlementsInserted = settlementsInserted,
-                settlementsUpdated = settlementsUpdated
+                settlementsUpdated = settlementsUpdated,
+                settlementsDeleted = settlementsDeleted
             )
             Log.d(TAG, "Pull sync complete: $result")
             result
@@ -259,27 +266,47 @@ class PullSyncServiceImpl @Inject constructor(
         )
     }
 
+    /**
+     * Fetches expense splits for a list of expense IDs.
+     * 
+     * Uses batching to avoid URL length limits (8KB). Each batch contains
+     * up to 50 expense IDs (~1.8KB URL), well under the limit.
+     * 
+     * If any batch fails, the entire operation throws to maintain data integrity.
+     * Missing splits would cause incorrect balance calculations.
+     */
     private suspend fun fetchAllPagesOfSplits(
         authHeader: String,
         apiKey: String,
         expenseIds: List<String>
     ): List<RemoteExpenseSplit> {
-        // TODO(Sprint 14): Implement batching if expenseIds > 150 (Stay under 8KB URL limit)
-        require(expenseIds.size <= 200) {
-            "Too many expense IDs for single fetch: ${expenseIds.size}. " +
-            "Batching will be implemented in Sprint 14. See issue #40"
+        if (expenseIds.isEmpty()) {
+            return emptyList()
         }
         
-        val filter = "in.(${expenseIds.joinToString(",")})"
+        // Batch size of 50 keeps URL under ~2KB (36 chars/UUID * 50 = 1800 chars)
+        val batchSize = 50
+        val allSplits = mutableListOf<RemoteExpenseSplit>()
         
-        return fetchAllPages("ExpenseSplit") { range ->
-            api.getExpenseSplits(
-                authHeader = authHeader,
-                apiKey = apiKey,
-                expenseIdFilter = filter,
-                rangeHeader = range
-            )
+        expenseIds.chunked(batchSize).forEachIndexed { batchIndex, batch ->
+            Log.d(TAG, "Fetching splits batch ${batchIndex + 1}/${(expenseIds.size + batchSize - 1) / batchSize} (${batch.size} expense IDs)")
+            
+            val filter = "in.(${batch.joinToString(",")})"
+            
+            val batchSplits = fetchAllPages("ExpenseSplit[batch=$batchIndex]") { range ->
+                api.getExpenseSplits(
+                    authHeader = authHeader,
+                    apiKey = apiKey,
+                    expenseIdFilter = filter,
+                    rangeHeader = range
+                )
+            }
+            
+            allSplits.addAll(batchSplits)
         }
+        
+        Log.d(TAG, "Fetched ${allSplits.size} total splits across ${(expenseIds.size + batchSize - 1) / batchSize} batches")
+        return allSplits
     }
 
     // --- Reconciliation Logic ---
@@ -296,6 +323,10 @@ class PullSyncServiceImpl @Inject constructor(
     ): ReconcileAction {
         val local = expenseDao.getExpenseById(remote.id)
         val remoteUpdatedAt = parseIso8601ToEpochMillis(remote.updated_at)
+        if (remoteUpdatedAt == null) {
+            Log.e(TAG, "Reconcile[EXPENSE:${remote.id}]: SKIP (invalid updated_at timestamp)")
+            return ReconcileAction.SKIP
+        }
 
         // Soft delete check
         if (remote.deleted_at != null) {
@@ -308,10 +339,17 @@ class PullSyncServiceImpl @Inject constructor(
             return ReconcileAction.SKIP
         }
 
+        // Map remote expense safely
+        val expense = mapRemoteToLocalExpense(remote, remoteUpdatedAt)
+        if (expense == null) {
+            Log.e(TAG, "Reconcile[EXPENSE:${remote.id}]: SKIP (mapper returned null - malformed data)")
+            return ReconcileAction.SKIP
+        }
+        // Map splits safely, dropping malformed ones
+        val splits = remoteSplits.mapNotNull { mapRemoteToLocalSplit(it) }
+
         if (local == null) {
             // INSERT: Remote exists, local missing
-            val expense = mapRemoteToLocalExpense(remote, remoteUpdatedAt)
-            val splits = remoteSplits.map { mapRemoteToLocalSplit(it) }
             expenseDao.insertExpenseWithSplits(expense, splits)
             Log.d(TAG, "Reconcile[EXPENSE:${remote.id}]: INSERT")
             return ReconcileAction.INSERT
@@ -333,8 +371,6 @@ class PullSyncServiceImpl @Inject constructor(
             }
             remoteUpdatedAt > localUpdatedAt -> {
                 // Remote is newer -> Overwrite local
-                val expense = mapRemoteToLocalExpense(remote, remoteUpdatedAt)
-                val splits = remoteSplits.map { mapRemoteToLocalSplit(it) }
                 expenseDao.updateExpenseWithSplits(remote.id, expense, splits)
                 Log.d(TAG, "Reconcile[EXPENSE:${remote.id}]: UPDATE (R=$remoteUpdatedAt > L=$localUpdatedAt)")
                 return ReconcileAction.UPDATE
@@ -350,6 +386,10 @@ class PullSyncServiceImpl @Inject constructor(
     private suspend fun reconcileGroup(remote: RemoteGroup): ReconcileAction {
         val local = groupDao.getGroupById(remote.id)
         val remoteUpdatedAt = parseIso8601ToEpochMillis(remote.updated_at)
+        if (remoteUpdatedAt == null) {
+            Log.e(TAG, "Reconcile[GROUP:${remote.id}]: SKIP (invalid updated_at timestamp)")
+            return ReconcileAction.SKIP
+        }
 
         if (remote.deleted_at != null) {
             if (local != null) {
@@ -361,7 +401,10 @@ class PullSyncServiceImpl @Inject constructor(
         }
 
         if (local == null) {
-            val group = mapRemoteToLocalGroup(remote, remoteUpdatedAt)
+            val group = mapRemoteToLocalGroup(remote, remoteUpdatedAt) ?: run {
+                Log.e(TAG, "Reconcile[GROUP:${remote.id}]: SKIP (mapper returned null)")
+                return ReconcileAction.SKIP
+            }
             groupDao.insertGroup(group)
             Log.d(TAG, "Reconcile[GROUP:${remote.id}]: INSERT")
             return ReconcileAction.INSERT
@@ -377,7 +420,10 @@ class PullSyncServiceImpl @Inject constructor(
                 return ReconcileAction.SKIP
             }
             remoteUpdatedAt > localUpdatedAt -> {
-                val group = mapRemoteToLocalGroup(remote, remoteUpdatedAt)
+                val group = mapRemoteToLocalGroup(remote, remoteUpdatedAt) ?: run {
+                    Log.e(TAG, "Reconcile[GROUP:${remote.id}]: SKIP (mapper returned null)")
+                    return ReconcileAction.SKIP
+                }
                 groupDao.insertGroup(group)
                 Log.d(TAG, "Reconcile[GROUP:${remote.id}]: UPDATE")
                 return ReconcileAction.UPDATE
@@ -389,6 +435,10 @@ class PullSyncServiceImpl @Inject constructor(
     private suspend fun reconcileSettlement(remote: RemoteSettlement): ReconcileAction {
         val local = settlementDao.getSettlementById(remote.id)
         val remoteUpdatedAt = parseIso8601ToEpochMillis(remote.updated_at)
+        if (remoteUpdatedAt == null) {
+            Log.e(TAG, "Reconcile[SETTLEMENT:${remote.id}]: SKIP (invalid updated_at timestamp)")
+            return ReconcileAction.SKIP
+        }
 
         if (remote.deleted_at != null) {
             if (local != null) {
@@ -400,7 +450,10 @@ class PullSyncServiceImpl @Inject constructor(
         }
 
         if (local == null) {
-            val settlement = mapRemoteToLocalSettlement(remote, remoteUpdatedAt)
+            val settlement = mapRemoteToLocalSettlement(remote, remoteUpdatedAt) ?: run {
+                Log.e(TAG, "Reconcile[SETTLEMENT:${remote.id}]: SKIP (mapper returned null)")
+                return ReconcileAction.SKIP
+            }
             settlementDao.insertSettlement(settlement)
             Log.d(TAG, "Reconcile[SETTLEMENT:${remote.id}]: INSERT")
             return ReconcileAction.INSERT
@@ -416,7 +469,10 @@ class PullSyncServiceImpl @Inject constructor(
                 return ReconcileAction.SKIP
             }
             remoteUpdatedAt > localUpdatedAt -> {
-                val settlement = mapRemoteToLocalSettlement(remote, remoteUpdatedAt)
+                val settlement = mapRemoteToLocalSettlement(remote, remoteUpdatedAt) ?: run {
+                    Log.e(TAG, "Reconcile[SETTLEMENT:${remote.id}]: SKIP (mapper returned null)")
+                    return ReconcileAction.SKIP
+                }
                 settlementDao.insertSettlement(settlement)
                 Log.d(TAG, "Reconcile[SETTLEMENT:${remote.id}]: UPDATE")
                 return ReconcileAction.UPDATE
@@ -428,27 +484,46 @@ class PullSyncServiceImpl @Inject constructor(
     // --- Dirty Check Helpers ---
 
     private suspend fun hasPendingSyncOp(expenseId: String): Boolean {
-        return syncDao.hasPendingOperationForEntity(expenseId)
+        return syncDao.hasPendingOperationForEntity(expenseId, SyncEntityType.EXPENSE)
     }
 
     private suspend fun hasPendingSyncOpForGroup(groupId: String): Boolean {
-        return syncDao.hasPendingOperationForEntity(groupId)
+        return syncDao.hasPendingOperationForEntity(groupId, SyncEntityType.GROUP)
     }
 
     private suspend fun hasPendingSyncOpForSettlement(settlementId: String): Boolean {
-        return syncDao.hasPendingOperationForEntity(settlementId)
+        return syncDao.hasPendingOperationForEntity(settlementId, SyncEntityType.SETTLEMENT)
     }
 
     // --- Mapping Helpers ---
 
-    private fun mapRemoteToLocalExpense(remote: RemoteExpense, updatedAtMillis: Long): Expense {
+    /**
+     * Safely parses a numeric string into BigDecimal.
+     * Returns null if the string is malformed and logs the error with context.
+     */
+    private fun parseAmount(amountStr: String, context: String): BigDecimal? {
+        return try {
+            BigDecimal(amountStr)
+        } catch (e: NumberFormatException) {
+            Log.e(TAG, "Invalid amount '$amountStr' in $context: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun mapRemoteToLocalExpense(remote: RemoteExpense, updatedAtMillis: Long): Expense? {
+        val amount = parseAmount(remote.amount, "Expense:${remote.id}") ?: return null
+        val date = parseIso8601ToDate(remote.date)
+        if (date == null) {
+            Log.e(TAG, "Skipping expense ${remote.id}: invalid date '${remote.date}'")
+            return null
+        }
         return Expense(
             id = remote.id,
             groupId = remote.group_id,
             title = remote.title,
-            amount = BigDecimal(remote.amount),
+            amount = amount,
             currency = remote.currency,
-            date = parseIso8601ToDate(remote.date),
+            date = date,
             payerId = remote.payer_id,
             createdBy = remote.created_by,
             syncStatus = "SYNCED",
@@ -460,15 +535,16 @@ class PullSyncServiceImpl @Inject constructor(
         )
     }
 
-    private fun mapRemoteToLocalSplit(remote: RemoteExpenseSplit): ExpenseSplit {
+    private fun mapRemoteToLocalSplit(remote: RemoteExpenseSplit): ExpenseSplit? {
+        val amount = parseAmount(remote.amount, "ExpenseSplit:${remote.expense_id}, user:${remote.user_id}") ?: return null
         return ExpenseSplit(
             expenseId = remote.expense_id,
             userId = remote.user_id,
-            amount = BigDecimal(remote.amount)
+            amount = amount
         )
     }
 
-    private fun mapRemoteToLocalGroup(remote: RemoteGroup, updatedAtMillis: Long): Group {
+    private fun mapRemoteToLocalGroup(remote: RemoteGroup, updatedAtMillis: Long): Group? {
         return Group(
             id = remote.id,
             name = remote.name,
@@ -485,14 +561,20 @@ class PullSyncServiceImpl @Inject constructor(
         )
     }
 
-    private fun mapRemoteToLocalSettlement(remote: RemoteSettlement, updatedAtMillis: Long): Settlement {
+    private fun mapRemoteToLocalSettlement(remote: RemoteSettlement, updatedAtMillis: Long): Settlement? {
+        val amount = parseAmount(remote.amount, "Settlement:${remote.id}") ?: return null
+        val date = parseIso8601ToDate(remote.date)
+        if (date == null) {
+            Log.e(TAG, "Skipping settlement ${remote.id}: invalid date '${remote.date}'")
+            return null
+        }
         return Settlement(
             id = remote.id,
             groupId = remote.group_id,
             fromUserId = remote.from_user_id,
             toUserId = remote.to_user_id,
-            amount = BigDecimal(remote.amount),
-            date = parseIso8601ToDate(remote.date),
+            amount = amount,
+            date = date,
             createdByUserId = remote.created_by_user_id ?: IdentityConstants.LEGACY_USER_ID,
             lastModifiedByUserId = remote.last_modified_by_user_id ?: IdentityConstants.LEGACY_USER_ID,
             updatedAt = updatedAtMillis,
@@ -502,21 +584,29 @@ class PullSyncServiceImpl @Inject constructor(
 
     // --- Time Parsing Helpers ---
 
-    private fun parseIso8601ToEpochMillis(iso8601: String): Long {
+    /**
+     * Safely parses ISO-8601 timestamp to epoch milliseconds.
+     * Returns null if the string is malformed and logs the error.
+     */
+    private fun parseIso8601ToEpochMillis(iso8601: String): Long? {
         return try {
             Instant.parse(iso8601).toEpochMilli()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse ISO-8601 timestamp: '$iso8601' (${e.javaClass.simpleName}: ${e.message}). Using epoch (0) as fallback.", e)
-            0L
+            Log.e(TAG, "Failed to parse ISO-8601 timestamp: '$iso8601'", e)
+            null
         }
     }
 
-    private fun parseIso8601ToDate(iso8601: String): Date {
+    /**
+     * Safely parses ISO-8601 string to Date.
+     * Returns null if the string is malformed and logs the error.
+     */
+    private fun parseIso8601ToDate(iso8601: String): Date? {
         return try {
             Date.from(Instant.parse(iso8601))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse ISO-8601 date: '$iso8601' (${e.javaClass.simpleName}: ${e.message}). Using current time as fallback.", e)
-            Date()
+            Log.e(TAG, "Failed to parse ISO-8601 date: '$iso8601'", e)
+            null
         }
     }
 }
