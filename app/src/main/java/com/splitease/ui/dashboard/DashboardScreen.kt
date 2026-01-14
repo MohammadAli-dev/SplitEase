@@ -381,7 +381,7 @@ fun DashboardScreen(
                                             Text(
                                                 text = friendBalance.displayText,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = if (friendBalance.balance > java.math.BigDecimal.ZERO) 
+                                                color = if (friendBalance.balance > BigDecimal.ZERO) 
                                                     Color(0xFF4CAF50) else Color(0xFFFF9800)
                                             )
                                         }

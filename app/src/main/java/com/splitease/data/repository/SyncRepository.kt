@@ -25,6 +25,7 @@ import com.splitease.data.local.entities.ExpenseSplit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.IOException
@@ -59,6 +60,9 @@ interface SyncRepository {
     /** Trigger manual sync (safe to spam - uses REPLACE policy) */
     fun triggerManualSync()
     
+    /** Observe manual sync work completion state */
+    fun observeManualSyncWork(): Flow<Boolean>
+    
     // --- Reconciliation (EXPENSE UPDATE Only) ---
     
     /**
@@ -92,6 +96,10 @@ class SyncRepositoryImpl @Inject constructor(
     private val settlementDao: SettlementDao,
     private val db: AppDatabase
 ) : SyncRepository {
+
+    companion object {
+        private const val MANUAL_SYNC_WORK_TAG = "manual_sync_work"
+    }
 
     override val failedOperations: Flow<List<SyncOperation>> = syncDao.getFailedOperations()
     override val pendingOperations: Flow<List<SyncOperation>> = syncDao.getPendingOperations()
@@ -134,8 +142,27 @@ class SyncRepositoryImpl @Inject constructor(
     }
 
     override fun triggerManualSync() {
-        // Same as triggerImmediateSync but exposed for manual UI control
-        triggerImmediateSync()
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(constraints)
+            .addTag(MANUAL_SYNC_WORK_TAG)
+            .build()
+
+        workManager.enqueueUniqueWork(
+            "sync_now",
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+    
+    override fun observeManualSyncWork(): Flow<Boolean> {
+        return workManager.getWorkInfosByTagFlow(MANUAL_SYNC_WORK_TAG)
+            .map { workInfoList ->
+                workInfoList.firstOrNull()?.state?.isFinished ?: true
+            }
     }
 
     override suspend fun retryOperation(id: Int) {

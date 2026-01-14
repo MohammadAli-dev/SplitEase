@@ -84,8 +84,8 @@ interface SyncDao {
 
     /**
      * Check if an entity has a pending sync operation (dirty check for reconciliation).
-     * Returns true if entity ID has any pending operation.
+     * Scoped by both entityId AND entityType to prevent false positives across entity types.
      */
-    @Query("SELECT EXISTS(SELECT 1 FROM sync_operations WHERE entityId = :entityId AND status = 'PENDING')")
-    suspend fun hasPendingOperationForEntity(entityId: String): Boolean
+    @Query("SELECT EXISTS(SELECT 1 FROM sync_operations WHERE entityId = :entityId AND entityType = :entityType AND status = 'PENDING')")
+    suspend fun hasPendingOperationForEntity(entityId: String, entityType: SyncEntityType): Boolean
 }
