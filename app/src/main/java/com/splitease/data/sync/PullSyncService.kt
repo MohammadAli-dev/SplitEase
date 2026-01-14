@@ -524,7 +524,7 @@ class PullSyncServiceImpl @Inject constructor(
         return try {
             Instant.parse(iso8601).toEpochMilli()
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse ISO-8601: $iso8601, using 0")
+            Log.e(TAG, "Failed to parse ISO-8601 timestamp: '$iso8601' (${e.javaClass.simpleName}: ${e.message}). Using epoch (0) as fallback.", e)
             0L
         }
     }
@@ -533,6 +533,7 @@ class PullSyncServiceImpl @Inject constructor(
         return try {
             Date.from(Instant.parse(iso8601))
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse ISO-8601 date: '$iso8601' (${e.javaClass.simpleName}: ${e.message}). Using current time as fallback.", e)
             Date()
         }
     }
