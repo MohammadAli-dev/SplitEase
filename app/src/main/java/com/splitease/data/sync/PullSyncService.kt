@@ -17,6 +17,7 @@ import com.splitease.data.remote.RemoteExpenseSplit
 import com.splitease.data.remote.RemoteGroup
 import com.splitease.data.remote.RemoteSettlement
 import com.splitease.data.remote.SplitEaseApi
+import retrofit2.Response
 import com.splitease.data.identity.IdentityConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -80,6 +81,8 @@ class PullSyncServiceImpl @Inject constructor(
 
     companion object {
         private const val TAG = "PullSyncService"
+        // PAGE_SIZE matches PostgREST/Supabase default max-rows.
+        // If server returns exactly PAGE_SIZE, we fetch next page until response size < PAGE_SIZE.
         private const val PAGE_SIZE = 1000
         private val ISO_8601_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
@@ -132,7 +135,7 @@ class PullSyncServiceImpl @Inject constructor(
             val expenses = fetchAllPagesOfExpenses(authHeader, apiKey, lastSyncedAt)
             val expenseIds = expenses.map { it.id }
             val remoteSplits = if (expenseIds.isNotEmpty()) {
-                fetchExpenseSplits(authHeader, apiKey, expenseIds)
+                fetchAllPagesOfSplits(authHeader, apiKey, expenseIds)
             } else {
                 emptyList()
             }
@@ -192,111 +195,91 @@ class PullSyncServiceImpl @Inject constructor(
 
     // --- Pagination Helpers ---
 
+    private suspend fun <T> fetchAllPages(
+        entityName: String,
+        fetchPage: suspend (rangeHeader: String) -> Response<List<T>>
+    ): List<T> {
+        val allItems = mutableListOf<T>()
+        var offset = 0
+        while (true) {
+            val rangeHeader = "$offset-${offset + PAGE_SIZE - 1}"
+            val response = fetchPage(rangeHeader)
+            
+            if (!response.isSuccessful) {
+                val errorMsg = "$entityName fetch failed at offset $offset: HTTP ${response.code()}"
+                Log.e(TAG, errorMsg)
+                throw java.io.IOException(errorMsg)
+            }
+            
+            val page = response.body() ?: emptyList<T>()
+            allItems.addAll(page)
+            
+            if (page.size < PAGE_SIZE) break
+            offset += PAGE_SIZE
+        }
+        return allItems
+    }
+
     private suspend fun fetchAllPagesOfExpenses(
         authHeader: String,
         apiKey: String,
         lastSyncedAt: String
-    ): List<RemoteExpense> {
-        val allExpenses = mutableListOf<RemoteExpense>()
-        var offset = 0
-        while (true) {
-            val rangeHeader = "$offset-${offset + PAGE_SIZE - 1}"
-            val response = api.getExpenseUpdates(
-                authHeader = authHeader,
-                apiKey = apiKey,
-                updatedAtFilter = "gt.$lastSyncedAt",
-                rangeHeader = rangeHeader
-            )
-            if (!response.isSuccessful) {
-                val errorMsg = "Expense fetch failed at offset $offset: HTTP ${response.code()}"
-                Log.e(TAG, errorMsg)
-                throw java.io.IOException(errorMsg)
-            }
-            val page = response.body() ?: emptyList()
-            allExpenses.addAll(page)
-            if (page.size < PAGE_SIZE) break
-            offset += PAGE_SIZE
-        }
-        return allExpenses
+    ): List<RemoteExpense> = fetchAllPages("Expense") { range ->
+        api.getExpenseUpdates(
+            authHeader = authHeader,
+            apiKey = apiKey,
+            updatedAtFilter = "gt.$lastSyncedAt",
+            rangeHeader = range
+        )
     }
 
     private suspend fun fetchAllPagesOfGroups(
         authHeader: String,
         apiKey: String,
         lastSyncedAt: String
-    ): List<RemoteGroup> {
-        val allGroups = mutableListOf<RemoteGroup>()
-        var offset = 0
-        while (true) {
-            val rangeHeader = "$offset-${offset + PAGE_SIZE - 1}"
-            val response = api.getGroupUpdates(
-                authHeader = authHeader,
-                apiKey = apiKey,
-                updatedAtFilter = "gt.$lastSyncedAt",
-                rangeHeader = rangeHeader
-            )
-            if (!response.isSuccessful) {
-                val errorMsg = "Group fetch failed at offset $offset: HTTP ${response.code()}"
-                Log.e(TAG, errorMsg)
-                throw java.io.IOException(errorMsg)
-            }
-            val page = response.body() ?: emptyList()
-            allGroups.addAll(page)
-            if (page.size < PAGE_SIZE) break
-            offset += PAGE_SIZE
-        }
-        return allGroups
+    ): List<RemoteGroup> = fetchAllPages("Group") { range ->
+        api.getGroupUpdates(
+            authHeader = authHeader,
+            apiKey = apiKey,
+            updatedAtFilter = "gt.$lastSyncedAt",
+            rangeHeader = range
+        )
     }
 
     private suspend fun fetchAllPagesOfSettlements(
         authHeader: String,
         apiKey: String,
         lastSyncedAt: String
-    ): List<RemoteSettlement> {
-        val allSettlements = mutableListOf<RemoteSettlement>()
-        var offset = 0
-        while (true) {
-            val rangeHeader = "$offset-${offset + PAGE_SIZE - 1}"
-            val response = api.getSettlementUpdates(
-                authHeader = authHeader,
-                apiKey = apiKey,
-                updatedAtFilter = "gt.$lastSyncedAt",
-                rangeHeader = rangeHeader
-            )
-            if (!response.isSuccessful) {
-                val errorMsg = "Settlement fetch failed at offset $offset: HTTP ${response.code()}"
-                Log.e(TAG, errorMsg)
-                throw java.io.IOException(errorMsg)
-            }
-            val page = response.body() ?: emptyList()
-            allSettlements.addAll(page)
-            if (page.size < PAGE_SIZE) break
-            offset += PAGE_SIZE
-        }
-        return allSettlements
+    ): List<RemoteSettlement> = fetchAllPages("Settlement") { range ->
+        api.getSettlementUpdates(
+            authHeader = authHeader,
+            apiKey = apiKey,
+            updatedAtFilter = "gt.$lastSyncedAt",
+            rangeHeader = range
+        )
     }
 
-    private suspend fun fetchExpenseSplits(
+    private suspend fun fetchAllPagesOfSplits(
         authHeader: String,
         apiKey: String,
         expenseIds: List<String>
     ): List<RemoteExpenseSplit> {
-        // TODO(Sprint 14): Implement batching if expenseIds > 150
-        // See: https://github.com/MohammadAli-dev/SplitEase/issues/40
-        // Current limit: ~221 UUIDs before hitting 8KB URL limit (37 chars per UUID)
+        // TODO(Sprint 14): Implement batching if expenseIds > 150 (Stay under 8KB URL limit)
         require(expenseIds.size <= 200) {
             "Too many expense IDs for single fetch: ${expenseIds.size}. " +
             "Batching will be implemented in Sprint 14. See issue #40"
         }
         
-        // PostgREST "in" filter: expense_id=in.(id1,id2,id3)
         val filter = "in.(${expenseIds.joinToString(",")})"
-        val response = api.getExpenseSplits(
-            authHeader = authHeader,
-            apiKey = apiKey,
-            expenseIdFilter = filter
-        )
-        return if (response.isSuccessful) response.body() ?: emptyList() else emptyList()
+        
+        return fetchAllPages("ExpenseSplit") { range ->
+            api.getExpenseSplits(
+                authHeader = authHeader,
+                apiKey = apiKey,
+                expenseIdFilter = filter,
+                rangeHeader = range
+            )
+        }
     }
 
     // --- Reconciliation Logic ---

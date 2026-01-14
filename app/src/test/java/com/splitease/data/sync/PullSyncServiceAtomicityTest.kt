@@ -71,7 +71,7 @@ class PullSyncServiceAtomicityTest {
         
         // Explicitly stub for this test (though setupCommonMocks covers groups/settlements)
         coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
-        coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(remoteSplits)
+        coEvery { api.getExpenseSplits(any(), any(), any(), any(), any()) } returns Response.success(remoteSplits)
         coEvery { expenseDao.getExpenseById("exp-1") } returns null // Doesn't exist -> Insert
 
         // Act
@@ -101,7 +101,7 @@ class PullSyncServiceAtomicityTest {
         }
 
         coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
-        coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(remoteSplits)
+        coEvery { api.getExpenseSplits(any(), any(), any(), any(), any()) } returns Response.success(remoteSplits)
         coEvery { expenseDao.getExpenseById("exp-1") } returns localExpense
         coEvery { syncDao.hasPendingOperationForEntity("exp-1") } returns false // Not dirty
 
@@ -127,7 +127,7 @@ class PullSyncServiceAtomicityTest {
         val remoteExpense = createRemoteExpense("exp-1", 2000L, "2024-01-01T12:00:00Z") // Deleted
         
         coEvery { api.getExpenseUpdates(any(), any(), any(), any(), any()) } returns Response.success(listOf(remoteExpense))
-        coEvery { api.getExpenseSplits(any(), any(), any()) } returns Response.success(emptyList()) // Deleted expenses still trigger split fetch
+        coEvery { api.getExpenseSplits(any(), any(), any(), any(), any()) } returns Response.success(emptyList()) // Deleted expenses still trigger split fetch
         
         val localExpense = mockk<Expense>(relaxed = true)
         coEvery { expenseDao.getExpenseById("exp-1") } returns localExpense

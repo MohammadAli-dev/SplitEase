@@ -153,13 +153,21 @@ interface SplitEaseApi {
 
     /**
      * Fetch expense splits for given expense IDs.
+     * 
+     * IMPORTANT: Ordering is mandatory for deterministic pagination.
+     * Do not remove or override without updating cursor logic.
+     * 
      * @param expenseIdFilter PostgREST filter: "in.(id1,id2,id3)"
+     * @param order Result ordering: deterministic for paging (default: expense_id.asc,user_id.asc)
+     * @param rangeHeader Pagination: "0-999"
      */
     @GET("expense_splits")
     suspend fun getExpenseSplits(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
-        @Query("expense_id") expenseIdFilter: String
+        @Query("expense_id") expenseIdFilter: String,
+        @Query("order") order: String = "expense_id.asc,user_id.asc",
+        @Header("Range") rangeHeader: String? = null
     ): Response<List<RemoteExpenseSplit>>
 }
 

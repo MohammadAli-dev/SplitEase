@@ -104,7 +104,7 @@ _uiState.value = _uiState.value.copy(isLoading = false)
 
 ### 2.6 Error Handling
 ```kotlin
-// Use Result<T> for failable operations
+// Use kotlin.Result<T> for failable operations
 suspend fun createExpense(expense: Expense): Result<Unit> {
     return try {
         expenseRepository.insert(expense)
@@ -114,11 +114,32 @@ suspend fun createExpense(expense: Expense): Result<Unit> {
     }
 }
 
-// Handle Result in ViewModels
+// Handle Result in ViewModels using idiomatic extension functions
 viewModelScope.launch {
-    when (val result = createExpense(expense)) {
-        is Result.Success -> _uiState.update { it.copy(isLoading = false) }
-        is Result.Failure -> _uiState.update { it.copy(error = result.exception.message) }
+    createExpense(expense)
+        .onSuccess {
+            _uiState.update { it.copy(isLoading = false) }
+        }
+        .onFailure { error ->
+            _uiState.update { it.copy(error = error.message) }
+        }
+}
+
+// Alternative: Use fold for explicit branching
+viewModelScope.launch {
+    createExpense(expense).fold(
+        onSuccess = { _uiState.update { it.copy(isLoading = false) } },
+        onFailure = { error -> _uiState.update { it.copy(error = error.message) } }
+    )
+}
+
+// Check result status without consuming
+viewModelScope.launch {
+    val result = createExpense(expense)
+    if (result.isSuccess) {
+        // Handle success
+    } else {
+        // Handle failure: result.exceptionOrNull()
     }
 }
 ```
