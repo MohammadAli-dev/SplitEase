@@ -208,8 +208,9 @@ class PullSyncServiceImpl @Inject constructor(
                 rangeHeader = rangeHeader
             )
             if (!response.isSuccessful) {
-                Log.e(TAG, "Expense fetch failed: ${response.code()}")
-                break
+                val errorMsg = "Expense fetch failed at offset $offset: HTTP ${response.code()}"
+                Log.e(TAG, errorMsg)
+                throw java.io.IOException(errorMsg)
             }
             val page = response.body() ?: emptyList()
             allExpenses.addAll(page)
@@ -235,8 +236,9 @@ class PullSyncServiceImpl @Inject constructor(
                 rangeHeader = rangeHeader
             )
             if (!response.isSuccessful) {
-                Log.e(TAG, "Group fetch failed: ${response.code()}")
-                break
+                val errorMsg = "Group fetch failed at offset $offset: HTTP ${response.code()}"
+                Log.e(TAG, errorMsg)
+                throw java.io.IOException(errorMsg)
             }
             val page = response.body() ?: emptyList()
             allGroups.addAll(page)
@@ -262,8 +264,9 @@ class PullSyncServiceImpl @Inject constructor(
                 rangeHeader = rangeHeader
             )
             if (!response.isSuccessful) {
-                Log.e(TAG, "Settlement fetch failed: ${response.code()}")
-                break
+                val errorMsg = "Settlement fetch failed at offset $offset: HTTP ${response.code()}"
+                Log.e(TAG, errorMsg)
+                throw java.io.IOException(errorMsg)
             }
             val page = response.body() ?: emptyList()
             allSettlements.addAll(page)
