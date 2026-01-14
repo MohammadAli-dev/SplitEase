@@ -1,7 +1,6 @@
 package com.splitease.data.sync
 
 import com.splitease.data.auth.TokenManager
-import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
@@ -24,11 +23,13 @@ class PullSyncServicePagingTest {
     private val groupDao = mockk<GroupDao>(relaxed = true)
     private val settlementDao = mockk<SettlementDao>(relaxed = true)
     private val syncDao = mockk<SyncDao>(relaxed = true)
-    private val db = mockk<AppDatabase>(relaxed = true)
+    
+    // ✅ Clean transaction runner - no Room mocking needed!
+    private val transactionRunner = TestTransactionRunner()
 
     private val service = PullSyncServiceImpl(
         api, syncMetadataStore, tokenManager,
-        expenseDao, groupDao, settlementDao, syncDao, db
+        expenseDao, groupDao, settlementDao, syncDao, transactionRunner
     )
 
     @Before

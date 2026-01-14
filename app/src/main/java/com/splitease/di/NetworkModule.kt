@@ -66,10 +66,10 @@ object NetworkModule {
         groupDao: com.splitease.data.local.dao.GroupDao,
         settlementDao: com.splitease.data.local.dao.SettlementDao,
         syncDao: com.splitease.data.local.dao.SyncDao,
-        db: com.splitease.data.local.AppDatabase
+        transactionRunner: com.splitease.data.sync.TransactionRunner
     ): com.splitease.data.sync.PullSyncService {
         return com.splitease.data.sync.PullSyncServiceImpl(
-            api, syncMetadataStore, tokenManager, expenseDao, groupDao, settlementDao, syncDao, db
+            api, syncMetadataStore, tokenManager, expenseDao, groupDao, settlementDao, syncDao, transactionRunner
         )
     }
 }

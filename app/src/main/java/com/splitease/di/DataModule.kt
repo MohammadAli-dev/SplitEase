@@ -10,8 +10,10 @@ import com.splitease.data.repository.GroupRepository
 import com.splitease.data.repository.GroupRepositoryImpl
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.repository.SyncRepositoryImpl
+import com.splitease.data.sync.RoomTransactionRunner
 import com.splitease.data.sync.SyncWriteService
 import com.splitease.data.sync.SyncWriteServiceImpl
+import com.splitease.data.sync.TransactionRunner
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -55,4 +57,10 @@ abstract class DataModule {
     abstract fun bindActivityRepository(
             activityRepositoryImpl: ActivityRepositoryImpl
     ): ActivityRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindTransactionRunner(
+            roomTransactionRunner: RoomTransactionRunner
+    ): TransactionRunner
 }
