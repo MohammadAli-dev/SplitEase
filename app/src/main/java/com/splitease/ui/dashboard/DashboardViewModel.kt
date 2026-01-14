@@ -6,7 +6,7 @@ import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.Group
 import com.splitease.data.repository.BalanceSummaryRepository
-import com.splitease.data.repository.FriendBalance
+import com.splitease.data.repository.SyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,14 +32,16 @@ data class DashboardUiState(
     val totalOwing: BigDecimal = BigDecimal.ZERO,
     val groups: List<Group> = emptyList(),
     val friendBalances: List<FriendBalanceUi> = emptyList(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val isSyncing: Boolean = false
 )
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val groupDao: GroupDao,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val syncRepository: SyncRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -47,6 +49,26 @@ class DashboardViewModel @Inject constructor(
 
     init {
         loadDashboardData()
+    }
+
+    /**
+     * Trigger a manual sync (pull-to-refresh).
+     * Uses SyncRepository to enqueue the sync work.
+     */
+    fun triggerSync() {
+        if (_uiState.value.isSyncing) return // Prevent double-tap
+        
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isSyncing = true)
+            try {
+                // Trigger the existing sync mechanism (WorkManager-based)
+                syncRepository.triggerManualSync()
+            } finally {
+                // Brief delay to let sync complete, then reset
+                kotlinx.coroutines.delay(2000)
+                _uiState.value = _uiState.value.copy(isSyncing = false)
+            }
+        }
     }
 
     private fun loadDashboardData() {
@@ -80,7 +102,8 @@ class DashboardViewModel @Inject constructor(
                     totalOwing = summary.totalOwing,
                     groups = groups,
                     friendBalances = friendBalancesUi,
-                    isLoading = false
+                    isLoading = false,
+                    isSyncing = _uiState.value.isSyncing
                 )
             }.collectLatest { state ->
                 _uiState.value = state
@@ -88,3 +111,4 @@ class DashboardViewModel @Inject constructor(
         }
     }
 }
+

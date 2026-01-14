@@ -2,6 +2,7 @@ package com.splitease.ui.dashboard
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,8 +23,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.math.BigDecimal
@@ -67,6 +72,23 @@ fun DashboardScreen(
     
     // Dialog state for no groups
     var showNoGroupsDialog by remember { mutableStateOf(false) }
+
+    // Pull-to-refresh state
+    val pullRefreshState = rememberPullToRefreshState()
+    
+    // Trigger sync when pull is triggered
+    LaunchedEffect(pullRefreshState.isRefreshing) {
+        if (pullRefreshState.isRefreshing) {
+            viewModel.triggerSync()
+        }
+    }
+    
+    // End refresh when syncing completes
+    LaunchedEffect(uiState.isSyncing) {
+        if (!uiState.isSyncing && pullRefreshState.isRefreshing) {
+            pullRefreshState.endRefresh()
+        }
+    }
 
     // FAB Options Bottom Sheet
     if (showFabOptionsSheet) {
@@ -246,12 +268,17 @@ fun DashboardScreen(
             return@Scaffold
         }
 
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp)
+                .nestedScroll(pullRefreshState.nestedScrollConnection)
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
             Text(
                 text = "Dashboard",
                 style = MaterialTheme.typography.headlineMedium,
@@ -370,6 +397,12 @@ fun DashboardScreen(
                     modifier = Modifier.padding(16.dp)
                 )
             }
+            }
+            
+            PullToRefreshContainer(
+                state = pullRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 }

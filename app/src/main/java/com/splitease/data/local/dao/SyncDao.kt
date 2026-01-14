@@ -81,4 +81,11 @@ interface SyncDao {
      */
     @Query("SELECT MIN(timestamp) FROM sync_operations WHERE status = 'PENDING'")
     fun getOldestPendingTimestamp(): Flow<Long?>
+
+    /**
+     * Check if an entity has a pending sync operation (dirty check for reconciliation).
+     * Returns true if entity ID has any pending operation.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM sync_operations WHERE entityId = :entityId AND status = 'PENDING')")
+    suspend fun hasPendingOperationForEntity(entityId: String): Boolean
 }

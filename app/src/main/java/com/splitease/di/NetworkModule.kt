@@ -55,4 +55,21 @@ object NetworkModule {
     fun provideWorkManager(@dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context): androidx.work.WorkManager {
         return androidx.work.WorkManager.getInstance(context)
     }
+
+    @Provides
+    @Singleton
+    fun providePullSyncService(
+        api: SplitEaseApi,
+        syncMetadataStore: com.splitease.data.sync.SyncMetadataStore,
+        tokenManager: com.splitease.data.auth.TokenManager,
+        expenseDao: com.splitease.data.local.dao.ExpenseDao,
+        groupDao: com.splitease.data.local.dao.GroupDao,
+        settlementDao: com.splitease.data.local.dao.SettlementDao,
+        syncDao: com.splitease.data.local.dao.SyncDao,
+        db: com.splitease.data.local.AppDatabase
+    ): com.splitease.data.sync.PullSyncService {
+        return com.splitease.data.sync.PullSyncServiceImpl(
+            api, syncMetadataStore, tokenManager, expenseDao, groupDao, settlementDao, syncDao, db
+        )
+    }
 }

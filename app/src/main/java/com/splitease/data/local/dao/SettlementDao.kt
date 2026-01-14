@@ -39,6 +39,12 @@ interface SettlementDao {
     @Query("DELETE FROM settlements WHERE id = :id") suspend fun deleteSettlement(id: String)
 
     /**
+     * One-shot suspend query for settlement by ID (for reconciliation).
+     */
+    @Query("SELECT * FROM settlements WHERE id = :id")
+    suspend fun getSettlementById(id: String): Settlement?
+
+    /**
      * Fetches settlement amounts for the given settlement IDs.
      *
      * The query returns pairs of settlement `id` and `value` where `value` is the amount stored as a plain decimal string.

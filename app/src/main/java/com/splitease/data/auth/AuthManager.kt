@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.splitease.data.identity.IdentityLinkStateStore
 import com.splitease.data.identity.LocalUserManager
+import com.splitease.data.sync.SyncMetadataStore
 import com.splitease.worker.IdentityLinkingWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -140,7 +141,8 @@ class AuthManagerImpl @Inject constructor(
     private val authService: AuthService,
     private val tokenManager: TokenManager,
     private val identityLinkStateStore: IdentityLinkStateStore,
-    private val localUserManager: LocalUserManager
+    private val localUserManager: LocalUserManager,
+    private val syncMetadataStore: SyncMetadataStore
 ) : AuthManager {
 
     companion object {
@@ -526,6 +528,9 @@ class AuthManagerImpl @Inject constructor(
             // Without this, User B would skip linking after User A logs out
             identityLinkStateStore.reset()
 
+            // CRITICAL: Clear sync cursor to prevent cross-account sync cursor leakage
+            syncMetadataStore.clear()
+
             // Clear user profile
             _userProfile.value = null
 
@@ -533,7 +538,7 @@ class AuthManagerImpl @Inject constructor(
             _authState.value = AuthState.Unauthenticated
 
             // NOTE: Local data is NOT deleted. Offline-first preserved.
-            Log.d(TAG, "Logout complete - tokens cleared, linking state reset, profile cleared")
+            Log.d(TAG, "Logout complete - tokens cleared, linking state reset, sync metadata cleared, profile cleared")
         }
     }
 

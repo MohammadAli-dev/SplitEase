@@ -15,5 +15,9 @@ data class Settlement(
     val amount: BigDecimal,
     val date: Date = Date(),
     val createdByUserId: String = IdentityConstants.LEGACY_USER_ID,
-    val lastModifiedByUserId: String = IdentityConstants.LEGACY_USER_ID
+    val lastModifiedByUserId: String = IdentityConstants.LEGACY_USER_ID,
+    /** Server-authoritative timestamp (epoch millis). 0 = never synced. */
+    val updatedAt: Long = 0,
+    /** Soft-delete timestamp (epoch millis). NULL = not deleted. */
+    val deletedAt: Long? = null
 )
