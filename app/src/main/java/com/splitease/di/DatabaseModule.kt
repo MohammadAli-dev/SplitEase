@@ -7,6 +7,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.splitease.data.local.AppDatabase
+import com.splitease.data.local.MIGRATION_9_10
 import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
@@ -201,6 +202,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_5_6)
             .addMigrations(MIGRATION_6_7)
             .addMigrations(MIGRATION_7_8)
+            .addMigrations(MIGRATION_9_10)
             .fallbackToDestructiveMigration()
             .build()
     }
