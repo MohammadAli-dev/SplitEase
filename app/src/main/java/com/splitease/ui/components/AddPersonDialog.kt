@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
  * - Email (Optional metadata)
  * - Phone (Optional metadata)
  * 
- * Returns ONLY the created userId to strict callback contract.
+ * On confirmation, invokes `onConfirm` with the name and optional email/phone values.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

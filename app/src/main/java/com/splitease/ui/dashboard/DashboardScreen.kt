@@ -256,6 +256,7 @@ fun DashboardScreen(
             onDismiss = { showAddPersonDialog = false },
             onConfirm = { name, email, phone ->
                 viewModel.createPhantomUser(name, email, phone)
+                showAddPersonDialog = false
             }
         )
     }

@@ -167,6 +167,7 @@ fun AddExpenseScreen(
             onDismiss = { showAddPersonDialog = false },
             onConfirm = { name, email, phone ->
                 viewModel.createPhantomUserAndSelect(name, email, phone)
+                showAddPersonDialog = false
             }
         )
     }
