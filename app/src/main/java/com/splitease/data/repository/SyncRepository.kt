@@ -15,13 +15,14 @@ import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.remote.SplitEaseApi
-import androidx.room.withTransaction
-import com.splitease.data.local.AppDatabase
 import com.splitease.data.remote.SyncRequest
 import com.splitease.worker.SyncWorker
 import com.splitease.data.sync.SyncHealth
+import com.splitease.data.sync.TransactionRunner
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
+import com.splitease.data.auth.AuthConfig
+import com.splitease.data.auth.TokenManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -94,10 +95,12 @@ class SyncRepositoryImpl @Inject constructor(
     private val groupDao: GroupDao,
     private val expenseDao: ExpenseDao,
     private val settlementDao: SettlementDao,
-    private val db: AppDatabase
+    private val transactionRunner: TransactionRunner,
+    private val tokenManager: TokenManager
 ) : SyncRepository {
 
     companion object {
+        private const val TAG = "SyncRepository"
         private const val MANUAL_SYNC_WORK_TAG = "manual_sync_work"
     }
 
@@ -227,8 +230,32 @@ class SyncRepositoryImpl @Inject constructor(
 
     override suspend fun processNextOperation(): Boolean = withContext(Dispatchers.IO) {
         val operation = syncDao.getNextPendingOperation() ?: return@withContext false
+        val attemptAt = System.currentTimeMillis()
 
         try {
+            // 1️⃣ Fetch LOCAL entity's updatedAt (source of truth for comparison)
+            val localUpdatedAt = getLocalEntityUpdatedAt(operation.entityType, operation.entityId)
+            
+            // 2️⃣ Fetch remote timestamp (metadata-only, idempotent)
+            val remoteUpdatedAt = fetchRemoteTimestamp(operation.entityType, operation.entityId)
+            
+            // 3️⃣ Compare timestamps: abort if remote is newer than LOCAL ENTITY
+            // NOTE: Compare vs entity.updatedAt, NOT SyncOperation.timestamp
+            if (remoteUpdatedAt != null && localUpdatedAt != null && remoteUpdatedAt > localUpdatedAt) {
+                val reason = "Aborted: remote updated at $remoteUpdatedAt > local entity $localUpdatedAt"
+                syncDao.markAsAbortedRemoteNewer(operation.id, reason, attemptAt)
+                Log.w(TAG, "Push aborted for ${operation.entityType}/${operation.entityId}: $reason")
+                return@withContext true // Terminal state, move to next operation
+            }
+            
+            // 4️⃣ For DELETE operations: skip freshness check if entity doesn't exist locally
+            // (DELETE is always safe to push - idempotent on server)
+            if (operation.operationType == "DELETE" && localUpdatedAt == null) {
+                Log.d(TAG, "DELETE operation for missing local entity - proceeding")
+                // Fall through to push
+            }
+
+            // 5️⃣ Proceed with push
             val request = SyncRequest(
                 operationId = operation.id.toString(),
                 entityType = operation.entityType.name,
@@ -241,17 +268,17 @@ class SyncRepositoryImpl @Inject constructor(
             if (response.success) {
                 // Happy Path
                 syncDao.deleteSyncOp(operation.id)
-                Log.d("SyncRepository", "Sync success: ${operation.entityType}/${operation.entityId}")
+                Log.d(TAG, "Sync success: ${operation.entityType}/${operation.entityId}")
                 return@withContext true
             } else {
                 // Permanent Failure (Logical/Validation)
-                Log.e("SyncRepository", "Sync PERMANENT FAILURE: ${response.message}")
-                syncDao.markAsFailed(operation.id, response.message, SyncFailureType.VALIDATION.name)
+                Log.e(TAG, "Sync PERMANENT FAILURE: ${response.message}")
+                syncDao.markAsFailed(operation.id, response.message, SyncFailureType.VALIDATION.name, attemptAt)
                 return@withContext true
             }
         } catch (e: IOException) {
-            // Transient Failure (Network)
-            Log.w("SyncRepository", "Sync transient network error: ${e.message}")
+            // Transient Failure (Network) - DO NOT abort, allow retry
+            Log.w(TAG, "Sync transient network error: ${e.message}")
             return@withContext false
         } catch (e: HttpException) {
             val code = e.code()
@@ -260,32 +287,32 @@ class SyncRepositoryImpl @Inject constructor(
             when {
                 code == 429 -> {
                     // Transient Failure (Rate Limit)
-                    Log.w("SyncRepository", "Sync rate limited (429): ${e.message()}")
+                    Log.w(TAG, "Sync rate limited (429): ${e.message()}")
                     return@withContext false
                 }
                 code == 401 || code == 403 -> {
                     // AUTH failure - Mark as FAILED but bypass per-item UI
-                    Log.e("SyncRepository", "Sync AUTH FAILURE: $msg")
-                    syncDao.markAsFailed(operation.id, msg, SyncFailureType.AUTH.name)
+                    Log.e(TAG, "Sync AUTH FAILURE: $msg")
+                    syncDao.markAsFailed(operation.id, msg, SyncFailureType.AUTH.name, attemptAt)
                     return@withContext true
                 }
                 code in 400..499 -> {
                     // Permanent Failure (HTTP 4xx - Validation)
-                    Log.e("SyncRepository", "Sync PERMANENT HTTP FAILURE: $msg")
-                    syncDao.markAsFailed(operation.id, msg, SyncFailureType.VALIDATION.name)
+                    Log.e(TAG, "Sync PERMANENT HTTP FAILURE: $msg")
+                    syncDao.markAsFailed(operation.id, msg, SyncFailureType.VALIDATION.name, attemptAt)
                     return@withContext true
                 }
                 else -> {
                     // Transient Failure (HTTP 5xx - Server)
-                    Log.w("SyncRepository", "Sync transient server error: $msg")
+                    Log.w(TAG, "Sync transient server error: $msg")
                     return@withContext false
                 }
             }
         } catch (e: Exception) {
             // Unknown Failure -> Permanent (safety bias)
             val msg = "${e.javaClass.simpleName}: ${e.message}"
-            Log.e("SyncRepository", "Sync PERMANENT UNKNOWN FAILURE: $msg")
-            syncDao.markAsFailed(operation.id, msg, SyncFailureType.UNKNOWN.name)
+            Log.e(TAG, "Sync PERMANENT UNKNOWN FAILURE: $msg")
+            syncDao.markAsFailed(operation.id, msg, SyncFailureType.UNKNOWN.name, attemptAt)
             return@withContext true
         }
     }
@@ -293,6 +320,66 @@ class SyncRepositoryImpl @Inject constructor(
     override suspend fun processAllPending() = withContext(Dispatchers.IO) {
         while (processNextOperation()) {
             // Loop until empty or explicit false return
+        }
+    }
+
+    // --- Push-Phase Freshness Check Helpers ---
+
+    /**
+     * Fetch LOCAL entity's updatedAt timestamp for freshness comparison.
+     * Returns null if entity doesn't exist locally (e.g., already deleted).
+     */
+    private suspend fun getLocalEntityUpdatedAt(entityType: SyncEntityType, entityId: String): Long? {
+        return when (entityType) {
+            SyncEntityType.EXPENSE -> expenseDao.getExpenseById(entityId)?.updatedAt
+            SyncEntityType.GROUP -> groupDao.getGroupById(entityId)?.updatedAt
+            SyncEntityType.SETTLEMENT -> settlementDao.getSettlementById(entityId)?.updatedAt
+        }
+    }
+
+    /**
+     * Fetch remote updated_at timestamp for an entity (metadata-only).
+     * Returns null if entity doesn't exist remotely (RLS block) or fetch fails.
+     * MUST be idempotent and side-effect free.
+     */
+    private suspend fun fetchRemoteTimestamp(entityType: SyncEntityType, entityId: String): Long? {
+        return try {
+            // Get auth headers (same pattern as PullSyncService)
+            val accessToken = tokenManager.getAccessToken()
+            if (accessToken.isNullOrBlank()) {
+                Log.w(TAG, "Cannot fetch remote timestamp: No access token")
+                return null
+            }
+            val authHeader = "Bearer $accessToken"
+            val apiKey = AuthConfig.supabasePublicKey
+            
+            val response = when (entityType) {
+                SyncEntityType.EXPENSE -> api.getExpenseTimestamp(authHeader, apiKey, "eq.$entityId")
+                SyncEntityType.GROUP -> api.getGroupTimestamp(authHeader, apiKey, "eq.$entityId")
+                SyncEntityType.SETTLEMENT -> api.getSettlementTimestamp(authHeader, apiKey, "eq.$entityId")
+            }
+            
+            if (response.isSuccessful) {
+                response.body()?.firstOrNull()?.updatedAt?.let { parseIso8601ToEpochMillis(it) }
+            } else {
+                null // Entity doesn't exist remotely (RLS block) or fetch failed
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch remote timestamp for $entityType/$entityId: ${e.message}")
+            null // Treat fetch failure as "unknown" - allow push to proceed
+        }
+    }
+
+    /**
+     * Parse ISO-8601 timestamp to epoch millis.
+     * Returns null on parse failure.
+     */
+    private fun parseIso8601ToEpochMillis(iso8601: String): Long? {
+        return try {
+            java.time.Instant.parse(iso8601).toEpochMilli()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse ISO-8601 timestamp: '$iso8601'")
+            null
         }
     }
 
@@ -329,7 +416,7 @@ class SyncRepositoryImpl @Inject constructor(
             
             // Transactional: Replace expense + splits + delete sync op
             // Using REPLACE strategy ensures idempotency
-            db.withTransaction {
+            transactionRunner.run {
                 expenseDao.deleteSplitsForExpense(expense.id)
                 expenseDao.insertExpense(expense)
                 expenseDao.insertSplits(splits)

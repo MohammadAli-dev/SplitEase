@@ -3,7 +3,6 @@ package com.splitease.data.sync
 import android.util.Log
 import com.splitease.data.auth.AuthConfig
 import com.splitease.data.auth.TokenManager
-import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
@@ -64,7 +63,8 @@ sealed class PullSyncResult {
         val groupsDeleted: Int,
         val settlementsInserted: Int,
         val settlementsUpdated: Int,
-        val settlementsDeleted: Int
+        val settlementsDeleted: Int,
+        val newCursor: String? = null // New cursor value (if changed)
     ) : PullSyncResult()
 
     data class Error(val message: String) : PullSyncResult()
@@ -79,7 +79,7 @@ class PullSyncServiceImpl @Inject constructor(
     private val groupDao: GroupDao,
     private val settlementDao: SettlementDao,
     private val syncDao: SyncDao,
-    private val db: AppDatabase
+    private val transactionRunner: TransactionRunner
 ) : PullSyncService {
 
     companion object {
@@ -109,34 +109,13 @@ class PullSyncServiceImpl @Inject constructor(
             val lastSyncedAt = syncMetadataStore.getLastSyncedAt() ?: "1970-01-01T00:00:00.000Z"
             Log.d(TAG, "Pull sync: cursor=$lastSyncedAt")
 
-            // Track stats
-            var expensesInserted = 0
-            var expensesUpdated = 0
-            var expensesDeleted = 0
-            var groupsInserted = 0
-            var groupsUpdated = 0
-            var groupsDeleted = 0
-            var settlementsInserted = 0
-            var settlementsUpdated = 0
-            var settlementsDeleted = 0
-            var maxRemoteTimestamp = lastSyncedAt
-
-            // 1. Fetch and reconcile Groups first (expenses depend on groups)
+            // ════════════════════════════════════════════════════════════════
+            // PHASE 1: FETCH ALL REMOTE DATA (outside transaction)
+            // ════════════════════════════════════════════════════════════════
+            // All network operations occur BEFORE the transaction starts.
+            // This ensures the transaction contains ONLY local DB operations.
+            
             val groups = fetchAllPagesOfGroups(authHeader, apiKey, lastSyncedAt)
-            for (remoteGroup in groups) {
-                val result = reconcileGroup(remoteGroup)
-                when (result) {
-                    ReconcileAction.INSERT -> groupsInserted++
-                    ReconcileAction.UPDATE -> groupsUpdated++
-                    ReconcileAction.DELETE -> groupsDeleted++
-                    ReconcileAction.SKIP -> {}
-                }
-                if (remoteGroup.updated_at > maxRemoteTimestamp) {
-                    maxRemoteTimestamp = remoteGroup.updated_at
-                }
-            }
-
-            // 2. Fetch and reconcile Expenses
             val expenses = fetchAllPagesOfExpenses(authHeader, apiKey, lastSyncedAt)
             val expenseIds = expenses.map { it.id }
             val remoteSplits = if (expenseIds.isNotEmpty()) {
@@ -144,57 +123,113 @@ class PullSyncServiceImpl @Inject constructor(
             } else {
                 emptyList()
             }
-            val splitsByExpenseId = remoteSplits.groupBy { it.expense_id }
-
-            for (remoteExpense in expenses) {
-                val splits = splitsByExpenseId[remoteExpense.id] ?: emptyList()
-                val result = reconcileExpense(remoteExpense, splits)
-                when (result) {
-                    ReconcileAction.INSERT -> expensesInserted++
-                    ReconcileAction.UPDATE -> expensesUpdated++
-                    ReconcileAction.DELETE -> expensesDeleted++
-                    ReconcileAction.SKIP -> {}
-                }
-                if (remoteExpense.updated_at > maxRemoteTimestamp) {
-                    maxRemoteTimestamp = remoteExpense.updated_at
-                }
-            }
-
-            // 3. Fetch and reconcile Settlements
             val settlements = fetchAllPagesOfSettlements(authHeader, apiKey, lastSyncedAt)
-            for (remoteSettlement in settlements) {
-                val result = reconcileSettlement(remoteSettlement)
-                when (result) {
-                    ReconcileAction.INSERT -> settlementsInserted++
-                    ReconcileAction.UPDATE -> settlementsUpdated++
-                    ReconcileAction.DELETE -> settlementsDeleted++
-                    ReconcileAction.SKIP -> {}
+            
+            val splitsByExpenseId = remoteSplits.groupBy { it.expense_id }
+            
+            Log.d(TAG, "Fetched: ${groups.size} groups, ${expenses.size} expenses, ${remoteSplits.size} splits, ${settlements.size} settlements")
+
+            // ════════════════════════════════════════════════════════════════
+            // PHASE 2: ATOMIC RECONCILIATION (all-or-nothing)
+            // ════════════════════════════════════════════════════════════════
+            // Any exception inside this block rolls back ALL changes.
+            // Partial application is STRICTLY FORBIDDEN.
+            
+            val result = transactionRunner.run {
+                var expensesInserted = 0
+                var expensesUpdated = 0
+                var expensesDeleted = 0
+                var groupsInserted = 0
+                var groupsUpdated = 0
+                var groupsDeleted = 0
+                var settlementsInserted = 0
+                var settlementsUpdated = 0
+                var settlementsDeleted = 0
+                var maxRemoteTimestamp = lastSyncedAt
+
+                // Reconcile Groups first (expenses depend on groups)
+                for (remoteGroup in groups) {
+                    val action = reconcileGroup(remoteGroup)
+                    when (action) {
+                        ReconcileAction.INSERT -> groupsInserted++
+                        ReconcileAction.UPDATE -> groupsUpdated++
+                        ReconcileAction.DELETE -> groupsDeleted++
+                        ReconcileAction.SKIP -> {}
+                    }
+                    if (remoteGroup.updated_at > maxRemoteTimestamp) {
+                        maxRemoteTimestamp = remoteGroup.updated_at
+                    }
                 }
-                if (remoteSettlement.updated_at > maxRemoteTimestamp) {
-                    maxRemoteTimestamp = remoteSettlement.updated_at
+
+                // Reconcile Expenses
+                for (remoteExpense in expenses) {
+                    val splits = splitsByExpenseId[remoteExpense.id] ?: emptyList()
+                    val action = reconcileExpense(remoteExpense, splits)
+                    when (action) {
+                        ReconcileAction.INSERT -> expensesInserted++
+                        ReconcileAction.UPDATE -> expensesUpdated++
+                        ReconcileAction.DELETE -> expensesDeleted++
+                        ReconcileAction.SKIP -> {}
+                    }
+                    if (remoteExpense.updated_at > maxRemoteTimestamp) {
+                        maxRemoteTimestamp = remoteExpense.updated_at
+                    }
+                }
+
+                // Reconcile Settlements
+                for (remoteSettlement in settlements) {
+                    val action = reconcileSettlement(remoteSettlement)
+                    when (action) {
+                        ReconcileAction.INSERT -> settlementsInserted++
+                        ReconcileAction.UPDATE -> settlementsUpdated++
+                        ReconcileAction.DELETE -> settlementsDeleted++
+                        ReconcileAction.SKIP -> {}
+                    }
+                    if (remoteSettlement.updated_at > maxRemoteTimestamp) {
+                        maxRemoteTimestamp = remoteSettlement.updated_at
+                    }
+                }
+
+                // Return stats from transaction (cursor update happens OUTSIDE)
+                PullSyncResult.Success(
+                    expensesInserted = expensesInserted,
+                    expensesUpdated = expensesUpdated,
+                    expensesDeleted = expensesDeleted,
+                    groupsInserted = groupsInserted,
+                    groupsUpdated = groupsUpdated,
+                    groupsDeleted = groupsDeleted,
+                    settlementsInserted = settlementsInserted,
+                    settlementsUpdated = settlementsUpdated,
+                    settlementsDeleted = settlementsDeleted,
+                    newCursor = if (maxRemoteTimestamp > lastSyncedAt) maxRemoteTimestamp else null
+                )
+            }
+
+            // ════════════════════════════════════════════════════════════════
+            // PHASE 3: CURSOR ADVANCE (only after Room transaction commits)
+            // ════════════════════════════════════════════════════════════════
+            // DataStore is NOT transactional with Room, so cursor update must
+            // occur AFTER Room commits. This ensures cursor is never advanced
+            // for data that was rolled back.
+            //
+            // IMPORTANT: Cursor update failures should NOT mask successful data
+            // commits. If DataStore fails here, we log a warning and return the
+            // successful result. The next sync will re-fetch the same data
+            // (idempotent reconciliation handles this gracefully).
+            if (result is PullSyncResult.Success && result.newCursor != null) {
+                try {
+                    syncMetadataStore.setLastSyncedAt(result.newCursor)
+                    Log.d(TAG, "Cursor advanced: $lastSyncedAt -> ${result.newCursor}")
+                } catch (e: Exception) {
+                    // Non-fatal: Data is committed, cursor will advance on next sync
+                    Log.w(TAG, "Failed to advance cursor (non-fatal): ${e.message}", e)
                 }
             }
 
-            // 4. Update cursor to max(remote.updated_at)
-            if (maxRemoteTimestamp > lastSyncedAt) {
-                syncMetadataStore.setLastSyncedAt(maxRemoteTimestamp)
-                Log.d(TAG, "Cursor advanced: $lastSyncedAt -> $maxRemoteTimestamp")
-            }
-
-            val result = PullSyncResult.Success(
-                expensesInserted = expensesInserted,
-                expensesUpdated = expensesUpdated,
-                expensesDeleted = expensesDeleted,
-                groupsInserted = groupsInserted,
-                groupsUpdated = groupsUpdated,
-                groupsDeleted = groupsDeleted,
-                settlementsInserted = settlementsInserted,
-                settlementsUpdated = settlementsUpdated,
-                settlementsDeleted = settlementsDeleted
-            )
             Log.d(TAG, "Pull sync complete: $result")
             result
         } catch (e: Exception) {
+            // ✅ Transaction rolled back automatically on any exception
             Log.e(TAG, "Pull sync failed: ${e.message}", e)
             PullSyncResult.Error("Pull sync failed: ${e.message}")
         }

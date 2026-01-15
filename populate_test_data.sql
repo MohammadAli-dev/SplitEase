@@ -8,11 +8,11 @@
 -- 1. Insert Mock Users
 -- Note: 'user_1' is assumed to be YOU. If your app uses a specific ID for the logged-in user,
 -- please update 'user_1' to that ID, or just treat 'user_1' as another member.
-INSERT OR IGNORE INTO users (id, name, email, profileUrl) VALUES
-('45c7eae3-e464-4582-a9c1-869cc1acfad9', 'Ali', 'ali@test.com', NULL),
-('user_2', 'Alice', 'Alice@test.com', NULL),
-('user_3', 'Bob', 'Bob@test.com', NULL),
-('user_4', 'Charlie', 'Charlie@test.com', NULL);
+    INSERT OR IGNORE INTO users (id, name, email, profileUrl) VALUES
+    ('45c7eae3-e464-4582-a9c1-869cc1acfad9', 'Ali', 'ali@test.com', NULL),
+    ('user_2', 'Alice', 'Alice@test.com', NULL),
+    ('user_3', 'Bob', 'Bob@test.com', NULL),
+    ('user_4', 'Charlie', 'Charlie@test.com', NULL);
 
 -- 2. Insert a Test Group
 -- with trip dates and ownership fields (createdByUserId, lastModifiedByUserId)

@@ -29,8 +29,29 @@ interface SyncDao {
      * Mark operation as permanently FAILED with categorized failure type.
      * Dead-letter queue item; will not be picked up by getNextPendingOperation.
      */
-    @Query("UPDATE sync_operations SET status = 'FAILED', failureReason = :reason, failureType = :failureType WHERE id = :id")
-    suspend fun markAsFailed(id: Int, reason: String, failureType: String)
+    @Query("""
+        UPDATE sync_operations 
+        SET status = 'FAILED', 
+            failureReason = :reason, 
+            failureType = :failureType, 
+            lastAttemptAt = :attemptAt 
+        WHERE id = :id
+    """)
+    suspend fun markAsFailed(id: Int, reason: String, failureType: String, attemptAt: Long)
+
+    /**
+     * Mark operation as ABORTED_REMOTE_NEWER (terminal, non-retryable).
+     * Used when push is aborted because remote entity is newer than local.
+     * Will not be picked up by getNextPendingOperation.
+     */
+    @Query("""
+        UPDATE sync_operations 
+        SET status = 'ABORTED_REMOTE_NEWER', 
+            failureReason = :reason, 
+            lastAttemptAt = :attemptAt 
+        WHERE id = :id
+    """)
+    suspend fun markAsAbortedRemoteNewer(id: Int, reason: String, attemptAt: Long)
 
     @Query("SELECT * FROM sync_operations WHERE status = 'FAILED'")
     fun getFailedOperations(): Flow<List<SyncOperation>>

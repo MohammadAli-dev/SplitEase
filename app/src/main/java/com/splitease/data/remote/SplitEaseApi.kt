@@ -169,5 +169,51 @@ interface SplitEaseApi {
         @Query("order") order: String = "expense_id.asc,user_id.asc",
         @Header("Range") rangeHeader: String? = null
     ): Response<List<RemoteExpenseSplit>>
+
+    // --- Push-Phase Freshness Check (Metadata-Only) ---
+
+    /**
+     * Fetch only the updated_at timestamp for an expense (metadata-only).
+     * Used for push-phase freshness check before overwriting remote.
+     * @param idFilter PostgREST filter: "eq.{uuid}"
+     * @param select Column projection: "updated_at" (minimal payload)
+     */
+    @GET("expenses")
+    suspend fun getExpenseTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "updated_at"
+    ): Response<List<RemoteTimestampResponse>>
+
+    /**
+     * Fetch only the updated_at timestamp for a group (metadata-only).
+     */
+    @GET("expense_groups")
+    suspend fun getGroupTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "updated_at"
+    ): Response<List<RemoteTimestampResponse>>
+
+    /**
+     * Fetch only the updated_at timestamp for a settlement (metadata-only).
+     */
+    @GET("settlements")
+    suspend fun getSettlementTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "updated_at"
+    ): Response<List<RemoteTimestampResponse>>
 }
 
+/**
+ * Lightweight response for metadata-only timestamp fetch.
+ * Used during push-phase freshness check.
+ */
+data class RemoteTimestampResponse(
+    @com.google.gson.annotations.SerializedName("updated_at")
+    val updatedAt: String
+)
