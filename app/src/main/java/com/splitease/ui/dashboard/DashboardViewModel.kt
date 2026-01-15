@@ -3,10 +3,10 @@ package com.splitease.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitease.data.local.dao.GroupDao
-import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.Group
 import com.splitease.data.repository.BalanceSummaryRepository
 import com.splitease.data.repository.SyncRepository
+import com.splitease.data.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,7 +40,7 @@ data class DashboardUiState(
 class DashboardViewModel @Inject constructor(
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val groupDao: GroupDao,
-    private val userDao: UserDao,
+    private val userRepository: UserRepository,
     private val syncRepository: SyncRepository
 ) : ViewModel() {
 
@@ -75,15 +75,28 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Create a new phantom user.
+     */
+    fun createPhantomUser(name: String, email: String? = null, phone: String? = null) {
+        viewModelScope.launch {
+            userRepository.createPhantomUser(name, email, phone)
+            // No need to manually refresh UI; Flow observation in loadDashboardData will handle it
+        }
+    }
+
     private fun loadDashboardData() {
         viewModelScope.launch {
             combine(
                 balanceSummaryRepository.getDashboardSummary(),
                 groupDao.getAllGroups(),
-                userDao.getAllUsers()
+                userRepository.getAllUsers()
             ) { summary, groups, allUsers ->
+                // Explicitly sort users by name for consistent UI display (Repository contract)
+                val sortedUsers = allUsers.sortedBy { it.name }
+                
                 // Build name lookup
-                val userNameMap = allUsers.associate { it.id to it.name }
+                val userNameMap = sortedUsers.associate { it.id to it.name }
                 
                 // Map friend balances to UI model with resolved names
                 val friendBalancesUi = summary.friendBalances.map { fb ->

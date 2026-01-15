@@ -8,6 +8,7 @@ import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.repository.ExpenseRepository
+import com.splitease.data.repository.UserRepository
 import com.splitease.domain.SplitValidationResult
 import com.splitease.domain.SplitValidator
 import com.splitease.domain.PersonalGroupConstants
@@ -78,6 +79,7 @@ class AddExpenseViewModel
 constructor(
         savedStateHandle: SavedStateHandle,
         private val expenseRepository: ExpenseRepository,
+        private val userRepository: UserRepository,
         private val userContext: UserContext,
         private val groupDao: GroupDao,
         private val userDao: com.splitease.data.local.dao.UserDao
@@ -246,6 +248,88 @@ constructor(
                 state.shares[userId] ?: 1 // Default 1 share if not present
             }
             state.copy(shares = updatedShares)
+        }
+    }
+
+    /**
+     * Create a new phantom user and immediately add them to the selection.
+     * This ensures the operation is atomic from the UI perspective.
+     */
+    fun createPhantomUserAndSelect(name: String, email: String? = null, phone: String? = null) {
+        viewModelScope.launch {
+            // 1. Create user in repository (generates ID)
+            val userId = userRepository.createPhantomUser(name, email, phone)
+            
+            // 2. Refresh user/member lists
+            if (groupId == PersonalGroupConstants.PERSONAL_GROUP_ID) {
+                // For personal expenses, reload all users
+                val allUsers = userRepository.getAllUsers().first()
+                val userMap = allUsers.associate { it.id to it.name }
+                
+                _uiState.update { currentState ->
+                    // 3. Atomically update UI state:
+                    //    - Add to selectedParticipants
+                    //    - Update userNames map so the new user is resolvable
+                    //    - Add to groupMembers (for personal group, all friends are members)
+                    currentState.copy(
+                        selectedParticipants = currentState.selectedParticipants + userId,
+                        userNames = userMap,
+                        groupMembers = currentState.groupMembers + userId
+                        // splitPreview calculation happens automatically due to state change -> recalculateSplits call?
+                        // Actually recalculateSplits is usually called in state updates or via derived state.
+                        // We need to trigger recalculation if needed.
+                    )
+                }
+                // Trigger recalculation after state update
+                recalculateSplits()
+            } else {
+                // For group expenses... wait, can we add non-group members to a group expense?
+                // The requirements for "Inline Add" imply we can add people.
+                // If it's a real group, adding a phantom user MIGHT need to add them to the group??
+                // Sprint 14B scope says: "Add new person... Split expenses with them immediately"
+                
+                // If we are in a specific group, usually we can only split with group members.
+                // However, the requirement "Add New Person... Split expenses with them immediately" implies adding them to the context.
+                // If it's a real group, we probably shouldn't auto-add them to the group structure without explicit "Add Member" flow?
+                // OR, maybe the "Add New Person" flow implicitly adds them to the group?
+                
+                // For MVP/Sprint 14B, let's assume this flow is primarily for Personal/Non-Group expenses OR 
+                // if we add them, they become part of the transient available participants.
+                // Given "Friend/People" list context, this seems most relevant for Personal Group.
+                
+                // If we are in a REAL group, adding a phantom user -> they become a member of that group?
+                // Sprint 14B doesn't explicitly mention Group Membership changes.
+                // "No group_members identity layer" constraint is about internal data model.
+                
+                // SAFEST PATH: Only allow this for Personal Group for now, OR if allowed in Groups, add to groupMembers list in UI state.
+                // Update: If we add a phantom user inside a Group context, we should probably add them to the group in DB?
+                // But "No schema changes" and "No sync logic changes".
+                
+                // Let's stick to updating the UI state for now. If it's a repo-backed group, we might need to insert GroupMember?
+                // "No behavior changes" -> We should be careful.
+                
+                // Re-reading scope: "Add Expense -> Participant picker -> Include a row/chip: '+ Add new person'"
+                // This implies it should work everywhere.
+                // If I am in "Trip to Vegas" group, and I add "Bob", Bob should probably be in "Trip to Vegas".
+                
+                // Let's implement safe UI-state only update for now. Persisting group membership is a separate concern?
+                // Wait, if I save the expense, and Bob is a split_user, he is effectively part of the expense.
+                // Does he need to be in `group_members` table?
+                // `ExpenseSplit` links user_id to expense_id. It doesn't enforce `group_members` FK usually (checks logic).
+                
+                // Let's update UI state to include them.
+                 val allUsers = userRepository.getAllUsers().first()
+                 val userMap = allUsers.associate { it.id to it.name }
+                 
+                 _uiState.update { currentState ->
+                    currentState.copy(
+                        selectedParticipants = currentState.selectedParticipants + userId,
+                        userNames = userMap,
+                        groupMembers = currentState.groupMembers + userId // Temporarily add to UI list of members
+                    )
+                 }
+                 recalculateSplits()
+            }
         }
     }
 

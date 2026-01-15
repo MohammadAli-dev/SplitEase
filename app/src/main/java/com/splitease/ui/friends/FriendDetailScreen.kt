@@ -149,6 +149,24 @@ fun FriendDetailScreen(
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
+                    
+                    if (uiState.email != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = uiState.email ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    if (uiState.phone != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = uiState.phone ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 

@@ -65,7 +65,9 @@ data class FriendDetailUiState(
     val transactions: List<FriendLedgerItem> = emptyList(),
     val isLoading: Boolean = true,
     val connectionState: ConnectionUiState = ConnectionUiState.None,
-    val isMerging: Boolean = false
+    val isMerging: Boolean = false,
+    val email: String? = null,
+    val phone: String? = null
 )
 
 @HiltViewModel
@@ -124,7 +126,9 @@ class FriendDetailViewModel @Inject constructor(
                         balance = balanceData.first,
                         balanceDisplayText = balanceData.second,
                         transactions = transactions,
-                        isLoading = false
+                        isLoading = false,
+                        email = friend?.email,
+                        phone = friend?.phone
                     )
                 }
             }

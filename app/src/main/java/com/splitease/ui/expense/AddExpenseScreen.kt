@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,6 +67,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.text.font.FontWeight
+import com.splitease.ui.components.AddPersonDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +87,7 @@ fun AddExpenseScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPayerSelector by remember { mutableStateOf(false) }
+    var showAddPersonDialog by remember { mutableStateOf(false) }
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
     if (showDeleteDialog) {
@@ -157,6 +160,15 @@ fun AddExpenseScreen(
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
+    }
+
+    if (showAddPersonDialog) {
+        AddPersonDialog(
+            onDismiss = { showAddPersonDialog = false },
+            onConfirm = { name, email, phone ->
+                viewModel.createPhantomUserAndSelect(name, email, phone)
+            }
+        )
     }
 
     Scaffold(
@@ -352,6 +364,14 @@ fun AddExpenseScreen(
                                 label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
                         )
                     }
+
+                    // Add New Person Chip
+                    FilterChip(
+                        selected = false,
+                        onClick = { showAddPersonDialog = true },
+                        label = { Text("Add new person") },
+                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
+                    )
                 }
                 
                 if (uiState.groupMembers.isEmpty()) {
@@ -375,6 +395,14 @@ fun AddExpenseScreen(
                                 label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
                         )
                     }
+
+                    // Add New Person Chip
+                    FilterChip(
+                        selected = false,
+                        onClick = { showAddPersonDialog = true },
+                        label = { Text("Add new person") },
+                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
+                    )
                 }
             }
 
