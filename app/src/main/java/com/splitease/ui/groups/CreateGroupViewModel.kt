@@ -6,6 +6,7 @@ import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.User
 import com.splitease.data.identity.UserContext
 import com.splitease.data.repository.GroupRepository
+import com.splitease.data.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +41,7 @@ data class CreateGroupUiState(
 @HiltViewModel
 class CreateGroupViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
+    private val userRepository: UserRepository,
     private val userContext: UserContext,
     private val userDao: UserDao
 ) : ViewModel() {
@@ -152,6 +154,29 @@ class CreateGroupViewModel @Inject constructor(
                 _uiState.update { it.copy(isSaved = true, isLoading = false) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save group", isLoading = false) }
+            }
+        }
+    }
+
+    fun createPhantomUserAndSelect(name: String, email: String? = null, phone: String? = null) {
+        viewModelScope.launch {
+            val userId = userRepository.createPhantomUser(name, email, phone)
+            
+            // Reconstruct the user object locally for immediate feedback (optimistic)
+            val newUser = User(id = userId, name = name, email = email, phone = phone)
+
+            _uiState.update { state ->
+                // Guard: Avoid duplicates
+                if (userId in state.selectedMemberIds) return@update state
+
+                val updatedSelected = state.selectedMemberIds + userId
+                // Optimistic: Add to available users so chip renders immediately
+                val updatedAvailable = (state.availableUsers + newUser).sortedBy { it.name.ifBlank { it.id } }
+                
+                state.copy(
+                    selectedMemberIds = updatedSelected,
+                    availableUsers = updatedAvailable
+                )
             }
         }
     }
