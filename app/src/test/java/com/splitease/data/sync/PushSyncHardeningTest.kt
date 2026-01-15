@@ -1,17 +1,18 @@
 package com.splitease.data.sync
 
+import com.splitease.data.auth.TokenManager
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.SyncEntityType
-import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.local.entities.SyncStatus
 import com.splitease.data.remote.RemoteTimestampResponse
 import com.splitease.data.remote.SplitEaseApi
 import com.splitease.data.remote.SyncResponse
+import com.splitease.data.repository.SyncRepositoryImpl
 import com.google.gson.Gson
 import androidx.work.WorkManager
 import io.mockk.*
@@ -26,10 +27,10 @@ import java.io.IOException
 /**
  * Tests for Push-Phase Hardening (Sprint 13H Phase 2).
  * 
- * These tests verify:
+ * These tests exercise the production SyncRepository code to verify:
  * - Push aborts when remote is newer than local
- * - Aborted operations are terminal and never retried
  * - Timestamp fetch failures allow push to proceed
+ * - DELETE operations skip freshness check when local entity is missing
  */
 class PushSyncHardeningTest {
 
@@ -41,6 +42,9 @@ class PushSyncHardeningTest {
     private val expenseDao = mockk<ExpenseDao>(relaxed = true)
     private val settlementDao = mockk<SettlementDao>(relaxed = true)
     private val transactionRunner = TestTransactionRunner()
+    private val tokenManager = mockk<TokenManager>()
+
+    private lateinit var repository: SyncRepositoryImpl
 
     @Before
     fun setup() {
@@ -50,6 +54,14 @@ class PushSyncHardeningTest {
         every { android.util.Log.e(any(), any(), any()) } returns 0
         every { android.util.Log.w(any(), any<String>()) } returns 0
         every { android.util.Log.w(any(), any<Throwable>()) } returns 0
+        
+        // Mock auth for timestamp fetches
+        coEvery { tokenManager.getAccessToken() } returns "test-token"
+        
+        repository = SyncRepositoryImpl(
+            syncDao, api, gson, workManager, groupDao, expenseDao,
+            settlementDao, transactionRunner, tokenManager
+        )
     }
 
     @After
@@ -62,7 +74,6 @@ class PushSyncHardeningTest {
         // Arrange
         val entityId = "exp-123"
         val localUpdatedAt = 1000L
-        val remoteUpdatedAt = 2000L // Remote is newer
         
         val operation = SyncOperation(
             id = 1,
@@ -74,59 +85,80 @@ class PushSyncHardeningTest {
             status = SyncStatus.PENDING
         )
         
+        // DAO returns operation once, then null (queue is empty)
+        coEvery { syncDao.getNextPendingOperation() } returns operation andThen null
+        
         // Local entity with older timestamp
         val localExpense = mockk<Expense> {
             every { updatedAt } returns localUpdatedAt
         }
         coEvery { expenseDao.getExpenseById(entityId) } returns localExpense
         
-        // Remote has newer timestamp
+        // Remote has NEWER timestamp (2000 > 1000)
         val remoteTimestamp = RemoteTimestampResponse(updatedAt = "2024-01-01T12:00:00.000Z")
-        coEvery { api.getExpenseTimestamp(any(), any(), "eq.$entityId", any()) } returns Response.success(listOf(remoteTimestamp))
+        coEvery { api.getExpenseTimestamp(any(), any(), "eq.$entityId", any()) } returns 
+            Response.success(listOf(remoteTimestamp))
         
-        coEvery { syncDao.getNextPendingOperation() } returns operation andThen null
-        
-        // Act - would need SyncRepositoryImpl, testing the logic pattern here
-        // For now, verify the key assertion: remoteUpdatedAt > localUpdatedAt should abort
+        // Act - Call production code
+        val success = repository.processNextOperation()
         
         // Assert
-        assertTrue("Remote newer than local should trigger abort", remoteUpdatedAt > localUpdatedAt)
-    }
-
-    @Test
-    fun `aborted operations are terminal and never retried`() = runTest {
-        // Arrange
-        val abortedOperation = SyncOperation(
-            id = 1,
-            operationType = "UPDATE",
-            entityType = SyncEntityType.EXPENSE,
-            entityId = "exp-123",
-            payload = "{}",
-            timestamp = 500L,
-            status = SyncStatus.ABORTED_REMOTE_NEWER,
-            failureReason = "Remote newer"
-        )
+        assertTrue("Processing should succeed (terminal state reached)", success)
         
-        // Assert - ABORTED_REMOTE_NEWER should be terminal
-        assertEquals(SyncStatus.ABORTED_REMOTE_NEWER, abortedOperation.status)
+        // Verify the operation was marked as ABORTED_REMOTE_NEWER
+        coVerify(exactly = 1) { 
+            syncDao.markAsAbortedRemoteNewer(
+                1, 
+                match { it.contains("remote") && it.contains("local entity") }, 
+                any()
+            ) 
+        }
         
-        // getNextPendingOperation query excludes ABORTED_REMOTE_NEWER
-        // This is enforced by the SQL: WHERE status = 'PENDING'
+        // Verify the actual push (api.sync) was NEVER called
+        coVerify(exactly = 0) { api.sync(any()) }
     }
 
     @Test
     fun `timestamp fetch failure allows push to proceed`() = runTest {
-        // Arrange - simulate network error on timestamp fetch
-        val entityId = "exp-123"
+        // Arrange
+        val entityId = "exp-network-error"
         
-        // This tests the logic: if fetchRemoteTimestamp throws, return null -> allow push
-        // null remote timestamp means "unknown" -> conservative approach: proceed with push
+        val operation = SyncOperation(
+            id = 1,
+            operationType = "UPDATE",
+            entityType = SyncEntityType.EXPENSE,
+            entityId = entityId,
+            payload = """{"id":"$entityId","title":"Test"}""",
+            timestamp = 500L,
+            status = SyncStatus.PENDING
+        )
         
-        // Assert - null means proceed
-        val remoteTimestamp: Long? = null
-        val shouldAbort = remoteTimestamp != null && remoteTimestamp > 1000L
+        coEvery { syncDao.getNextPendingOperation() } returns operation andThen null
         
-        assertFalse("Null remote timestamp should NOT abort", shouldAbort)
+        // Local entity exists
+        val localExpense = mockk<Expense> {
+            every { updatedAt } returns 1000L
+        }
+        coEvery { expenseDao.getExpenseById(entityId) } returns localExpense
+        
+        // Simulate network error during timestamp fetch
+        coEvery { api.getExpenseTimestamp(any(), any(), "eq.$entityId", any()) } throws 
+            IOException("Network timeout")
+        
+        // Mock the actual sync call to succeed
+        coEvery { api.sync(any()) } returns SyncResponse(success = true, message = "")
+        
+        // Act - Call production code
+        val success = repository.processNextOperation()
+        
+        // Assert
+        assertTrue("Processing should succeed despite timestamp fetch failure", success)
+        
+        // Verify the push proceeded despite fetch failure
+        coVerify(exactly = 1) { api.sync(any()) }
+        
+        // Verify the operation was deleted (not aborted)
+        coVerify(exactly = 1) { syncDao.deleteSyncOp(1) }
     }
 
     @Test
@@ -139,18 +171,37 @@ class PushSyncHardeningTest {
             operationType = "DELETE",
             entityType = SyncEntityType.EXPENSE,
             entityId = entityId,
-            payload = "{}",
+            payload = """{"id":"$entityId"}""",
             status = SyncStatus.PENDING
         )
         
-        // Local entity doesn't exist
+        coEvery { syncDao.getNextPendingOperation() } returns operation andThen null
+        
+        // Local entity doesn't exist (already deleted)
         coEvery { expenseDao.getExpenseById(entityId) } returns null
         
-        // Assert - DELETE with null local entity should proceed
-        val localUpdatedAt: Long? = null
-        val shouldSkipFreshnessCheck = operation.operationType == "DELETE" && localUpdatedAt == null
+        // Remote timestamp fetch may occur (implementation detail), but result is ignored for DELETE
+        val remoteTimestamp = RemoteTimestampResponse(updatedAt = "2024-01-01T12:00:00.000Z")
+        coEvery { api.getExpenseTimestamp(any(), any(), "eq.$entityId", any()) } returns 
+            Response.success(listOf(remoteTimestamp))
         
-        assertTrue("DELETE with missing local entity should skip freshness check", shouldSkipFreshnessCheck)
+        // Mock the actual sync call
+        coEvery { api.sync(any()) } returns SyncResponse(success = true, message = "")
+        
+        // Act - Call production code
+        val success = repository.processNextOperation()
+        
+        // Assert
+        assertTrue("DELETE should succeed", success)
+        
+        // Verify the push proceeded (DELETE is idempotent and safe)
+        coVerify(exactly = 1) { api.sync(any()) }
+        
+        // Verify the operation was deleted
+        coVerify(exactly = 1) { syncDao.deleteSyncOp(1) }
+        
+        // Verify no abort was called (key behavior: DELETE never aborts for freshness)
+        coVerify(exactly = 0) { syncDao.markAsAbortedRemoteNewer(any(), any(), any()) }
     }
 
     @Test
@@ -160,7 +211,7 @@ class PushSyncHardeningTest {
         val reason = "Aborted: remote updated at 2000 > local entity 1000"
         val attemptAt = System.currentTimeMillis()
         
-        // Just verify the method signature exists and can be called
+        // Mock the DAO method
         coEvery { syncDao.markAsAbortedRemoteNewer(opId, reason, attemptAt) } just Runs
         
         // Act
