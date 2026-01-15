@@ -63,7 +63,8 @@ sealed class PullSyncResult {
         val groupsDeleted: Int,
         val settlementsInserted: Int,
         val settlementsUpdated: Int,
-        val settlementsDeleted: Int
+        val settlementsDeleted: Int,
+        val newCursor: String? = null // New cursor value (if changed)
     ) : PullSyncResult()
 
     data class Error(val message: String) : PullSyncResult()
@@ -189,14 +190,7 @@ class PullSyncServiceImpl @Inject constructor(
                     }
                 }
 
-                // ✅ UPDATE CURSOR INSIDE TRANSACTION
-                // Cursor is only advanced if all reconciliation succeeded.
-                if (maxRemoteTimestamp > lastSyncedAt) {
-                    syncMetadataStore.setLastSyncedAt(maxRemoteTimestamp)
-                    Log.d(TAG, "Cursor advanced: $lastSyncedAt -> $maxRemoteTimestamp")
-                }
-
-                // Return stats from transaction
+                // Return stats from transaction (cursor update happens OUTSIDE)
                 PullSyncResult.Success(
                     expensesInserted = expensesInserted,
                     expensesUpdated = expensesUpdated,
@@ -206,8 +200,20 @@ class PullSyncServiceImpl @Inject constructor(
                     groupsDeleted = groupsDeleted,
                     settlementsInserted = settlementsInserted,
                     settlementsUpdated = settlementsUpdated,
-                    settlementsDeleted = settlementsDeleted
+                    settlementsDeleted = settlementsDeleted,
+                    newCursor = if (maxRemoteTimestamp > lastSyncedAt) maxRemoteTimestamp else null
                 )
+            }
+
+            // ════════════════════════════════════════════════════════════════
+            // PHASE 3: CURSOR ADVANCE (only after Room transaction commits)
+            // ════════════════════════════════════════════════════════════════
+            // DataStore is NOT transactional with Room, so cursor update must
+            // occur AFTER Room commits. This ensures cursor is never advanced
+            // for data that was rolled back.
+            if (result is PullSyncResult.Success && result.newCursor != null) {
+                syncMetadataStore.setLastSyncedAt(result.newCursor)
+                Log.d(TAG, "Cursor advanced: $lastSyncedAt -> ${result.newCursor}")
             }
 
             Log.d(TAG, "Pull sync complete: $result")
