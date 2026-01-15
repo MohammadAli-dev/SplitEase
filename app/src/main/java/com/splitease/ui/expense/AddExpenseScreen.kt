@@ -69,6 +69,16 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.text.font.FontWeight
 import com.splitease.ui.components.AddPersonDialog
 
+/**
+ * Renders the Add/Edit Expense screen UI and connects user interactions to the AddExpenseViewModel.
+ *
+ * Shows inputs for title, amount, expense type, payer selection, date, split type, participants,
+ * and the appropriate split input section; manages save/update, delete, add-person, and date/payer
+ * pickers, and invokes navigation callbacks when appropriate.
+ *
+ * @param onNavigateBack Invoked when the user requests to navigate back.
+ * @param onExpenseSaved Invoked after the expense has been saved successfully.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseScreen(

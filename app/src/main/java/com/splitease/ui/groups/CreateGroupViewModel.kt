@@ -119,6 +119,14 @@ class CreateGroupViewModel @Inject constructor(
     }
 
 
+    /**
+     * Validates the current creation state and attempts to persist a new group, updating the UI state for progress and outcome.
+     *
+     * If the name is blank or fewer than two members are selected, the function updates `errorMessage` and returns.
+     * During persistence it sets `isLoading` to true; on success it sets `isSaved` to true and clears loading; on error it sets `errorMessage` and clears loading.
+     *
+     * The operation uses the current user id as the creator and performs the repository call to create the group.
+     */
     fun saveGroup() {
         val state = _uiState.value
 
@@ -158,6 +166,16 @@ class CreateGroupViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Creates a phantom user, adds it optimistically to the available users, and selects it in the UI state.
+     *
+     * If the created user's id is already selected, the UI state is left unchanged. Otherwise the new user is appended
+     * to availableUsers (sorted by name or id) and its id is added to selectedMemberIds to provide immediate UI feedback.
+     *
+     * @param name The display name for the phantom user.
+     * @param email Optional email address for the phantom user.
+     * @param phone Optional phone number for the phantom user.
+     */
     fun createPhantomUserAndSelect(name: String, email: String? = null, phone: String? = null) {
         viewModelScope.launch {
             val userId = userRepository.createPhantomUser(name, email, phone)

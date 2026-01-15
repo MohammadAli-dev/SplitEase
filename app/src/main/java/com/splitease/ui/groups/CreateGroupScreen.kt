@@ -47,6 +47,15 @@ import java.util.Date
 import java.util.Locale
 import com.splitease.ui.components.AddPersonDialog
 
+/**
+ * Composable screen for creating a group, including fields for name and type, optional trip date range,
+ * member selection (with an option to add a new person), and a control to save the group.
+ *
+ * The UI reflects ViewModel state (name, type, trip dates, available/selected members, validation, loading,
+ * and errors) and calls the provided callback to navigate back after the group is saved.
+ *
+ * @param onNavigateBack Callback invoked to navigate back when the screen should be dismissed.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateGroupScreen(

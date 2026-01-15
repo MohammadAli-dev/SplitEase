@@ -93,12 +93,16 @@ class FriendDetailViewModel @Inject constructor(
     }
     
     /**
-     * Loads and observes friend details, transactions, and dashboard summary then updates the UI state accordingly.
+     * Observes the friend record, their transactions, and the dashboard summary, then updates the ViewModel UI state with the combined friend details.
      *
-     * Observes the friend entity, their transactions, and the dashboard summary; computes the friend's numeric balance and a
-     * human-readable balance display string ("owes you ₹<amount>", "you owe ₹<amount>", or "settled up"); and updates
-     * the ViewModel's internal `_uiState` with `friendId`, `friendName` (falls back to the first 8 chars of the id if the
-     * user record is missing), `balance`, `balanceDisplayText`, `transactions`, and sets `isLoading` to false.
+     * Updates the following UI state fields:
+     * - `friendId`
+     * - `friendName` (uses the friend's name or the first 8 characters of the id if the user record is missing)
+     * - `balance`
+     * - `balanceDisplayText` (one of "owes you ₹<amount>", "you owe ₹<amount>", or "settled up")
+     * - `transactions`
+     * - `isLoading` (set to `false`)
+     * - `email` and `phone` (from the friend record, if available)
      */
     private fun loadFriendDetails() {
         viewModelScope.launch {
