@@ -71,7 +71,19 @@ data class AddExpenseUiState(
         val expenseDate: Long = normalizeToStartOfDay(System.currentTimeMillis()),
         val createdByUserId: String? = null,
         val isPersonalExpense: Boolean = false
-)
+) {
+    /**
+     * Pure transformation: Returns a new state with shares synchronized to selectedParticipants.
+     * Invariant: shares.keys == selectedParticipants.toSet()
+     * Preserves existing share values, defaults new participants to 1.
+     */
+    fun withNormalizedShares(): AddExpenseUiState {
+        val updatedShares = selectedParticipants.associateWith { userId ->
+            shares[userId] ?: 1
+        }
+        return copy(shares = updatedShares)
+    }
+}
 
 @HiltViewModel
 class AddExpenseViewModel
@@ -146,13 +158,13 @@ constructor(
                     
                     // Current user is ALWAYS a participant in non-group expenses
                     // They select additional participants from the list
-                    _uiState.update { it.copy(
-                        groupMembers = sortedMemberIds,
-                        selectedParticipants = listOf(currentUserId), // Auto-include "You"
-                        userNames = userNamesMap,
-                        shares = mapOf(currentUserId to 1) // Default 1 share for self
-                    )}
-                    normalizeShares()
+                    _uiState.update {
+                        it.copy(
+                            groupMembers = sortedMemberIds,
+                            selectedParticipants = listOf(currentUserId), // Auto-include "You"
+                            userNames = userNamesMap
+                        ).withNormalizedShares()
+                    }
                     recalculateSplits()
                 }
             } else {
@@ -160,12 +172,13 @@ constructor(
                     val sortedUsers = users.sortedBy { it.name }
                     val sortedMemberIds = sortedUsers.map { it.id }
                     val userNamesMap = sortedUsers.associate { it.id to it.name }
-                    _uiState.update { it.copy(
-                        groupMembers = sortedMemberIds,
-                        selectedParticipants = sortedMemberIds,
-                        userNames = userNamesMap
-                    )}
-                    normalizeShares()
+                    _uiState.update {
+                        it.copy(
+                            groupMembers = sortedMemberIds,
+                            selectedParticipants = sortedMemberIds,
+                            userNames = userNamesMap
+                        ).withNormalizedShares()
+                    }
                     if (_uiState.value.isPersonalExpense) {
                         toggleDirectExpense(true)
                     } else {
@@ -191,9 +204,9 @@ constructor(
         viewModelScope.launch {
             val currentUserId = userContext.userId.firstOrNull() ?: return@launch
             
-            _uiState.update { state -> 
-                if (isDirect) {
-                     // Switch to direct expense: Keep participants selectable, default payer to current user
+            _uiState.update { state ->
+                val newState = if (isDirect) {
+                    // Switch to direct expense: Keep participants selectable, default payer to current user
                     state.copy(
                         isPersonalExpense = true, // Reusing field for "is Direct Expense"
                         payerId = currentUserId,
@@ -208,8 +221,8 @@ constructor(
                         splitType = SplitType.EQUAL
                     )
                 }
+                newState.withNormalizedShares()
             }
-            normalizeShares()
             recalculateSplits()
         }
     }
@@ -225,9 +238,13 @@ constructor(
     }
 
     fun updateSplitType(splitType: SplitType) {
-        _uiState.update { it.copy(splitType = splitType) }
-        if (splitType == SplitType.SHARES) {
-            normalizeShares()
+        _uiState.update { state ->
+            val newState = state.copy(splitType = splitType)
+            if (splitType == SplitType.SHARES) {
+                newState.withNormalizedShares()
+            } else {
+                newState
+            }
         }
         recalculateSplits()
     }
@@ -238,18 +255,8 @@ constructor(
         _uiState.update { it.copy(expenseDate = normalizeToStartOfDay(dateMillis)) }
     }
 
-    /**
-     * Invariant: shares must contain an entry for every selected participant.
-     * Call this after any change to selectedParticipants or when switching to SHARES split type.
-     */
-    private fun normalizeShares() {
-        _uiState.update { state ->
-            val updatedShares = state.selectedParticipants.associateWith { userId ->
-                state.shares[userId] ?: 1 // Default 1 share if not present
-            }
-            state.copy(shares = updatedShares)
-        }
-    }
+    // NOTE: normalizeShares() has been refactored to AddExpenseUiState.withNormalizedShares()
+    // This is an atomic pure transformation that eliminates dual-emission UI flickering.
 
     /**
      * Create a new phantom user and immediately add them to the selection.
@@ -268,10 +275,8 @@ constructor(
                         selectedParticipants = currentState.selectedParticipants + userId,
                         userNames = userMap,
                         groupMembers = currentState.groupMembers + userId
-                    )
+                    ).withNormalizedShares()
                 }
-                
-                normalizeShares()
                 recalculateSplits()
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = "Failed to add person: ${e.message}") }
@@ -294,16 +299,15 @@ constructor(
                 // Payer was removed. Assign to first available participant or empty if none.
                 newPayerId = current.firstOrNull() ?: ""
             } else if (state.payerId.isEmpty() && current.isNotEmpty()) {
-                 // If no payer was set (e.g. cleared), set to first added
+                // If no payer was set (e.g. cleared), set to first added
                 newPayerId = current.first()
             }
             
             state.copy(
                 selectedParticipants = current.sorted(),
                 payerId = newPayerId
-            )
+            ).withNormalizedShares()
         }
-        normalizeShares()
         recalculateSplits()
     }
     
