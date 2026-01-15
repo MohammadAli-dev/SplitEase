@@ -180,6 +180,8 @@ interface SplitEaseApi {
      */
     @GET("expenses")
     suspend fun getExpenseTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
         @Query("id") idFilter: String,
         @Query("select") select: String = "updated_at"
     ): Response<List<RemoteTimestampResponse>>
@@ -189,6 +191,8 @@ interface SplitEaseApi {
      */
     @GET("expense_groups")
     suspend fun getGroupTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
         @Query("id") idFilter: String,
         @Query("select") select: String = "updated_at"
     ): Response<List<RemoteTimestampResponse>>
@@ -198,6 +202,8 @@ interface SplitEaseApi {
      */
     @GET("settlements")
     suspend fun getSettlementTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
         @Query("id") idFilter: String,
         @Query("select") select: String = "updated_at"
     ): Response<List<RemoteTimestampResponse>>

@@ -21,6 +21,8 @@ import com.splitease.data.sync.SyncHealth
 import com.splitease.data.sync.TransactionRunner
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
+import com.splitease.data.auth.AuthConfig
+import com.splitease.data.auth.TokenManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -93,7 +95,8 @@ class SyncRepositoryImpl @Inject constructor(
     private val groupDao: GroupDao,
     private val expenseDao: ExpenseDao,
     private val settlementDao: SettlementDao,
-    private val transactionRunner: TransactionRunner
+    private val transactionRunner: TransactionRunner,
+    private val tokenManager: TokenManager
 ) : SyncRepository {
 
     companion object {
@@ -341,10 +344,19 @@ class SyncRepositoryImpl @Inject constructor(
      */
     private suspend fun fetchRemoteTimestamp(entityType: SyncEntityType, entityId: String): Long? {
         return try {
+            // Get auth headers (same pattern as PullSyncService)
+            val accessToken = tokenManager.getAccessToken()
+            if (accessToken.isNullOrBlank()) {
+                Log.w(TAG, "Cannot fetch remote timestamp: No access token")
+                return null
+            }
+            val authHeader = "Bearer $accessToken"
+            val apiKey = AuthConfig.supabasePublicKey
+            
             val response = when (entityType) {
-                SyncEntityType.EXPENSE -> api.getExpenseTimestamp("eq.$entityId")
-                SyncEntityType.GROUP -> api.getGroupTimestamp("eq.$entityId")
-                SyncEntityType.SETTLEMENT -> api.getSettlementTimestamp("eq.$entityId")
+                SyncEntityType.EXPENSE -> api.getExpenseTimestamp(authHeader, apiKey, "eq.$entityId")
+                SyncEntityType.GROUP -> api.getGroupTimestamp(authHeader, apiKey, "eq.$entityId")
+                SyncEntityType.SETTLEMENT -> api.getSettlementTimestamp(authHeader, apiKey, "eq.$entityId")
             }
             
             if (response.isSuccessful) {

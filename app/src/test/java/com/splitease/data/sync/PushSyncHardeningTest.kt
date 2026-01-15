@@ -82,7 +82,7 @@ class PushSyncHardeningTest {
         
         // Remote has newer timestamp
         val remoteTimestamp = RemoteTimestampResponse(updatedAt = "2024-01-01T12:00:00.000Z")
-        coEvery { api.getExpenseTimestamp("eq.$entityId", any()) } returns Response.success(listOf(remoteTimestamp))
+        coEvery { api.getExpenseTimestamp(any(), any(), "eq.$entityId", any()) } returns Response.success(listOf(remoteTimestamp))
         
         coEvery { syncDao.getNextPendingOperation() } returns operation andThen null
         
