@@ -203,21 +203,4 @@ class PushSyncHardeningTest {
         // Verify no abort was called (key behavior: DELETE never aborts for freshness)
         coVerify(exactly = 0) { syncDao.markAsAbortedRemoteNewer(any(), any(), any()) }
     }
-
-    @Test
-    fun `markAsAbortedRemoteNewer sets correct status and reason`() = runTest {
-        // Arrange
-        val opId = 1
-        val reason = "Aborted: remote updated at 2000 > local entity 1000"
-        val attemptAt = System.currentTimeMillis()
-        
-        // Mock the DAO method
-        coEvery { syncDao.markAsAbortedRemoteNewer(opId, reason, attemptAt) } just Runs
-        
-        // Act
-        syncDao.markAsAbortedRemoteNewer(opId, reason, attemptAt)
-        
-        // Assert
-        coVerify(exactly = 1) { syncDao.markAsAbortedRemoteNewer(opId, reason, attemptAt) }
-    }
 }
