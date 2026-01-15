@@ -52,8 +52,9 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Trigger a manual sync (pull-to-refresh).
-     * Observes actual WorkManager completion instead of using a hardcoded delay.
+     * Start a manual synchronization and update the UI syncing state until the work completes.
+     *
+     * Sets `isSyncing` to `true`, triggers a manual sync, and sets `isSyncing` to `false` when the observed sync work finishes.
      */
     fun triggerSync() {
         if (_uiState.value.isSyncing) return // Prevent double-tap
@@ -76,7 +77,13 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Create a new phantom user.
+     * Create a phantom user record for a contact using the provided name and optional contact details.
+     *
+     * The dashboard UI will reflect this change automatically via existing data flows; no explicit UI refresh is performed here.
+     *
+     * @param name The display name for the phantom user.
+     * @param email Optional email address for the phantom user.
+     * @param phone Optional phone number for the phantom user.
      */
     fun createPhantomUser(name: String, email: String? = null, phone: String? = null) {
         viewModelScope.launch {
@@ -85,6 +92,13 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Observes repository streams and updates the dashboard UI state.
+     *
+     * Launches a coroutine that combines balance summary, groups, and users to produce a
+     * DashboardUiState with resolved friend display names and formatted balance text, then
+     * publishes the resulting state to `_uiState`.
+     */
     private fun loadDashboardData() {
         viewModelScope.launch {
             combine(
@@ -128,4 +142,3 @@ class DashboardViewModel @Inject constructor(
         }
     }
 }
-

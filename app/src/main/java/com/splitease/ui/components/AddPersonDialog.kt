@@ -35,6 +35,20 @@ import androidx.compose.ui.unit.dp
  * 
  * On confirmation, invokes `onConfirm` with the name and optional email/phone values.
  */
+/**
+ * Shows a modal bottom sheet that collects a required name and optional email and phone from the user.
+ *
+ * The UI validates that the name is non-blank and displays inline error text when empty. If the user
+ * submits a valid name, `onConfirm` is invoked with the trimmed name and trimmed optional fields,
+ * where empty email or phone are normalized to `null`. `onDismiss` is invoked when the sheet is
+ * dismissed or when the user cancels; it is also called after a successful confirmation.
+ *
+ * @param onDismiss Callback invoked to dismiss the dialog.
+ * @param onConfirm Callback invoked on successful submission with the collected values:
+ * - `name`: trimmed, non-blank name.
+ * - `email`: trimmed email or `null` if blank.
+ * - `phone`: trimmed phone or `null` if blank.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddPersonDialog(

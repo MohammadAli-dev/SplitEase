@@ -60,12 +60,24 @@ abstract class DataModule {
             activityRepositoryImpl: ActivityRepositoryImpl
     ): ActivityRepository
 
+    /**
+     * Binds RoomTransactionRunner as the singleton implementation of TransactionRunner.
+     *
+     * @param roomTransactionRunner The Room-based implementation to provide for TransactionRunner.
+     * @return The TransactionRunner implementation backed by RoomTransactionRunner.
+     */
     @Binds
     @Singleton
     abstract fun bindTransactionRunner(
             roomTransactionRunner: RoomTransactionRunner
     ): TransactionRunner
 
+    /**
+     * Binds UserRepository to its concrete implementation for dependency injection.
+     *
+     * @param userRepositoryImpl The implementation provided when a `UserRepository` is requested.
+     * @return The bound `UserRepository` implementation.
+     */
     @Binds
     @Singleton
     abstract fun bindUserRepository(

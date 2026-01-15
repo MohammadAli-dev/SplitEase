@@ -53,6 +53,15 @@ import com.splitease.domain.PersonalGroupConstants
 import java.math.BigDecimal
 import kotlinx.coroutines.launch
 import com.splitease.data.local.entities.Group
+/**
+ * Renders the dashboard UI with balance summary, friends list, and interactive controls for adding expenses and people.
+ *
+ * Displays total owed/owing, a friends section (with an "Add new person" dialog), and a Floating Action Button that opens options to add a group or non-group expense. Provides a group picker and a blocking "no groups" dialog when needed. Supports pull-to-refresh which triggers a sync on the ViewModel. Invokes navigation callbacks and the ViewModel's phantom-user creation as user actions occur.
+ *
+ * @param onNavigateToAddExpense Called with a group ID when the user chooses to add an expense for that group (use PersonalGroupConstants.PERSONAL_GROUP_ID for non-group/private expenses).
+ * @param onNavigateToCreateGroup Called when the user requests creating a new group (from group picker or no-groups dialog).
+ * @param onNavigateToFriendDetail Called with a friend ID when the user selects a friend from the list.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
