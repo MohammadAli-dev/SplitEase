@@ -211,9 +211,19 @@ class PullSyncServiceImpl @Inject constructor(
             // DataStore is NOT transactional with Room, so cursor update must
             // occur AFTER Room commits. This ensures cursor is never advanced
             // for data that was rolled back.
+            //
+            // IMPORTANT: Cursor update failures should NOT mask successful data
+            // commits. If DataStore fails here, we log a warning and return the
+            // successful result. The next sync will re-fetch the same data
+            // (idempotent reconciliation handles this gracefully).
             if (result is PullSyncResult.Success && result.newCursor != null) {
-                syncMetadataStore.setLastSyncedAt(result.newCursor)
-                Log.d(TAG, "Cursor advanced: $lastSyncedAt -> ${result.newCursor}")
+                try {
+                    syncMetadataStore.setLastSyncedAt(result.newCursor)
+                    Log.d(TAG, "Cursor advanced: $lastSyncedAt -> ${result.newCursor}")
+                } catch (e: Exception) {
+                    // Non-fatal: Data is committed, cursor will advance on next sync
+                    Log.w(TAG, "Failed to advance cursor (non-fatal): ${e.message}", e)
+                }
             }
 
             Log.d(TAG, "Pull sync complete: $result")
