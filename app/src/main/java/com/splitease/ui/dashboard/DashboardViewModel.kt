@@ -3,10 +3,10 @@ package com.splitease.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitease.data.local.dao.GroupDao
-import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.Group
 import com.splitease.data.repository.BalanceSummaryRepository
 import com.splitease.data.repository.SyncRepository
+import com.splitease.data.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,7 +40,7 @@ data class DashboardUiState(
 class DashboardViewModel @Inject constructor(
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val groupDao: GroupDao,
-    private val userDao: UserDao,
+    private val userRepository: UserRepository,
     private val syncRepository: SyncRepository
 ) : ViewModel() {
 
@@ -52,8 +52,9 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Trigger a manual sync (pull-to-refresh).
-     * Observes actual WorkManager completion instead of using a hardcoded delay.
+     * Start a manual synchronization and update the UI syncing state until the work completes.
+     *
+     * Sets `isSyncing` to `true`, triggers a manual sync, and sets `isSyncing` to `false` when the observed sync work finishes.
      */
     fun triggerSync() {
         if (_uiState.value.isSyncing) return // Prevent double-tap
@@ -75,15 +76,41 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Create a phantom user record for a contact using the provided name and optional contact details.
+     *
+     * The dashboard UI will reflect this change automatically via existing data flows; no explicit UI refresh is performed here.
+     *
+     * @param name The display name for the phantom user.
+     * @param email Optional email address for the phantom user.
+     * @param phone Optional phone number for the phantom user.
+     */
+    fun createPhantomUser(name: String, email: String? = null, phone: String? = null) {
+        viewModelScope.launch {
+            userRepository.createPhantomUser(name, email, phone)
+            // No need to manually refresh UI; Flow observation in loadDashboardData will handle it
+        }
+    }
+
+    /**
+     * Observes repository streams and updates the dashboard UI state.
+     *
+     * Launches a coroutine that combines balance summary, groups, and users to produce a
+     * DashboardUiState with resolved friend display names and formatted balance text, then
+     * publishes the resulting state to `_uiState`.
+     */
     private fun loadDashboardData() {
         viewModelScope.launch {
             combine(
                 balanceSummaryRepository.getDashboardSummary(),
                 groupDao.getAllGroups(),
-                userDao.getAllUsers()
+                userRepository.getAllUsers()
             ) { summary, groups, allUsers ->
+                // Explicitly sort users by name for consistent UI display (Repository contract)
+                val sortedUsers = allUsers.sortedBy { it.name }
+                
                 // Build name lookup
-                val userNameMap = allUsers.associate { it.id to it.name }
+                val userNameMap = sortedUsers.associate { it.id to it.name }
                 
                 // Map friend balances to UI model with resolved names
                 val friendBalancesUi = summary.friendBalances.map { fb ->
@@ -115,4 +142,3 @@ class DashboardViewModel @Inject constructor(
         }
     }
 }
-

@@ -12,21 +12,36 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetState
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import com.splitease.ui.components.AddPersonDialog
+import androidx.compose.material3.SheetState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,25 +49,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import com.splitease.domain.PersonalGroupConstants
 import java.math.BigDecimal
 import kotlinx.coroutines.launch
-
-
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Scaffold
 import com.splitease.data.local.entities.Group
-import com.splitease.domain.PersonalGroupConstants
-
+/**
+ * Renders the dashboard UI with balance summary, friends list, and interactive controls for adding expenses and people.
+ *
+ * Displays total owed/owing, a friends section (with an "Add new person" dialog), and a Floating Action Button that opens options to add a group or non-group expense. Provides a group picker and a blocking "no groups" dialog when needed. Supports pull-to-refresh which triggers a sync on the ViewModel. Invokes navigation callbacks and the ViewModel's phantom-user creation as user actions occur.
+ *
+ * @param onNavigateToAddExpense Called with a group ID when the user chooses to add an expense for that group (use PersonalGroupConstants.PERSONAL_GROUP_ID for non-group/private expenses).
+ * @param onNavigateToCreateGroup Called when the user requests creating a new group (from group picker or no-groups dialog).
+ * @param onNavigateToFriendDetail Called with a friend ID when the user selects a friend from the list.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
@@ -72,6 +81,9 @@ fun DashboardScreen(
     
     // Dialog state for no groups
     var showNoGroupsDialog by remember { mutableStateOf(false) }
+
+    // Add Person Dialog state
+    var showAddPersonDialog by remember { mutableStateOf(false) }
 
     // Pull-to-refresh state
     val pullRefreshState = rememberPullToRefreshState()
@@ -247,6 +259,17 @@ fun DashboardScreen(
         )
     }
 
+    // Add Person Dialog
+    if (showAddPersonDialog) {
+        AddPersonDialog(
+            onDismiss = { showAddPersonDialog = false },
+            onConfirm = { name, email, phone ->
+                viewModel.createPhantomUser(name, email, phone)
+                showAddPersonDialog = false
+            }
+        )
+    }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
@@ -345,16 +368,32 @@ fun DashboardScreen(
                     }
                 }
                 
-                // Friends Section Header
-                if (uiState.friendBalances.isNotEmpty()) {
-                    item {
+                
+                // Friends Section Header & List
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 24.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
                             text = "Friends",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
+                            style = MaterialTheme.typography.titleMedium
                         )
+                        TextButton(onClick = { showAddPersonDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            Text("Add new person")
+                        }
                     }
-                    
+                }
+                
+                if (uiState.friendBalances.isNotEmpty()) {
                     // Friends Card Container
                     item {
                         Card(
@@ -395,6 +434,29 @@ fun DashboardScreen(
                                         HorizontalDivider()
                                     }
                                 }
+                            }
+                        }
+                    }
+                } else {
+                    // Empty state for friends
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "No friends added yet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }

@@ -8,6 +8,7 @@ import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.repository.ExpenseRepository
+import com.splitease.data.repository.UserRepository
 import com.splitease.domain.SplitValidationResult
 import com.splitease.domain.SplitValidator
 import com.splitease.domain.PersonalGroupConstants
@@ -70,7 +71,22 @@ data class AddExpenseUiState(
         val expenseDate: Long = normalizeToStartOfDay(System.currentTimeMillis()),
         val createdByUserId: String? = null,
         val isPersonalExpense: Boolean = false
-)
+) {
+    /**
+     * Create a new state with shares aligned to the current selected participants.
+     *
+     * The returned state's `shares` map will have exactly the `selectedParticipants` as keys.
+     * Existing share values are preserved; participants not previously present receive a share of `1`.
+     *
+     * @return A new AddExpenseUiState with `shares.keys == selectedParticipants.toSet()` and normalized share values.
+     */
+    fun withNormalizedShares(): AddExpenseUiState {
+        val updatedShares = selectedParticipants.associateWith { userId ->
+            shares[userId] ?: 1
+        }
+        return copy(shares = updatedShares)
+    }
+}
 
 @HiltViewModel
 class AddExpenseViewModel
@@ -78,6 +94,7 @@ class AddExpenseViewModel
 constructor(
         savedStateHandle: SavedStateHandle,
         private val expenseRepository: ExpenseRepository,
+        private val userRepository: UserRepository,
         private val userContext: UserContext,
         private val groupDao: GroupDao,
         private val userDao: com.splitease.data.local.dao.UserDao
@@ -129,6 +146,16 @@ constructor(
         }
     }
 
+    /**
+     * Loads member information for the current expense context and updates UI state.
+     *
+     * If the expense is personal (groupId equals PERSONAL_GROUP_ID), ensures the current user is
+     * selected, sets selectable groupMembers to other users, updates the user name map, normalizes
+     * shares, and triggers split recalculation. For a group expense, sets groupMembers and
+     * selectedParticipants to the group's members, updates the user name map, normalizes shares,
+     * and either toggles direct-expense mode (if the UI state indicates a personal expense) or
+     * recalculates splits. If the current user ID cannot be obtained, no state changes are made.
+     */
     private fun loadGroupMembers() {
         viewModelScope.launch {
             val currentUserId = userContext.userId.firstOrNull() ?: return@launch
@@ -144,13 +171,13 @@ constructor(
                     
                     // Current user is ALWAYS a participant in non-group expenses
                     // They select additional participants from the list
-                    _uiState.update { it.copy(
-                        groupMembers = sortedMemberIds,
-                        selectedParticipants = listOf(currentUserId), // Auto-include "You"
-                        userNames = userNamesMap,
-                        shares = mapOf(currentUserId to 1) // Default 1 share for self
-                    )}
-                    normalizeShares()
+                    _uiState.update {
+                        it.copy(
+                            groupMembers = sortedMemberIds,
+                            selectedParticipants = listOf(currentUserId), // Auto-include "You"
+                            userNames = userNamesMap
+                        ).withNormalizedShares()
+                    }
                     recalculateSplits()
                 }
             } else {
@@ -158,12 +185,13 @@ constructor(
                     val sortedUsers = users.sortedBy { it.name }
                     val sortedMemberIds = sortedUsers.map { it.id }
                     val userNamesMap = sortedUsers.associate { it.id to it.name }
-                    _uiState.update { it.copy(
-                        groupMembers = sortedMemberIds,
-                        selectedParticipants = sortedMemberIds,
-                        userNames = userNamesMap,
-                        shares = sortedMemberIds.associateWith { 1 }
-                    )}
+                    _uiState.update {
+                        it.copy(
+                            groupMembers = sortedMemberIds,
+                            selectedParticipants = sortedMemberIds,
+                            userNames = userNamesMap
+                        ).withNormalizedShares()
+                    }
                     if (_uiState.value.isPersonalExpense) {
                         toggleDirectExpense(true)
                     } else {
@@ -185,13 +213,25 @@ constructor(
         }
     }
 
+    /**
+     * Toggle between direct (personal) and group expense modes.
+     *
+     * When enabled, the UI state is updated to treat the expense as personal: the payer is set
+     * to the current user and the split mode is set to equal. When disabled, the UI state is
+     * restored to group mode and selected participants are reset to the group's members.
+     *
+     * The function also normalizes shares for the current participants and triggers a split
+     * recalculation.
+     *
+     * @param isDirect `true` to enable direct (personal) expense mode, `false` to revert to group mode.
+     */
     fun toggleDirectExpense(isDirect: Boolean) {
         viewModelScope.launch {
             val currentUserId = userContext.userId.firstOrNull() ?: return@launch
             
-            _uiState.update { state -> 
-                if (isDirect) {
-                     // Switch to direct expense: Keep participants selectable, default payer to current user
+            _uiState.update { state ->
+                val newState = if (isDirect) {
+                    // Switch to direct expense: Keep participants selectable, default payer to current user
                     state.copy(
                         isPersonalExpense = true, // Reusing field for "is Direct Expense"
                         payerId = currentUserId,
@@ -206,8 +246,8 @@ constructor(
                         splitType = SplitType.EQUAL
                     )
                 }
+                newState.withNormalizedShares()
             }
-            normalizeShares()
             recalculateSplits()
         }
     }
@@ -217,38 +257,93 @@ constructor(
         _uiState.update { it.copy(title = title) }
     }
 
+    /**
+     * Updates the expense amount text and refreshes split calculations.
+     *
+     * @param amountText The raw amount input from the user (may be blank or invalid).
+     */
     fun updateAmount(amountText: String) {
         _uiState.update { it.copy(amountText = amountText) }
         recalculateSplits()
     }
 
+    /**
+     * Changes the current split calculation mode in the UI state and updates dependent data.
+     *
+     * If the new mode is `SHARES`, participant shares are normalized so keys match the selected participants
+     * (preserving existing values and defaulting new participants to 1). After updating the state, split
+     * previews and validations are recalculated.
+     *
+     * @param splitType The new split type to apply.
+     */
     fun updateSplitType(splitType: SplitType) {
-        _uiState.update { it.copy(splitType = splitType) }
-        if (splitType == SplitType.SHARES) {
-            normalizeShares()
+        _uiState.update { state ->
+            val newState = state.copy(splitType = splitType)
+            if (splitType == SplitType.SHARES) {
+                newState.withNormalizedShares()
+            } else {
+                newState
+            }
         }
         recalculateSplits()
     }
 
 
-    /** Update expense date, normalized to start-of-day. */
+    /**
+     * Sets the expense date to the provided timestamp normalized to the start of that day in the device's local timezone.
+     *
+     * @param dateMillis Timestamp in milliseconds since the Unix epoch to use for the expense date.
+     */
     fun updateExpenseDate(dateMillis: Long) {
         _uiState.update { it.copy(expenseDate = normalizeToStartOfDay(dateMillis)) }
     }
 
+    // NOTE: normalizeShares() has been refactored to AddExpenseUiState.withNormalizedShares()
+    // This is an atomic pure transformation that eliminates dual-emission UI flickering.
+
     /**
-     * Invariant: shares must contain an entry for every selected participant.
-     * Call this after any change to selectedParticipants or when switching to SHARES split type.
+     * Creates a phantom user and selects them in the current UI state.
+     *
+     * On success the new user is added to selected participants and group members, the user-name map
+     * is refreshed, and split recalculation is triggered so the UI reflects the change immediately.
+     * On failure the UI state's `errorMessage` is set with an opaque error description.
+     *
+     * @param name Display name for the phantom user.
+     * @param email Optional email for the phantom user.
+     * @param phone Optional phone number for the phantom user.
      */
-    private fun normalizeShares() {
-        _uiState.update { state ->
-            val updatedShares = state.selectedParticipants.associateWith { userId ->
-                state.shares[userId] ?: 1 // Default 1 share if not present
+    fun createPhantomUserAndSelect(name: String, email: String? = null, phone: String? = null) {
+        viewModelScope.launch {
+            try {
+                val userId = userRepository.createPhantomUser(name, email, phone)
+                
+                val allUsers = userRepository.getAllUsers().first()
+                val userMap = allUsers.associate { it.id to it.name }
+                
+                _uiState.update { currentState ->
+                    currentState.copy(
+                        selectedParticipants = currentState.selectedParticipants + userId,
+                        userNames = userMap,
+                        groupMembers = currentState.groupMembers + userId
+                    ).withNormalizedShares()
+                }
+                recalculateSplits()
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "Failed to add person: ${e.message}") }
             }
-            state.copy(shares = updatedShares)
         }
     }
 
+    /**
+     * Toggles a participant's selection in the current expense and updates related state.
+     *
+     * Updates the UI state by adding or removing the given userId from selectedParticipants,
+     * reassigns the payer if the removed user was the payer (to the first remaining participant or
+     * empty string), sets the first participant as payer if none is set and participants exist,
+     * normalizes shares to match the updated participant list, and triggers a recalculation of splits.
+     *
+     * @param userId The identifier of the participant to toggle in the selection.
+     */
     fun toggleParticipant(userId: String) {
         _uiState.update { state ->
             val current = state.selectedParticipants.toMutableList()
@@ -264,16 +359,15 @@ constructor(
                 // Payer was removed. Assign to first available participant or empty if none.
                 newPayerId = current.firstOrNull() ?: ""
             } else if (state.payerId.isEmpty() && current.isNotEmpty()) {
-                 // If no payer was set (e.g. cleared), set to first added
+                // If no payer was set (e.g. cleared), set to first added
                 newPayerId = current.first()
             }
             
             state.copy(
                 selectedParticipants = current.sorted(),
                 payerId = newPayerId
-            )
+            ).withNormalizedShares()
         }
-        normalizeShares()
         recalculateSplits()
     }
     

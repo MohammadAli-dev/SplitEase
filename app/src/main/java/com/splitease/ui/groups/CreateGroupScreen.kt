@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,7 +45,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.splitease.ui.components.AddPersonDialog
 
+/**
+ * Composable screen for creating a group, including fields for name and type, optional trip date range,
+ * member selection (with an option to add a new person), and a control to save the group.
+ *
+ * The UI reflects ViewModel state (name, type, trip dates, available/selected members, validation, loading,
+ * and errors) and calls the provided callback to navigate back after the group is saved.
+ *
+ * @param onNavigateBack Callback invoked to navigate back when the screen should be dismissed.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateGroupScreen(
@@ -61,7 +72,18 @@ fun CreateGroupScreen(
 
     var showStartDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
+    var showAddPersonDialog by remember { mutableStateOf(false) }
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+
+    if (showAddPersonDialog) {
+        AddPersonDialog(
+            onDismiss = { showAddPersonDialog = false },
+            onConfirm = { name, email, phone ->
+                viewModel.createPhantomUserAndSelect(name, email, phone)
+                showAddPersonDialog = false
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -220,6 +242,14 @@ fun CreateGroupScreen(
                         label = { Text(displayName) }
                     )
                 }
+                
+                // Add New Person Chip
+                FilterChip(
+                    selected = false,
+                    onClick = { showAddPersonDialog = true },
+                    label = { Text("+ Add new person") },
+                    leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
+                )
             }
 
             // Validation hint

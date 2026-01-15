@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,7 +30,7 @@ import androidx.compose.material3.DatePickerDialog
 
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,7 +67,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.text.font.FontWeight
+import com.splitease.ui.components.AddPersonDialog
 
+/**
+ * Renders the Add/Edit Expense screen UI and connects user interactions to the AddExpenseViewModel.
+ *
+ * Shows inputs for title, amount, expense type, payer selection, date, split type, participants,
+ * and the appropriate split input section; manages save/update, delete, add-person, and date/payer
+ * pickers, and invokes navigation callbacks when appropriate.
+ *
+ * @param onNavigateBack Invoked when the user requests to navigate back.
+ * @param onExpenseSaved Invoked after the expense has been saved successfully.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseScreen(
@@ -85,6 +97,7 @@ fun AddExpenseScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPayerSelector by remember { mutableStateOf(false) }
+    var showAddPersonDialog by remember { mutableStateOf(false) }
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
     if (showDeleteDialog) {
@@ -150,13 +163,23 @@ fun AddExpenseScreen(
                             }
                         }
                         if (userId != uiState.selectedParticipants.last()) {
-                            Divider()
+                            HorizontalDivider()
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
+    }
+
+    if (showAddPersonDialog) {
+        AddPersonDialog(
+            onDismiss = { showAddPersonDialog = false },
+            onConfirm = { name, email, phone ->
+                viewModel.createPhantomUserAndSelect(name, email, phone)
+                showAddPersonDialog = false
+            }
+        )
     }
 
     Scaffold(
@@ -352,6 +375,14 @@ fun AddExpenseScreen(
                                 label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
                         )
                     }
+
+                    // Add New Person Chip
+                    FilterChip(
+                        selected = false,
+                        onClick = { showAddPersonDialog = true },
+                        label = { Text("Add new person") },
+                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
+                    )
                 }
                 
                 if (uiState.groupMembers.isEmpty()) {
@@ -375,6 +406,14 @@ fun AddExpenseScreen(
                                 label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
                         )
                     }
+
+                    // Add New Person Chip
+                    FilterChip(
+                        selected = false,
+                        onClick = { showAddPersonDialog = true },
+                        label = { Text("Add new person") },
+                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
+                    )
                 }
             }
 

@@ -10,6 +10,8 @@ import com.splitease.data.repository.GroupRepository
 import com.splitease.data.repository.GroupRepositoryImpl
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.repository.SyncRepositoryImpl
+import com.splitease.data.repository.UserRepository
+import com.splitease.data.repository.UserRepositoryImpl
 import com.splitease.data.sync.RoomTransactionRunner
 import com.splitease.data.sync.SyncWriteService
 import com.splitease.data.sync.SyncWriteServiceImpl
@@ -58,9 +60,27 @@ abstract class DataModule {
             activityRepositoryImpl: ActivityRepositoryImpl
     ): ActivityRepository
 
+    /**
+     * Binds RoomTransactionRunner as the singleton implementation of TransactionRunner.
+     *
+     * @param roomTransactionRunner The Room-based implementation to provide for TransactionRunner.
+     * @return The TransactionRunner implementation backed by RoomTransactionRunner.
+     */
     @Binds
     @Singleton
     abstract fun bindTransactionRunner(
             roomTransactionRunner: RoomTransactionRunner
     ): TransactionRunner
+
+    /**
+     * Binds UserRepository to its concrete implementation for dependency injection.
+     *
+     * @param userRepositoryImpl The implementation provided when a `UserRepository` is requested.
+     * @return The bound `UserRepository` implementation.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindUserRepository(
+            userRepositoryImpl: UserRepositoryImpl
+    ): UserRepository
 }
