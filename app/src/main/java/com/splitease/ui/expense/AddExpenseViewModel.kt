@@ -163,9 +163,9 @@ constructor(
                     _uiState.update { it.copy(
                         groupMembers = sortedMemberIds,
                         selectedParticipants = sortedMemberIds,
-                        userNames = userNamesMap,
-                        shares = sortedMemberIds.associateWith { 1 }
+                        userNames = userNamesMap
                     )}
+                    normalizeShares()
                     if (_uiState.value.isPersonalExpense) {
                         toggleDirectExpense(true)
                     } else {
@@ -271,6 +271,7 @@ constructor(
                     )
                 }
                 
+                normalizeShares()
                 recalculateSplits()
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = "Failed to add person: ${e.message}") }
