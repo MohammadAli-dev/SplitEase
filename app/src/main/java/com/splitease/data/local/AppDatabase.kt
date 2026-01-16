@@ -148,6 +148,26 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
+     * Removes a user from a group and records the corresponding sync operation atomically.
+     *
+     * This is an intent-based operation (REMOVE_MEMBER), NOT a state replacement.
+     * The operation is idempotent: calling it multiple times for the same user/group is safe.
+     *
+     * @param groupId The ID of the group to leave.
+     * @param userId The ID of the user leaving the group.
+     * @param syncOp The sync operation to persist for synchronization.
+     */
+    @androidx.room.Transaction
+    open suspend fun leaveGroupWithSync(
+        groupId: String,
+        userId: String,
+        syncOp: SyncOperation
+    ) {
+        groupDao().deleteMember(groupId, userId)
+        syncDao().insertSyncOp(syncOp)
+    }
+
+    /**
      * Merge a local phantom user into an existing real cloud user in a single atomic transaction.
      *
      * This inserts the real user (if necessary), reassigns all foreign-key references from the phantom

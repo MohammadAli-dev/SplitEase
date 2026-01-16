@@ -83,44 +83,87 @@ fun GroupDetailScreen(
     // Expanded settlement row state
     var expandedSettlementKey by remember { mutableStateOf<String?>(null) }
     
-    // Leave Group Dialog State
-    var showLeaveDialog by remember { mutableStateOf(false) }
-    var leaveDialogAllowed by remember { mutableStateOf(false) } // true = can leave, false = blocked
+    // Leave Group Dialog States
+    var showLeaveConfirmation by remember { mutableStateOf(false) }
+    var showLeaveBlockedByBalance by remember { mutableStateOf(false) }
+    var showLeaveBlockedAsLastMember by remember { mutableStateOf(false) }
 
-    // Handle one-off events (Snackbar)
+    // Handle one-off events
     LaunchedEffect(viewModel.events) {
         viewModel.events.collect { event ->
             when (event) {
                 is GroupDetailEvent.ShowSnackbar -> {
                     snackbarHostState.showSnackbar(event.message)
                 }
-                is GroupDetailEvent.ShowLeaveGroupDialog -> {
-                    leaveDialogAllowed = event.canLeave
-                    showLeaveDialog = true
+                is GroupDetailEvent.ShowLeaveConfirmation -> {
+                    showLeaveConfirmation = true
+                }
+                is GroupDetailEvent.ShowLeaveBlockedByBalance -> {
+                    showLeaveBlockedByBalance = true
+                }
+                is GroupDetailEvent.ShowLeaveBlockedAsLastMember -> {
+                    showLeaveBlockedAsLastMember = true
+                }
+                is GroupDetailEvent.NavigateToDashboard -> {
+                    onNavigateBack()
                 }
             }
         }
     }
 
-    if (showLeaveDialog) {
-        val title = if (leaveDialogAllowed) "Leaving Group" else "Cannot Leave Group"
-        val text = if (leaveDialogAllowed) 
-            "You can now safely leave this group." 
-        else 
-            "You must settle all balances before leaving this group."
-        
+    // Confirmation Dialog: User can leave
+    if (showLeaveConfirmation) {
         AlertDialog(
-            onDismissRequest = { showLeaveDialog = false },
-            title = { Text(title) },
-            text = { Text(text) },
+            onDismissRequest = { showLeaveConfirmation = false },
+            title = { Text("Leave Group") },
+            text = { Text("You will leave this group. Past expenses will remain unchanged.") },
             confirmButton = {
-                TextButton(onClick = { showLeaveDialog = false }) {
+                TextButton(onClick = {
+                    showLeaveConfirmation = false
+                    viewModel.onConfirmLeaveGroup()
+                }) {
+                    Text("Leave")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveConfirmation = false }) {
+                    Text("Cancel")
+                }
+            },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) }
+        )
+    }
+
+    // Blocked Dialog: Outstanding Balance
+    if (showLeaveBlockedByBalance) {
+        AlertDialog(
+            onDismissRequest = { showLeaveBlockedByBalance = false },
+            title = { Text("Cannot Leave Group") },
+            text = { Text("You cannot leave this group because you have an outstanding balance. Please settle up first.") },
+            confirmButton = {
+                TextButton(onClick = { showLeaveBlockedByBalance = false }) {
                     Text("OK")
                 }
             },
             icon = { Icon(Icons.Default.Info, contentDescription = null) }
         )
     }
+
+    // Blocked Dialog: Last Member
+    if (showLeaveBlockedAsLastMember) {
+        AlertDialog(
+            onDismissRequest = { showLeaveBlockedAsLastMember = false },
+            title = { Text("Cannot Leave Group") },
+            text = { Text("You are the last member of this group and cannot leave.") },
+            confirmButton = {
+                TextButton(onClick = { showLeaveBlockedAsLastMember = false }) {
+                    Text("OK")
+                }
+            },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) }
+        )
+    }
+
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },

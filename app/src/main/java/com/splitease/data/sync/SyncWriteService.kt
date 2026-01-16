@@ -37,6 +37,13 @@ interface SyncWriteService {
      * Caller is responsible for persisting within a transaction.
      */
     fun createSettlementCreateSyncOp(settlement: com.splitease.data.local.entities.Settlement): SyncOperation
+
+    /**
+     * Creates a SyncOperation for removing a member from a group.
+     * This is an intent-based operation, NOT a state replacement.
+     * Caller is responsible for persisting within a transaction.
+     */
+    fun createGroupMemberRemoveSyncOp(groupId: String, userId: String): SyncOperation
 }
 
 @Singleton
@@ -116,6 +123,21 @@ class SyncWriteServiceImpl @Inject constructor(
             timestamp = System.currentTimeMillis()
         )
     }
+
+    override fun createGroupMemberRemoveSyncOp(groupId: String, userId: String): SyncOperation {
+        val payload = GroupMemberRemovePayload(
+            version = 1,
+            groupId = groupId,
+            userId = userId
+        )
+        return SyncOperation(
+            operationType = SyncOperationType.REMOVE_MEMBER.name,
+            entityType = SyncEntityType.GROUP,
+            entityId = groupId, // Entity is the group, intent is to remove this member
+            payload = gson.toJson(payload),
+            timestamp = System.currentTimeMillis()
+        )
+    }
 }
 
 /**
@@ -140,3 +162,12 @@ data class SettlementCreatePayload(
     val amount: java.math.BigDecimal
 )
 
+/**
+ * Versioned payload for group member removal sync.
+ * This is an explicit intent, not a state replacement.
+ */
+data class GroupMemberRemovePayload(
+    val version: Int,
+    val groupId: String,
+    val userId: String
+)

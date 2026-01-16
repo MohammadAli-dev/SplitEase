@@ -14,6 +14,8 @@ import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.identity.UserContext
 import com.splitease.data.local.entities.User
+import com.splitease.data.repository.GroupRepository
+import com.splitease.data.repository.LeaveGroupResult
 import com.splitease.data.repository.SettlementRepository
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.local.entities.SyncFailureType
@@ -66,7 +68,18 @@ sealed interface GroupDetailUiState {
 
 sealed interface GroupDetailEvent {
     data class ShowSnackbar(val message: String) : GroupDetailEvent
-    data class ShowLeaveGroupDialog(val canLeave: Boolean) : GroupDetailEvent
+    
+    /** Show leave group confirmation dialog (balance OK, proceed?) */
+    data object ShowLeaveConfirmation : GroupDetailEvent
+    
+    /** Blocked: User has outstanding balance */
+    data object ShowLeaveBlockedByBalance : GroupDetailEvent
+    
+    /** Blocked: User is the last member */
+    data object ShowLeaveBlockedAsLastMember : GroupDetailEvent
+    
+    /** Leave successful, navigate away */
+    data object NavigateToDashboard : GroupDetailEvent
 }
 
 @HiltViewModel
@@ -76,6 +89,7 @@ class GroupDetailViewModel @Inject constructor(
     private val expenseDao: ExpenseDao,
     private val settlementDao: SettlementDao,
     private val settlementRepository: SettlementRepository,
+    private val groupRepository: GroupRepository,
     private val syncDao: SyncDao,
     private val syncRepository: SyncRepository,
     private val userContext: UserContext
@@ -242,10 +256,11 @@ class GroupDetailViewModel @Inject constructor(
                 settlementMode = settlementMode,
 
                 currentUserId = currentUserId,
-                canLeaveGroup = com.splitease.domain.GroupExitValidator.canLeaveGroup(
+                canLeaveGroup = com.splitease.domain.GroupExitValidator.checkLeaveEligibility(
                     userId = currentUserId,
-                    balances = balances
-                )
+                    balances = balances,
+                    memberCount = sortedMembers.size
+                ) is com.splitease.domain.GroupExitValidator.LeaveGroupResult.Allowed
             )
         }
     }.stateIn(
@@ -307,16 +322,64 @@ class GroupDetailViewModel @Inject constructor(
     }
 
 
+    /**
+     * Called when user clicks "Leave Group" menu item.
+     * Pre-validates eligibility and shows appropriate dialog.
+     */
     fun onLeaveGroupClicked() {
         val state = uiState.value
-        if (state is GroupDetailUiState.Success) {
-            viewModelScope.launch {
-                if (state.canLeaveGroup) {
-                    Log.d("GroupExit", "Leave group allowed (simulation only)")
-                    // TODO(Auth): Replace UI-only leave with actual group_members deletion
-                    _eventChannel.send(GroupDetailEvent.ShowLeaveGroupDialog(canLeave = true))
-                } else {
-                    _eventChannel.send(GroupDetailEvent.ShowLeaveGroupDialog(canLeave = false))
+        if (state !is GroupDetailUiState.Success) return
+
+        viewModelScope.launch {
+            // Use derived canLeaveGroup from UI state (already calculated from balances)
+            val memberCount = groupDao.getMemberCount(groupId)
+            
+            if (memberCount <= 1) {
+                _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedAsLastMember)
+                return@launch
+            }
+            
+            if (!state.canLeaveGroup) {
+                _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedByBalance)
+                return@launch
+            }
+            
+            // Balance OK, member count OK -> show confirmation
+            _eventChannel.send(GroupDetailEvent.ShowLeaveConfirmation)
+        }
+    }
+
+    /**
+     * Called when user confirms they want to leave the group.
+     * Executes the actual leave operation via repository.
+     */
+    fun onConfirmLeaveGroup() {
+        viewModelScope.launch {
+            val currentUserId = userContext.userId.firstOrNull()
+            if (currentUserId == null) {
+                _eventChannel.send(GroupDetailEvent.ShowSnackbar("Unable to verify user identity"))
+                return@launch
+            }
+
+            val result = groupRepository.leaveGroup(groupId, currentUserId)
+            
+            when (result) {
+                is LeaveGroupResult.Success -> {
+                    Log.d("GroupExit", "User $currentUserId left group $groupId successfully")
+                    _eventChannel.send(GroupDetailEvent.NavigateToDashboard)
+                }
+                is LeaveGroupResult.BlockedByBalance -> {
+                    _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedByBalance)
+                }
+                is LeaveGroupResult.BlockedAsLastMember -> {
+                    _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedAsLastMember)
+                }
+                is LeaveGroupResult.AlreadyRemoved -> {
+                    // Already gone, navigate away
+                    _eventChannel.send(GroupDetailEvent.NavigateToDashboard)
+                }
+                is LeaveGroupResult.Error -> {
+                    _eventChannel.send(GroupDetailEvent.ShowSnackbar("Failed to leave group: ${result.message}"))
                 }
             }
         }

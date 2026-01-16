@@ -75,4 +75,18 @@ interface GroupDao {
      */
     @Query("UPDATE group_members SET userId = :newUserId WHERE userId = :oldUserId")
     suspend fun updateMemberUserId(oldUserId: String, newUserId: String)
+
+    /**
+     * Removes a user from a group.
+     * Used for "Leave Group" functionality.
+     */
+    @Query("DELETE FROM group_members WHERE groupId = :groupId AND userId = :userId")
+    suspend fun deleteMember(groupId: String, userId: String)
+
+    /**
+     * Counts the number of members in a group.
+     * Used to prevent the last member from leaving.
+     */
+    @Query("SELECT COUNT(*) FROM group_members WHERE groupId = :groupId")
+    suspend fun getMemberCount(groupId: String): Int
 }
