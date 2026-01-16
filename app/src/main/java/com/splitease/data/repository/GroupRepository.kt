@@ -125,29 +125,30 @@ class GroupRepositoryImpl @Inject constructor(
 
     override suspend fun leaveGroup(groupId: String, userId: String): LeaveGroupResult = withContext(Dispatchers.IO) {
         try {
-            // 1. Check if user is still a member (idempotency)
-            val memberCount = appDatabase.groupDao().getMemberCount(groupId)
+            // 1. Fetch current members (single source of truth for this operation)
             val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
+            val memberCount = currentMembers.size
             val isMember = currentMembers.any { it.userId == userId }
 
+            // 2. Check if user is still a member (idempotency)
             if (!isMember) {
                 Log.d(TAG, "leaveGroup: AlreadyRemoved [groupId=$groupId, userId=$userId]")
                 return@withContext LeaveGroupResult.AlreadyRemoved
             }
 
-            // 2. Check member count guardrail
+            // 3. Check member count guardrail (derived from same snapshot)
             if (memberCount <= 1) {
                 Log.w(TAG, "leaveGroup: BlockedAsLastMember [groupId=$groupId, userId=$userId, memberCount=$memberCount]")
                 return@withContext LeaveGroupResult.BlockedAsLastMember
             }
 
-            // 3. Calculate balances for validation
+            // 4. Calculate balances for validation
             val expenses = appDatabase.expenseDao().getExpensesForGroup(groupId).first()
             val splits = appDatabase.expenseDao().getAllExpenseSplitsForGroup(groupId).first()
             val settlements = appDatabase.settlementDao().getSettlementsForGroup(groupId).first()
             val balances = BalanceCalculator.calculate(expenses, splits, settlements)
 
-            // 4. Run domain validation
+            // 5. Run domain validation
             val eligibility = GroupExitValidator.checkLeaveEligibility(
                 userId = userId,
                 balances = balances,
@@ -169,7 +170,7 @@ class GroupRepositoryImpl @Inject constructor(
                 }
             }
 
-            // 5. Create sync operation and execute transaction
+            // 6. Create sync operation and execute transaction
             val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, userId)
             appDatabase.leaveGroupWithSync(groupId, userId, syncOp)
 
