@@ -31,22 +31,17 @@ sealed interface LeaveGroupResult {
  */
 interface GroupRepository {
     /**
-     * Creates a new group with the specified members.
+     * Create a new group, persist its members, and record a CREATE_GROUP sync intent.
      *
-     * This method is:
-     * - **Offline-safe**: Works without network connectivity.
-     * - **Atomic**: Group, members, and sync operation are persisted in a single transaction.
-     * - **Sync-aware**: Records a CREATE_GROUP sync intent for future backend sync.
+     * This operation is atomic and offline-safe: the group, its members, and the sync operation are persisted together for later backend synchronization.
      *
-     * UI should rely on Room Flows (e.g., `GroupDao.getAllGroups()`) for updates,
-     * not on the return value of this method.
-     *
-     * @param name The display name of the group.
-     * @param type The group type (e.g., TRIP, HOME, COUPLE, OTHER).
-     * @param memberIds List of user IDs to add as members.
-     * @param hasTripDates Whether trip dates are enabled.
-     * @param tripStartDate Trip start date (epoch millis), null if not applicable.
-     * @param tripEndDate Trip end date (epoch millis), null if not applicable.
+     * @param name The group's display name.
+     * @param type The group type identifier (e.g., "TRIP", "HOME", "COUPLE", "OTHER").
+     * @param memberIds The user IDs to add as initial members.
+     * @param hasTripDates Whether the group includes trip start/end dates.
+     * @param tripStartDate Trip start timestamp in epoch milliseconds, or `null` if not applicable.
+     * @param tripEndDate Trip end timestamp in epoch milliseconds, or `null` if not applicable.
+     * @param creatorUserId The user ID of the group creator.
      */
     suspend fun createGroup(
         name: String,
@@ -59,19 +54,19 @@ interface GroupRepository {
     )
 
     /**
-     * Removes the current user from a group.
-     *
-     * This method is:
-     * - **Offline-safe**: Works without network connectivity.
-     * - **Atomic**: Member removal and sync operation are persisted in a single transaction.
-     * - **Balance-gated**: User CANNOT leave if their net balance != 0.
-     * - **Last-member protected**: User CANNOT leave if they are the last member.
-     * - **Idempotent**: Calling multiple times for an already-removed user returns [LeaveGroupResult.AlreadyRemoved].
-     *
-     * @param groupId The ID of the group to leave.
-     * @param userId The ID of the user leaving the group.
-     * @return A [LeaveGroupResult] indicating success or the reason for blocking.
-     */
+ * Remove a user from the specified group.
+ *
+ * This operation is offline-safe, atomic (removal and sync intent persisted together), idempotent,
+ * blocked if the user has a non-zero net balance, and blocked if the user is the last remaining member.
+ *
+ * @param groupId The ID of the group to leave.
+ * @param userId The ID of the user to remove from the group.
+ * @return `LeaveGroupResult.Success` on successful removal;
+ *         `LeaveGroupResult.AlreadyRemoved` if the user is not a member;
+ *         `LeaveGroupResult.BlockedByBalance` if the user's net balance is not zero;
+ *         `LeaveGroupResult.BlockedAsLastMember` if the user is the group's last member;
+ *         or `LeaveGroupResult.Error(message)` if an error occurs. 
+ */
     suspend fun leaveGroup(groupId: String, userId: String): LeaveGroupResult
 }
 
@@ -85,7 +80,18 @@ class GroupRepositoryImpl @Inject constructor(
         private const val TAG = "GroupRepository"
     }
 
-    override suspend fun createGroup(
+    /**
+         * Creates a new group with the given metadata and members, persists it in the local database, and records a sync intent for backend synchronization.
+         *
+         * @param name The group's display name.
+         * @param type A string identifying the group's type or category.
+         * @param memberIds List of user IDs to be added as group members.
+         * @param hasTripDates Whether the group includes trip start/end dates.
+         * @param tripStartDate Trip start timestamp in milliseconds since the Unix epoch, or `null` if not set.
+         * @param tripEndDate Trip end timestamp in milliseconds since the Unix epoch, or `null` if not set.
+         * @param creatorUserId The user ID of the group's creator; recorded as the creator and last modifier.
+         */
+        override suspend fun createGroup(
         name: String,
         type: String,
         memberIds: List<String>,
@@ -123,6 +129,23 @@ class GroupRepositoryImpl @Inject constructor(
             appDatabase.insertGroupWithMembersAndSync(group, members, syncOp)
         }
 
+    /**
+     * Attempts to remove a user from a group, enforcing business rules and recording a sync operation.
+     *
+     * This operation is idempotent and persists changes via the local database while creating a sync intent
+     * for backend reconciliation. It will:
+     * - Return AlreadyRemoved if the user is not a member.
+     * - Prevent removal when the user is the last member of the group.
+     * - Prevent removal when the user's net balance for the group is non-zero.
+     * - On success, remove the member and record a group-member-remove sync operation in a single transaction.
+     * Any unexpected error is captured and returned as LeaveGroupResult.Error with an explanatory message.
+     *
+     * @return `LeaveGroupResult.Success` on successful removal;
+     * `LeaveGroupResult.AlreadyRemoved` if the user was not a member;
+     * `LeaveGroupResult.BlockedAsLastMember` if removing would leave the group empty;
+     * `LeaveGroupResult.BlockedByBalance` if the user's balance prevents leaving;
+     * `LeaveGroupResult.Error(message)` for unexpected failures with a diagnostic message.
+     */
     override suspend fun leaveGroup(groupId: String, userId: String): LeaveGroupResult = withContext(Dispatchers.IO) {
         try {
             // 1. Fetch current members (single source of truth for this operation)
@@ -183,4 +206,3 @@ class GroupRepositoryImpl @Inject constructor(
         }
     }
 }
-

@@ -29,16 +29,14 @@ object GroupExitValidator {
     }
 
     /**
-     * Checks if a user is eligible to leave a group.
+     * Determines whether a user may leave a group according to balance and membership rules.
      *
-     * Rules:
-     * 1. User must have a balance within EPSILON of 0.
-     * 2. User must not be the last member of the group.
+     * The user is allowed to leave only if their balance is within 0.01 of zero and the group will not be empty after they leave.
      *
-     * @param userId The ID of the user trying to leave.
-     * @param balances The map of userId -> Balance (BigDecimal).
-     * @param memberCount The current number of members in the group.
-     * @return A [LeaveGroupResult] indicating whether the user can leave.
+     * @param userId The ID of the user attempting to leave.
+     * @param balances Map of user IDs to their BigDecimal balances; missing entries are treated as zero.
+     * @param memberCount Current number of members in the group.
+     * @return `Allowed` if the user can leave; `BlockedByBalance` if the user's absolute balance is greater than 0.01; `BlockedAsLastMember` if `memberCount` is less than or equal to 1.
      */
     fun checkLeaveEligibility(
         userId: String,
