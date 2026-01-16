@@ -153,17 +153,18 @@ abstract fun connectionStateDao(): ConnectionStateDao
      * Removes a user from a group and records the corresponding sync operation atomically.
      *
      * This is an intent-based operation (REMOVE_MEMBER), NOT a state replacement.
+     * Used by both "Leave Group" (self-removal) and "Remove Member" (peer removal).
      *
      * **Idempotency Note**: While `deleteMember` is idempotent, `insertSyncOp` is append-only.
      * Callers (e.g., Repositories) MUST enforce semantic idempotency by checking existing
      * state before calling this method to avoid duplicate sync intents.
      *
-     * @param groupId The ID of the group to leave.
-     * @param userId The ID of the user leaving the group.
+     * @param groupId The ID of the group from which the member is being removed.
+     * @param userId The ID of the user being removed from the group.
      * @param syncOp The sync operation to persist for synchronization.
      */
     @androidx.room.Transaction
-    open suspend fun leaveGroupWithSync(
+    open suspend fun removeMemberWithSync(
         groupId: String,
         userId: String,
         syncOp: SyncOperation

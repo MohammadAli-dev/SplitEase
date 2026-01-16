@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import com.splitease.ui.common.SyncStatusIcon
 import androidx.compose.material3.Button
@@ -95,10 +97,15 @@ fun GroupDetailScreen(
     // Expanded settlement row state
     var expandedSettlementKey by remember { mutableStateOf<String?>(null) }
     
-    // Leave Group Dialog States
+    // Leave Group / Remove Member Dialog States
     var showLeaveConfirmation by remember { mutableStateOf(false) }
     var showLeaveBlockedByBalance by remember { mutableStateOf(false) }
     var showLeaveBlockedAsLastMember by remember { mutableStateOf(false) }
+    
+    // Remove Member (Peer) States
+    var showRemoveConfirmation by remember { mutableStateOf<String?>(null) } // targetUserId or null
+    var showRemoveBlockedByBalance by remember { mutableStateOf<String?>(null) } // targetUserId
+    var showRemoveBlockedAsLastMember by remember { mutableStateOf(false) }
 
     // Handle one-off events
     LaunchedEffect(viewModel.events) {
@@ -118,6 +125,18 @@ fun GroupDetailScreen(
                 }
                 is GroupDetailEvent.NavigateToDashboard -> {
                     onNavigateBack()
+                }
+                is GroupDetailEvent.ShowRemoveConfirmation -> {
+                     showRemoveConfirmation = event.targetUserId
+                }
+                is GroupDetailEvent.ShowRemoveBlockedByBalance -> {
+                    showRemoveBlockedByBalance = event.targetUserId
+                }
+                is GroupDetailEvent.ShowRemoveBlockedAsLastMember -> {
+                    showRemoveBlockedAsLastMember = true
+                }
+                is GroupDetailEvent.ShowRemoveSuccess -> {
+                     snackbarHostState.showSnackbar(event.message)
                 }
             }
         }
@@ -173,6 +192,72 @@ fun GroupDetailScreen(
                 }
             },
             icon = { Icon(Icons.Default.Info, contentDescription = null) }
+        )
+    }
+
+    // --- Remove Member (Peer) Dialogs ---
+
+    // Confirm Removal
+    showRemoveConfirmation?.let { targetUserId ->
+        val targetUser = (uiState as? GroupDetailUiState.Success)?.members?.find { it.id == targetUserId }
+        val targetName = targetUser?.name ?: "this member"
+        
+        AlertDialog(
+            onDismissRequest = { showRemoveConfirmation = null },
+            icon = { Icon(Icons.Default.Warning, contentDescription = "Warning") },
+            title = { Text("Remove $targetName?") },
+            text = { Text("Removing $targetName will not change past expenses. They will lose access to the group.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRemoveConfirmation = null
+                        viewModel.onConfirmRemoveMember(targetUserId)
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveConfirmation = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Blocked: Balance
+    showRemoveBlockedByBalance?.let { targetUserId ->
+        val targetUser = (uiState as? GroupDetailUiState.Success)?.members?.find { it.id == targetUserId }
+        val targetName = targetUser?.name ?: "This member"
+
+        AlertDialog(
+            onDismissRequest = { showRemoveBlockedByBalance = null },
+            icon = { Icon(Icons.Default.Info, contentDescription = "Blocked") },
+            title = { Text("Cannot remove $targetName") },
+            text = { Text("$targetName has an outstanding balance. They must settle up before being removed.") },
+            confirmButton = {
+                TextButton(onClick = { showRemoveBlockedByBalance = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    // Blocked: Last Member
+    if (showRemoveBlockedAsLastMember) {
+        AlertDialog(
+            onDismissRequest = { showRemoveBlockedAsLastMember = false },
+            icon = { Icon(Icons.Default.Info, contentDescription = "Blocked") },
+            title = { Text("Cannot remove member") },
+            text = { Text("This group must have at least one member.") },
+            confirmButton = {
+                TextButton(onClick = { showRemoveBlockedAsLastMember = false }) {
+                    Text("OK")
+                }
+            }
         )
     }
 
@@ -320,7 +405,11 @@ fun GroupDetailScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     items(state.members) { member ->
-                                        MemberAvatar(user = member)
+                                        MemberAvatar(
+                                            user = member,
+                                            isRemovable = member.id != state.currentUserId,
+                                            onRemove = { viewModel.onRemoveMemberClicked(member.id) }
+                                        )
                                     }
                                 }
                             }
@@ -471,31 +560,57 @@ fun GroupDetailScreen(
 }
 
 @Composable
-private fun MemberAvatar(user: User) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(64.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
+private fun MemberAvatar(
+    user: User,
+    isRemovable: Boolean = false,
+    onRemove: () -> Unit = {}
+) {
+    Box(modifier = Modifier.width(68.dp)) { // Slightly wider to accommodate badge
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp) // Push down for badge clearance
         ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = user.name.take(1).uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = user.name.take(1).uppercase(),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                text = user.name,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = user.name,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        
+        if (isRemovable) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 4.dp) // Inset slightly
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete, // Using Delete/Trash icon
+                    contentDescription = "Remove member",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
     }
 }
 

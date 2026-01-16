@@ -16,6 +16,7 @@ import com.splitease.data.identity.UserContext
 import com.splitease.data.local.entities.User
 import com.splitease.data.repository.GroupRepository
 import com.splitease.data.repository.LeaveGroupResult
+import com.splitease.data.repository.RemoveMemberResult
 import com.splitease.data.repository.SettlementRepository
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.local.entities.SyncFailureType
@@ -80,6 +81,12 @@ sealed interface GroupDetailEvent {
     
     /** Leave successful, navigate away */
     data object NavigateToDashboard : GroupDetailEvent
+
+    // --- Remove Member Events ---
+    data class ShowRemoveConfirmation(val targetUserId: String) : GroupDetailEvent
+    data class ShowRemoveBlockedByBalance(val targetUserId: String) : GroupDetailEvent
+    data object ShowRemoveBlockedAsLastMember : GroupDetailEvent
+    data class ShowRemoveSuccess(val message: String) : GroupDetailEvent
 }
 
 @HiltViewModel
@@ -401,6 +408,81 @@ class GroupDetailViewModel @Inject constructor(
                 }
                 is LeaveGroupResult.Error -> {
                     _eventChannel.send(GroupDetailEvent.ShowSnackbar("Failed to leave group: ${result.message}"))
+                }
+            }
+        }
+    }
+
+    /**
+     * Called when user clicks "Remove" icon on a specific member.
+     *
+     * Validates that:
+     * 1. Target is NOT the current user (self-removal must use Leave Group).
+     * 2. Target has zero balance (optimistic check).
+     * 3. Group has more than 1 member (structural invariant).
+     */
+    fun onRemoveMemberClicked(targetUserId: String) {
+        val state = uiState.value
+        if (state !is GroupDetailUiState.Success) return
+
+        viewModelScope.launch {
+            // Self-removal guard
+            if (targetUserId == state.currentUserId) {
+                // If user somehow clicked remove on themselves, simplify redirect to Leave flow
+                onLeaveGroupClicked()
+                return@launch
+            }
+
+            // Optimistic check: Last member guard
+            if (state.members.size <= 1) {
+                _eventChannel.send(GroupDetailEvent.ShowRemoveBlockedAsLastMember)
+                return@launch
+            }
+
+            // Optimistic check: Balance guard
+            val balance = state.balances[targetUserId] ?: BigDecimal.ZERO
+            if (balance.compareTo(BigDecimal.ZERO) != 0) {
+                _eventChannel.send(GroupDetailEvent.ShowRemoveBlockedByBalance(targetUserId))
+                return@launch
+            }
+
+            // Optimistic OK -> Show confirmation
+            _eventChannel.send(GroupDetailEvent.ShowRemoveConfirmation(targetUserId))
+        }
+    }
+
+    /**
+     * Executes the removal of a member after confirmation.
+     */
+    fun onConfirmRemoveMember(targetUserId: String) {
+        viewModelScope.launch {
+            val currentUserId = userContext.userId.firstOrNull()
+            if (currentUserId == null) {
+                _eventChannel.send(GroupDetailEvent.ShowSnackbar("Unable to verify user identity"))
+                return@launch
+            }
+
+            val result = groupRepository.removeMember(
+                groupId = groupId,
+                actorUserId = currentUserId,
+                targetUserId = targetUserId
+            )
+
+            when (result) {
+                is RemoveMemberResult.Success -> {
+                    _eventChannel.send(GroupDetailEvent.ShowRemoveSuccess("Member removed successfully"))
+                }
+                is RemoveMemberResult.TargetAlreadyRemoved -> {
+                    // Silent success: UI will refresh via Flow
+                }
+                is RemoveMemberResult.BlockedByBalance -> {
+                    _eventChannel.send(GroupDetailEvent.ShowRemoveBlockedByBalance(targetUserId))
+                }
+                is RemoveMemberResult.BlockedAsLastMember -> {
+                    _eventChannel.send(GroupDetailEvent.ShowRemoveBlockedAsLastMember)
+                }
+                is RemoveMemberResult.Error -> {
+                    _eventChannel.send(GroupDetailEvent.ShowSnackbar("Failed to remove member: ${result.message}"))
                 }
             }
         }
