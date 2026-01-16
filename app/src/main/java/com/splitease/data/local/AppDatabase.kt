@@ -151,7 +151,10 @@ abstract fun connectionStateDao(): ConnectionStateDao
      * Removes a user from a group and records the corresponding sync operation atomically.
      *
      * This is an intent-based operation (REMOVE_MEMBER), NOT a state replacement.
-     * The operation is idempotent: calling it multiple times for the same user/group is safe.
+     *
+     * **Idempotency Note**: While `deleteMember` is idempotent, `insertSyncOp` is append-only.
+     * Callers (e.g., Repositories) MUST enforce semantic idempotency by checking existing
+     * state before calling this method to avoid duplicate sync intents.
      *
      * @param groupId The ID of the group to leave.
      * @param userId The ID of the user leaving the group.
