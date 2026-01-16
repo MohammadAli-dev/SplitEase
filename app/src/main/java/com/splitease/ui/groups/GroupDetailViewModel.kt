@@ -285,8 +285,15 @@ class GroupDetailViewModel @Inject constructor(
 
 
     /**
-     * Executes a settlement with optional custom amount.
-     * Amount is normalized to 2 decimal places for consistency.
+     * Enqueues and executes a settlement for the given suggestion, optionally using a custom amount.
+     *
+     * Prevents concurrent execution of the same suggestion, normalizes the final amount to two decimal
+     * places (HALF_UP), uses the current user's identity as the creator, and emits snackbar events on
+     * success or failure. If the current user identity is unavailable a snackbar is shown and the
+     * execution is aborted.
+     *
+     * @param suggestion The settlement suggestion to execute (contains from/to user IDs, key, and default amount).
+     * @param amount Optional custom amount to use instead of the suggestion's amount; will be rounded to two decimals.
      */
     fun executeSettlement(suggestion: SettlementSuggestion, amount: BigDecimal = suggestion.amount) {
         val key = suggestion.key
@@ -358,8 +365,14 @@ class GroupDetailViewModel @Inject constructor(
     }
 
     /**
-     * Called when user confirms they want to leave the group.
-     * Executes the actual leave operation via repository.
+     * Attempts to leave the current group and emits UI events that reflect the outcome.
+     *
+     * Retrieves the current user identity; if missing, emits ShowSnackbar("Unable to verify user identity").
+     * Calls GroupRepository.leaveGroup and emits:
+     * - NavigateToDashboard when leaving succeeds or the user was already removed.
+     * - ShowLeaveBlockedByBalance when the operation is blocked due to outstanding balances.
+     * - ShowLeaveBlockedAsLastMember when the operation is blocked because the user is the last member.
+     * - ShowSnackbar("Failed to leave group: <message>") when the repository returns an error.
      */
     fun onConfirmLeaveGroup() {
         viewModelScope.launch {

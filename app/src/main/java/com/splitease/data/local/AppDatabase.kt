@@ -133,10 +133,12 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
-     * Insert a settlement and record its corresponding sync operation in a single database transaction.
+     * Insert a settlement and persist its corresponding sync operation atomically.
+     *
+     * Both inserts occur within the same database transaction so either both are applied or neither.
      *
      * @param settlement The settlement to insert.
-     * @param syncOp The sync operation to persist so the change can be synchronized later.
+     * @param syncOp The sync operation that records this change for later synchronization.
      */
     @androidx.room.Transaction
     open suspend fun insertSettlementWithSync(

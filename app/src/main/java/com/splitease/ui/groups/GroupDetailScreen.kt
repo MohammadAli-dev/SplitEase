@@ -68,6 +68,18 @@ import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+/**
+ * Renders the Group Detail screen UI, showing group metadata, members, balances, settlements, expenses, and available actions.
+ *
+ * This composable observes the provided view model for UI state and one-off events (snackbars, leave dialogs, navigation)
+ * and drives the screen UI accordingly. It also exposes navigation and action callbacks for adding/editing expenses and
+ * viewing sync issues.
+ *
+ * @param onNavigateBack Called when the user requests to navigate back to the previous screen (e.g., back button or navigation event).
+ * @param onNavigateToAddExpense Called with the current group ID to navigate to the Add Expense screen.
+ * @param onNavigateToEditExpense Called with the group ID and expense ID to navigate to the Edit Expense screen for the selected expense.
+ * @param onNavigateToSyncIssues Called to navigate to the sync issues screen.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupDetailScreen(
@@ -695,5 +707,4 @@ private fun ExpandableSettlementCard(
         }
     }
 }
-
 

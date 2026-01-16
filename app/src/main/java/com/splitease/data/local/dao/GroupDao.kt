@@ -77,15 +77,19 @@ interface GroupDao {
     suspend fun updateMemberUserId(oldUserId: String, newUserId: String)
 
     /**
-     * Removes a user from a group.
-     * Used for "Leave Group" functionality.
+     * Remove a specific member from a group.
+     *
+     * @param groupId The id of the group to remove the member from.
+     * @param userId The id of the user to remove from the group.
      */
     @Query("DELETE FROM group_members WHERE groupId = :groupId AND userId = :userId")
     suspend fun deleteMember(groupId: String, userId: String)
 
     /**
-     * Counts the number of members in a group.
-     * Used to prevent the last member from leaving.
+     * Gets the number of members in the specified group.
+     *
+     * @param groupId The id of the group to count members for.
+     * @return The number of members in the group.
      */
     @Query("SELECT COUNT(*) FROM group_members WHERE groupId = :groupId")
     suspend fun getMemberCount(groupId: String): Int

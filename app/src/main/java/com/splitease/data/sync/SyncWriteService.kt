@@ -33,16 +33,20 @@ interface SyncWriteService {
     fun createGroupCreateSyncOp(group: Group, members: List<GroupMember>): SyncOperation
 
     /**
-     * Creates a SyncOperation for a new settlement.
-     * Caller is responsible for persisting within a transaction.
-     */
+ * Create a SyncOperation representing creation of the given settlement.
+ *
+ * @param settlement The settlement entity whose id, groupId, fromUserId, toUserId and amount are used to build the payload.
+ * @return A SyncOperation with operationType "CREATE", entityType "SETTLEMENT", entityId set to settlement.id, and a JSON payload containing the settlement's id, groupId, fromUserId, toUserId and amount (version 1).
+ */
     fun createSettlementCreateSyncOp(settlement: com.splitease.data.local.entities.Settlement): SyncOperation
 
     /**
-     * Creates a SyncOperation for removing a member from a group.
-     * This is an intent-based operation, NOT a state replacement.
-     * Caller is responsible for persisting within a transaction.
-     */
+ * Creates a SyncOperation that represents an intent to remove a member from a group.
+ *
+ * This operation is intent-based and does not perform a state replacement; the caller must persist the returned SyncOperation within a transaction.
+ *
+ * @return A SyncOperation representing the intent to remove the specified `userId` from the specified `groupId`.
+ */
     fun createGroupMemberRemoveSyncOp(groupId: String, userId: String): SyncOperation
 }
 
@@ -106,6 +110,12 @@ class SyncWriteServiceImpl @Inject constructor(
         )
     }
 
+    /**
+     * Creates a SyncOperation that represents creating the given settlement.
+     *
+     * @param settlement The settlement to be represented in the sync operation.
+     * @return A SyncOperation configured as a `CREATE` for the settlement, with a JSON payload containing the settlement's id, groupId, fromUserId, toUserId, and amount.
+     */
     override fun createSettlementCreateSyncOp(settlement: com.splitease.data.local.entities.Settlement): SyncOperation {
         val payload = SettlementCreatePayload(
             version = 1,
@@ -124,6 +134,13 @@ class SyncWriteServiceImpl @Inject constructor(
         )
     }
 
+    /**
+     * Creates a sync operation that records an intent to remove a member from a group.
+     *
+     * @param groupId The identifier of the group from which the member will be removed.
+     * @param userId The identifier of the member to remove.
+     * @return The SyncOperation representing a `REMOVE_MEMBER` intent for the group; its payload contains the `groupId` and `userId`.
+     */
     override fun createGroupMemberRemoveSyncOp(groupId: String, userId: String): SyncOperation {
         val payload = GroupMemberRemovePayload(
             version = 1,
