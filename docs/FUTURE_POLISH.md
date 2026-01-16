@@ -29,6 +29,15 @@ These are not issues — just future polish ideas that don't block current sprin
     - **Incremental Updates**: Update the cached balances whenever an expense or settlement is created, updated, or deleted, avoiding full recalculations.
 - **Why**: Recalculating everything on every "Leave Group" check (or other balance-intensive operations) may lead to performance bottlenecks as group history grows.
 
+### 2. Logical Consistency in Leave Group (TOCTOU)
+- **Observed Risk**: In `GroupRepository.leaveGroup`, multiple reads (members, expenses, splits, settlements) happen sequentially before a single atomic write. In a highly concurrent local environment (multiple threads/background sync), data could drift between the decision and the deletion.
+- **Future Fix (Snapshot Consistency)**:
+    - Avoid wrapping business logic in DB transactions (contention risk).
+    - Implement a **Conditional Atomic Write** in `AppDatabase.leaveGroupWithSync`.
+    - Pass an `expectedMemberCount` or `lastUpdatedAt` version to the transaction.
+    - If the state has changed since the validation began, the transaction should fail, prompting a UI retry.
+- **Current Status**: Low severity for Sprint 15A because financial liability is independent of group membership in the Splitwise model, but worth hardening for absolute determinism.
+
 ---
 
 *Nothing here blocks or weakens Sprint 15A.*
