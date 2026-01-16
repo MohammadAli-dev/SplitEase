@@ -83,4 +83,16 @@ abstract class DataModule {
     abstract fun bindUserRepository(
             userRepositoryImpl: UserRepositoryImpl
     ): UserRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindInstallationIdProvider(
+            installationIdProviderImpl: com.splitease.data.device.InstallationIdProviderImpl
+    ): com.splitease.data.device.InstallationIdProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindLedgerOperationFactory(
+            ledgerOperationFactoryImpl: com.splitease.data.ledger.LedgerOperationFactoryImpl
+    ): com.splitease.data.ledger.LedgerOperationFactory
 }

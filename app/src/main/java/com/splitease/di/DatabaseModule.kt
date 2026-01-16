@@ -11,6 +11,7 @@ import com.splitease.data.local.MIGRATION_9_10
 import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.UserDao
@@ -181,6 +182,31 @@ object DatabaseModule {
     }
 
     /**
+     * Migration from version 10 to 11:
+     * - Add ledger_operations table for immutable financial facts.
+     * - Indices for (deviceId, logicalClock) ordering and (entityType, entityId) lookups.
+     */
+    private val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS ledger_operations (
+                    operationId TEXT NOT NULL PRIMARY KEY,
+                    entityType TEXT NOT NULL,
+                    entityId TEXT NOT NULL,
+                    operationType TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    authorLocalUserId TEXT NOT NULL,
+                    deviceId TEXT NOT NULL,
+                    logicalClock INTEGER NOT NULL,
+                    createdAt INTEGER NOT NULL
+                )
+            """.trimIndent())
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_ledger_operations_deviceId_logicalClock ON ledger_operations(deviceId, logicalClock)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_ledger_operations_entityType_entityId ON ledger_operations(entityType, entityId)")
+        }
+    }
+
+    /**
      * Provides the singleton Room AppDatabase configured for the application's schema.
      *
      * The database is built with migrations from versions 2→3, 3→4, 4→5, 5→6, and 6→7, and uses
@@ -203,6 +229,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_6_7)
             .addMigrations(MIGRATION_7_8)
             .addMigrations(MIGRATION_9_10)
+            .addMigrations(MIGRATION_10_11)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -245,5 +272,14 @@ object DatabaseModule {
     @Provides
     fun provideConnectionStateDao(db: AppDatabase): ConnectionStateDao {
         return db.connectionStateDao()
+    }
+
+    /**
+     * Provides the LedgerDao for immutable ledger operation persistence.
+     * For internal use only; UI never observes ledger directly.
+     */
+    @Provides
+    fun provideLedgerDao(db: AppDatabase): LedgerDao {
+        return db.ledgerDao()
     }
 }

@@ -7,6 +7,7 @@ import com.splitease.data.local.converters.Converters
 import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.dao.UserDao
@@ -16,6 +17,7 @@ import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
+import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.local.entities.User
@@ -29,9 +31,10 @@ import com.splitease.data.local.entities.User
         ExpenseSplit::class,
         Settlement::class,
         SyncOperation::class,
-        ConnectionStateEntity::class
+        ConnectionStateEntity::class,
+        LedgerOperation::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -82,6 +85,12 @@ abstract fun settlementDao(): SettlementDao
 abstract fun connectionStateDao(): ConnectionStateDao
 
     /**
+     * Provides access to the immutable ledger persistence layer.
+     * For internal use only; UI must never observe this directly.
+     */
+    abstract fun ledgerDao(): LedgerDao
+
+    /**
      * Update an existing expense, replace its splits, and record the corresponding sync operation in a single database transaction.
      *
      * @param expense The expense entity to update.
@@ -100,6 +109,53 @@ abstract fun connectionStateDao(): ConnectionStateDao
         syncDao().insertSyncOp(syncOp)
     }
 
+    /**
+     * Atomically commits a LedgerOperation with its logical clock.
+     *
+     * **Terminology**: Part of the "Ledger-Inclusive Atomic Commit" pattern.
+     *
+     * **Rule**: This is the ONLY code path allowed to persist a LedgerOperation.
+     * Clock is allocated atomically to ensure monotonicity.
+     */
+    @androidx.room.Transaction
+    open suspend fun commitLedgerOp(ledgerOp: LedgerOperation) {
+        // Option A: Retry-on-conflict loop to handle race conditions in MAX(clock) allocation.
+        // Unique index on (deviceId, logicalClock) ensures we don't duplicate, 
+        // and catch/retry allows recovering from concurrent inserts.
+        var attempts = 0
+        val maxAttempts = 3
+        
+        while (attempts < maxAttempts) {
+            try {
+                val nextClock = ledgerDao().getNextLogicalClock(ledgerOp.deviceId)
+                val finalOp = ledgerOp.copy(logicalClock = nextClock)
+                ledgerDao().insert(finalOp)
+                return // Success
+            } catch (e: android.database.sqlite.SQLiteConstraintException) {
+                attempts++
+                if (attempts >= maxAttempts) throw e
+                // Otherwise retry loop will re-calculate MAX(clock)
+            }
+        }
+    }
+
+    /**
+     * Update an existing expense with ledger tracking.
+     */
+    @androidx.room.Transaction
+    open suspend fun updateExpenseWithLedger(
+        expense: Expense,
+        splits: List<ExpenseSplit>,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        expenseDao().updateExpense(expense)
+        expenseDao().deleteSplitsForExpense(expense.id)
+        expenseDao().insertSplits(splits)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
+    }
+
     @androidx.room.Transaction
     open suspend fun deleteExpenseWithSync(
         expenseId: String,
@@ -110,6 +166,21 @@ abstract fun connectionStateDao(): ConnectionStateDao
         expenseDao().deleteSplitsForExpense(expenseId)
         expenseDao().deleteExpense(expenseId)
         syncDao().insertSyncOp(syncOp)
+    }
+
+    /**
+     * Delete expense with ledger tracking.
+     */
+    @androidx.room.Transaction
+    open suspend fun deleteExpenseWithLedger(
+        expenseId: String,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        expenseDao().deleteSplitsForExpense(expenseId)
+        expenseDao().deleteExpense(expenseId)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
     }
 
     /**
@@ -133,6 +204,22 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
+     * Insert group with members and ledger tracking.
+     */
+    @androidx.room.Transaction
+    open suspend fun insertGroupWithMembersAndLedger(
+        group: Group,
+        members: List<GroupMember>,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        groupDao().insertGroup(group)
+        groupDao().insertMembers(members)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
+    }
+
+    /**
      * Insert a settlement and persist its corresponding sync operation atomically.
      *
      * Both inserts occur within the same database transaction so either both are applied or neither.
@@ -147,6 +234,20 @@ abstract fun connectionStateDao(): ConnectionStateDao
     ) {
         settlementDao().insertSettlement(settlement)
         syncDao().insertSyncOp(syncOp)
+    }
+
+    /**
+     * Insert settlement with ledger tracking.
+     */
+    @androidx.room.Transaction
+    open suspend fun insertSettlementWithLedger(
+        settlement: Settlement,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        settlementDao().insertSettlement(settlement)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
     }
 
     /**
@@ -171,6 +272,21 @@ abstract fun connectionStateDao(): ConnectionStateDao
     ) {
         groupDao().deleteMember(groupId, userId)
         syncDao().insertSyncOp(syncOp)
+    }
+
+    /**
+     * Remove member with ledger tracking.
+     */
+    @androidx.room.Transaction
+    open suspend fun removeMemberWithLedger(
+        groupId: String,
+        userId: String,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        groupDao().deleteMember(groupId, userId)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
     }
 
     /**

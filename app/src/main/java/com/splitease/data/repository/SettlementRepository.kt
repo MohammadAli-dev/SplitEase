@@ -2,6 +2,7 @@ package com.splitease.data.repository
 
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.SyncWriteService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -46,7 +47,8 @@ interface SettlementRepository {
 @Singleton
 class SettlementRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
-    private val syncWriteService: SyncWriteService
+    private val syncWriteService: SyncWriteService,
+    private val ledgerOperationFactory: LedgerOperationFactory
 ) : SettlementRepository {
 
     override suspend fun createSettlement(
@@ -98,7 +100,8 @@ class SettlementRepositoryImpl @Inject constructor(
         )
 
         val syncOp = syncWriteService.createSettlementCreateSyncOp(settlement)
+        val ledgerOp = ledgerOperationFactory.createSettlementCreateOp(settlement, creatorUserId)
 
-        appDatabase.insertSettlementWithSync(settlement, syncOp)
+        appDatabase.insertSettlementWithLedger(settlement, syncOp, ledgerOp)
     }
 }

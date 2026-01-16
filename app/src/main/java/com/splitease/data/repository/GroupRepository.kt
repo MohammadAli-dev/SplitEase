@@ -4,6 +4,7 @@ import android.util.Log
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
+import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.SyncWriteService
 import com.splitease.domain.BalanceCalculator
 import com.splitease.domain.GroupExitValidator
@@ -102,7 +103,8 @@ interface GroupRepository {
 @Singleton
 class GroupRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
-    private val syncWriteService: SyncWriteService
+    private val syncWriteService: SyncWriteService,
+    private val ledgerOperationFactory: LedgerOperationFactory
 ) : GroupRepository {
 
     companion object {
@@ -154,8 +156,9 @@ class GroupRepositoryImpl @Inject constructor(
             }
 
             val syncOp = syncWriteService.createGroupCreateSyncOp(group, members)
+            val ledgerOp = ledgerOperationFactory.createGroupCreateOp(group, members, creatorUserId)
 
-            appDatabase.insertGroupWithMembersAndSync(group, members, syncOp)
+            appDatabase.insertGroupWithMembersAndLedger(group, members, syncOp, ledgerOp)
         }
 
     /**
@@ -223,9 +226,10 @@ class GroupRepositoryImpl @Inject constructor(
                 }
             }
 
-            // 6. Create sync operation and execute transaction
+            // 6. Create sync and ledger operations and execute transaction
             val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, userId)
-            appDatabase.removeMemberWithSync(groupId, userId, syncOp)
+            val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, userId, userId)
+            appDatabase.removeMemberWithLedger(groupId, userId, syncOp, ledgerOp)
 
             Log.d(TAG, "leaveGroup: Success [groupId=$groupId, userId=$userId, syncOpId=${syncOp.id}]")
             LeaveGroupResult.Success
@@ -291,10 +295,11 @@ class GroupRepositoryImpl @Inject constructor(
                 }
             }
 
-            // 6. Create sync operation and execute transaction
+            // 6. Create sync and ledger operations and execute transaction
             // Reusing existing sync op type as "leaving" == "being removed" in backend terms
             val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, targetUserId)
-            appDatabase.removeMemberWithSync(groupId, targetUserId, syncOp)
+            val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, targetUserId, actorUserId)
+            appDatabase.removeMemberWithLedger(groupId, targetUserId, syncOp, ledgerOp)
 
             Log.d(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=Success syncOpId=${syncOp.id}")
             RemoveMemberResult.Success
