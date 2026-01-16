@@ -136,7 +136,8 @@ class GroupRepositoryImpl @Inject constructor(
                 return@withContext LeaveGroupResult.AlreadyRemoved
             }
 
-            // 3. Check member count guardrail (derived from same snapshot)
+            // 3. Structural invariant: Cannot remove the last member (group would be orphaned)
+            // This is checked early to avoid expensive balance computation for impossible operations
             if (memberCount <= 1) {
                 Log.w(TAG, "leaveGroup: BlockedAsLastMember [groupId=$groupId, userId=$userId, memberCount=$memberCount]")
                 return@withContext LeaveGroupResult.BlockedAsLastMember
