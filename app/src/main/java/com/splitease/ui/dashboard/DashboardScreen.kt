@@ -393,8 +393,31 @@ fun DashboardScreen(
                     }
                 }
                 
-                if (uiState.friendBalances.isNotEmpty()) {
-                    // Friends Card Container
+                if (uiState.friendCount == 0) {
+                    // Empty state: No friends exist at all
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Add friends to start splitting expenses",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                } else if (uiState.friendBalances.isNotEmpty()) {
+                    // Friends exist and have balances
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -432,18 +455,18 @@ fun DashboardScreen(
                                     }
                                     if (index < uiState.friendBalances.size - 1) {
                                         HorizontalDivider()
-                                    }
+                                  }
                                 }
                             }
                         }
                     }
                 } else {
-                    // Empty state for friends
+                    // Friends exist but no expenses yet
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                             )
                         ) {
                             Column(
@@ -453,7 +476,7 @@ fun DashboardScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "Add friends to start splitting expenses",
+                                    text = "No expenses with friends yet",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

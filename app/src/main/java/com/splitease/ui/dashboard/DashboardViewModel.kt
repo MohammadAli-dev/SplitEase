@@ -2,6 +2,7 @@ package com.splitease.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.splitease.data.identity.UserContext
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Group
 import com.splitease.data.repository.BalanceSummaryRepository
@@ -32,6 +33,7 @@ data class DashboardUiState(
     val totalOwing: BigDecimal = BigDecimal.ZERO,
     val groups: List<Group> = emptyList(),
     val friendBalances: List<FriendBalanceUi> = emptyList(),
+    val friendCount: Int = 0, // Total number of friends (excluding current user), derived from users table
     val isLoading: Boolean = true,
     val isSyncing: Boolean = false
 )
@@ -41,6 +43,7 @@ class DashboardViewModel @Inject constructor(
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val groupDao: GroupDao,
     private val userRepository: UserRepository,
+    private val userContext: UserContext,
     private val syncRepository: SyncRepository
 ) : ViewModel() {
 
@@ -104,13 +107,17 @@ class DashboardViewModel @Inject constructor(
             combine(
                 balanceSummaryRepository.getDashboardSummary(),
                 groupDao.getAllGroups(),
-                userRepository.getAllUsers()
-            ) { summary, groups, allUsers ->
+                userRepository.getAllUsers(),
+                userContext.userId
+            ) { summary, groups, allUsers, currentUserId ->
                 // Explicitly sort users by name for consistent UI display (Repository contract)
                 val sortedUsers = allUsers.sortedBy { it.name }
                 
                 // Build name lookup
                 val userNameMap = sortedUsers.associate { it.id to it.name }
+                
+                // Count friends (all users except the current user)
+                val friendCount = sortedUsers.count { it.id != currentUserId }
                 
                 // Map friend balances to UI model with resolved names
                 val friendBalancesUi = summary.friendBalances.map { fb ->
@@ -133,6 +140,7 @@ class DashboardViewModel @Inject constructor(
                     totalOwing = summary.totalOwing,
                     groups = groups,
                     friendBalances = friendBalancesUi,
+                    friendCount = friendCount,
                     isLoading = false,
                     isSyncing = _uiState.value.isSyncing
                 )
