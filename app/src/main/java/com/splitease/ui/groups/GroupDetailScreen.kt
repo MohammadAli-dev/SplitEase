@@ -68,6 +68,18 @@ import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+/**
+ * Renders the Group Detail screen UI, showing group metadata, members, balances, settlements, expenses, and available actions.
+ *
+ * This composable observes the provided view model for UI state and one-off events (snackbars, leave dialogs, navigation)
+ * and drives the screen UI accordingly. It also exposes navigation and action callbacks for adding/editing expenses and
+ * viewing sync issues.
+ *
+ * @param onNavigateBack Called when the user requests to navigate back to the previous screen (e.g., back button or navigation event).
+ * @param onNavigateToAddExpense Called with the current group ID to navigate to the Add Expense screen.
+ * @param onNavigateToEditExpense Called with the group ID and expense ID to navigate to the Edit Expense screen for the selected expense.
+ * @param onNavigateToSyncIssues Called to navigate to the sync issues screen.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupDetailScreen(
@@ -83,44 +95,87 @@ fun GroupDetailScreen(
     // Expanded settlement row state
     var expandedSettlementKey by remember { mutableStateOf<String?>(null) }
     
-    // Leave Group Dialog State
-    var showLeaveDialog by remember { mutableStateOf(false) }
-    var leaveDialogAllowed by remember { mutableStateOf(false) } // true = can leave, false = blocked
+    // Leave Group Dialog States
+    var showLeaveConfirmation by remember { mutableStateOf(false) }
+    var showLeaveBlockedByBalance by remember { mutableStateOf(false) }
+    var showLeaveBlockedAsLastMember by remember { mutableStateOf(false) }
 
-    // Handle one-off events (Snackbar)
+    // Handle one-off events
     LaunchedEffect(viewModel.events) {
         viewModel.events.collect { event ->
             when (event) {
                 is GroupDetailEvent.ShowSnackbar -> {
                     snackbarHostState.showSnackbar(event.message)
                 }
-                is GroupDetailEvent.ShowLeaveGroupDialog -> {
-                    leaveDialogAllowed = event.canLeave
-                    showLeaveDialog = true
+                is GroupDetailEvent.ShowLeaveConfirmation -> {
+                    showLeaveConfirmation = true
+                }
+                is GroupDetailEvent.ShowLeaveBlockedByBalance -> {
+                    showLeaveBlockedByBalance = true
+                }
+                is GroupDetailEvent.ShowLeaveBlockedAsLastMember -> {
+                    showLeaveBlockedAsLastMember = true
+                }
+                is GroupDetailEvent.NavigateToDashboard -> {
+                    onNavigateBack()
                 }
             }
         }
     }
 
-    if (showLeaveDialog) {
-        val title = if (leaveDialogAllowed) "Leaving Group" else "Cannot Leave Group"
-        val text = if (leaveDialogAllowed) 
-            "You can now safely leave this group." 
-        else 
-            "You must settle all balances before leaving this group."
-        
+    // Confirmation Dialog: User can leave
+    if (showLeaveConfirmation) {
         AlertDialog(
-            onDismissRequest = { showLeaveDialog = false },
-            title = { Text(title) },
-            text = { Text(text) },
+            onDismissRequest = { showLeaveConfirmation = false },
+            title = { Text("Leave Group") },
+            text = { Text("You will leave this group. Past expenses will remain unchanged.") },
             confirmButton = {
-                TextButton(onClick = { showLeaveDialog = false }) {
+                TextButton(onClick = {
+                    showLeaveConfirmation = false
+                    viewModel.onConfirmLeaveGroup()
+                }) {
+                    Text("Leave")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveConfirmation = false }) {
+                    Text("Cancel")
+                }
+            },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) }
+        )
+    }
+
+    // Blocked Dialog: Outstanding Balance
+    if (showLeaveBlockedByBalance) {
+        AlertDialog(
+            onDismissRequest = { showLeaveBlockedByBalance = false },
+            title = { Text("Cannot Leave Group") },
+            text = { Text("You cannot leave this group because you have an outstanding balance. Please settle up first.") },
+            confirmButton = {
+                TextButton(onClick = { showLeaveBlockedByBalance = false }) {
                     Text("OK")
                 }
             },
             icon = { Icon(Icons.Default.Info, contentDescription = null) }
         )
     }
+
+    // Blocked Dialog: Last Member
+    if (showLeaveBlockedAsLastMember) {
+        AlertDialog(
+            onDismissRequest = { showLeaveBlockedAsLastMember = false },
+            title = { Text("Cannot Leave Group") },
+            text = { Text("You are the last member of this group and cannot leave.") },
+            confirmButton = {
+                TextButton(onClick = { showLeaveBlockedAsLastMember = false }) {
+                    Text("OK")
+                }
+            },
+            icon = { Icon(Icons.Default.Info, contentDescription = null) }
+        )
+    }
+
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -652,5 +707,4 @@ private fun ExpandableSettlementCard(
         }
     }
 }
-
 

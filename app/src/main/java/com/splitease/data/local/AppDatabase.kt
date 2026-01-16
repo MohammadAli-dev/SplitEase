@@ -133,10 +133,12 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
-     * Insert a settlement and record its corresponding sync operation in a single database transaction.
+     * Insert a settlement and persist its corresponding sync operation atomically.
+     *
+     * Both inserts occur within the same database transaction so either both are applied or neither.
      *
      * @param settlement The settlement to insert.
-     * @param syncOp The sync operation to persist so the change can be synchronized later.
+     * @param syncOp The sync operation that records this change for later synchronization.
      */
     @androidx.room.Transaction
     open suspend fun insertSettlementWithSync(
@@ -144,6 +146,29 @@ abstract fun connectionStateDao(): ConnectionStateDao
         syncOp: SyncOperation
     ) {
         settlementDao().insertSettlement(settlement)
+        syncDao().insertSyncOp(syncOp)
+    }
+
+    /**
+     * Removes a user from a group and records the corresponding sync operation atomically.
+     *
+     * This is an intent-based operation (REMOVE_MEMBER), NOT a state replacement.
+     *
+     * **Idempotency Note**: While `deleteMember` is idempotent, `insertSyncOp` is append-only.
+     * Callers (e.g., Repositories) MUST enforce semantic idempotency by checking existing
+     * state before calling this method to avoid duplicate sync intents.
+     *
+     * @param groupId The ID of the group to leave.
+     * @param userId The ID of the user leaving the group.
+     * @param syncOp The sync operation to persist for synchronization.
+     */
+    @androidx.room.Transaction
+    open suspend fun leaveGroupWithSync(
+        groupId: String,
+        userId: String,
+        syncOp: SyncOperation
+    ) {
+        groupDao().deleteMember(groupId, userId)
         syncDao().insertSyncOp(syncOp)
     }
 

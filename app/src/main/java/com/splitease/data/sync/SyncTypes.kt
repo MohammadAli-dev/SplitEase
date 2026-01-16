@@ -6,7 +6,8 @@ package com.splitease.data.sync
 enum class SyncOperationType {
     CREATE,
     UPDATE,
-    DELETE
+    DELETE,
+    REMOVE_MEMBER // Intent: Remove a member from a group (not a state replacement)
 }
 
 
