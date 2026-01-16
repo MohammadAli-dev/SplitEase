@@ -32,8 +32,8 @@ data class DashboardUiState(
     val totalOwed: BigDecimal = BigDecimal.ZERO,
     val totalOwing: BigDecimal = BigDecimal.ZERO,
     val groups: List<Group> = emptyList(),
-    val friendBalances: List<FriendBalanceUi> = emptyList(),
-    val friendCount: Int = 0, // Total number of friends (excluding current user), derived from users table
+    val ledgerBalances: List<FriendBalanceUi> = emptyList(), // Balances derived from expenses/settlements
+    val knownUserCount: Int = 0, // Total known users (excluding self), derived from users table
     val isLoading: Boolean = true,
     val isSyncing: Boolean = false
 )
@@ -116,11 +116,11 @@ class DashboardViewModel @Inject constructor(
                 // Build name lookup
                 val userNameMap = sortedUsers.associate { it.id to it.name }
                 
-                // Count friends (all users except the current user)
-                val friendCount = sortedUsers.count { it.id != currentUserId }
+                // Count known users (all users except self) — this is the "friend existence" check
+                val knownUserCount = sortedUsers.count { it.id != currentUserId }
                 
-                // Map friend balances to UI model with resolved names
-                val friendBalancesUi = summary.friendBalances.map { fb ->
+                // Map ledger balances to UI model with resolved names
+                val ledgerBalancesUi = summary.friendBalances.map { fb ->
                     val name = userNameMap[fb.friendId] ?: fb.friendId.take(8)
                     val displayText = if (fb.balance > BigDecimal.ZERO) {
                         "owes you ₹${fb.balance}"
@@ -139,8 +139,8 @@ class DashboardViewModel @Inject constructor(
                     totalOwed = summary.totalOwed,
                     totalOwing = summary.totalOwing,
                     groups = groups,
-                    friendBalances = friendBalancesUi,
-                    friendCount = friendCount,
+                    ledgerBalances = ledgerBalancesUi,
+                    knownUserCount = knownUserCount,
                     isLoading = false,
                     isSyncing = _uiState.value.isSyncing
                 )

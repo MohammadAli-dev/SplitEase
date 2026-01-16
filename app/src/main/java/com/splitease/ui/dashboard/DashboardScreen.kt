@@ -393,7 +393,7 @@ fun DashboardScreen(
                     }
                 }
                 
-                if (uiState.friendCount == 0) {
+                if (uiState.knownUserCount == 0) {
                     // Empty state: No friends exist at all
                     item {
                         Card(
@@ -416,7 +416,7 @@ fun DashboardScreen(
                             }
                         }
                     }
-                } else if (uiState.friendBalances.isNotEmpty()) {
+                } else if (uiState.ledgerBalances.isNotEmpty()) {
                     // Friends exist and have balances
                     item {
                         Card(
@@ -424,7 +424,7 @@ fun DashboardScreen(
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
                             Column(modifier = Modifier.padding(8.dp)) {
-                                uiState.friendBalances.forEachIndexed { index, friendBalance ->
+                                uiState.ledgerBalances.forEachIndexed { index, friendBalance ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -453,7 +453,7 @@ fun DashboardScreen(
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    if (index < uiState.friendBalances.size - 1) {
+                                    if (index < uiState.ledgerBalances.size - 1) {
                                         HorizontalDivider()
                                   }
                                 }
