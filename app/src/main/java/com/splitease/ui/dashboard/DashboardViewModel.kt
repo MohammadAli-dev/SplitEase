@@ -2,6 +2,7 @@ package com.splitease.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.splitease.data.identity.UserContext
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.entities.Group
 import com.splitease.data.repository.BalanceSummaryRepository
@@ -31,7 +32,8 @@ data class DashboardUiState(
     val totalOwed: BigDecimal = BigDecimal.ZERO,
     val totalOwing: BigDecimal = BigDecimal.ZERO,
     val groups: List<Group> = emptyList(),
-    val friendBalances: List<FriendBalanceUi> = emptyList(),
+    val ledgerBalances: List<FriendBalanceUi> = emptyList(), // Balances derived from expenses/settlements
+    val knownUserCount: Int = 0, // Total known users (excluding self), derived from users table
     val isLoading: Boolean = true,
     val isSyncing: Boolean = false
 )
@@ -41,6 +43,7 @@ class DashboardViewModel @Inject constructor(
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val groupDao: GroupDao,
     private val userRepository: UserRepository,
+    private val userContext: UserContext,
     private val syncRepository: SyncRepository
 ) : ViewModel() {
 
@@ -104,16 +107,20 @@ class DashboardViewModel @Inject constructor(
             combine(
                 balanceSummaryRepository.getDashboardSummary(),
                 groupDao.getAllGroups(),
-                userRepository.getAllUsers()
-            ) { summary, groups, allUsers ->
+                userRepository.getAllUsers(),
+                userContext.userId
+            ) { summary, groups, allUsers, currentUserId ->
                 // Explicitly sort users by name for consistent UI display (Repository contract)
                 val sortedUsers = allUsers.sortedBy { it.name }
                 
                 // Build name lookup
                 val userNameMap = sortedUsers.associate { it.id to it.name }
                 
-                // Map friend balances to UI model with resolved names
-                val friendBalancesUi = summary.friendBalances.map { fb ->
+                // Count known users (all users except self) — this is the "friend existence" check
+                val knownUserCount = sortedUsers.count { it.id != currentUserId }
+                
+                // Map ledger balances to UI model with resolved names
+                val ledgerBalancesUi = summary.friendBalances.map { fb ->
                     val name = userNameMap[fb.friendId] ?: fb.friendId.take(8)
                     val displayText = if (fb.balance > BigDecimal.ZERO) {
                         "owes you ₹${fb.balance}"
@@ -132,7 +139,8 @@ class DashboardViewModel @Inject constructor(
                     totalOwed = summary.totalOwed,
                     totalOwing = summary.totalOwing,
                     groups = groups,
-                    friendBalances = friendBalancesUi,
+                    ledgerBalances = ledgerBalancesUi,
+                    knownUserCount = knownUserCount,
                     isLoading = false,
                     isSyncing = _uiState.value.isSyncing
                 )

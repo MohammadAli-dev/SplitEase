@@ -38,6 +38,13 @@ These are not issues — just future polish ideas that don't block current sprin
     - If the state has changed since the validation began, the transaction should fail, prompting a UI retry.
 - **Current Status**: Low severity for Sprint 15A because financial liability is independent of group membership in the Splitwise model, but worth hardening for absolute determinism.
 
+### 3. Refined `knownUserCount` Semantics
+- **Current Definition**: `knownUserCount = allUsers.count { it.id != currentUserId }` — every non-self user is a "friend."
+- **Future Considerations**:
+    - If soft-deleted users, blocked users, pending invites, or archived connections are introduced, refine to: `users.filter { it.isActive && !it.isBlocked }`.
+    - Users added solely via group membership (not explicitly added as friends) still count toward `knownUserCount`. This is intentional: "friend" = any known user I can transact with.
+- **Current Status**: Correct for MVP. Revisit when connection lifecycle becomes more complex.
+
 ---
 
 *Nothing here blocks or weakens Sprint 15A.*
