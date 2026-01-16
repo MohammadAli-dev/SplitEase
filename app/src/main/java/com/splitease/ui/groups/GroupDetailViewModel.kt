@@ -324,28 +324,36 @@ class GroupDetailViewModel @Inject constructor(
 
     /**
      * Called when user clicks "Leave Group" menu item.
-     * Pre-validates eligibility and shows appropriate dialog.
+     *
+     * Performs OPTIMISTIC pre-validation using UI state snapshot only.
+     * These checks provide fast UX feedback but are NOT authoritative.
+     * The Repository performs final validation on confirmation.
+     *
+     * Invariant: UI may block early, but never assumes success.
      */
     fun onLeaveGroupClicked() {
         val state = uiState.value
         if (state !is GroupDetailUiState.Success) return
 
+        // Derive all facts from the same UI state snapshot (no fresh DB calls)
+        val memberCount = state.members.size
+
         viewModelScope.launch {
-            // Use derived canLeaveGroup from UI state (already calculated from balances)
-            val memberCount = groupDao.getMemberCount(groupId)
-            
-            if (memberCount <= 1) {
-                _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedAsLastMember)
-                return@launch
+            when {
+                // Optimistic check: Last member guard
+                memberCount <= 1 -> {
+                    _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedAsLastMember)
+                }
+                // Optimistic check: Balance guard (derived from UI state)
+                !state.canLeaveGroup -> {
+                    _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedByBalance)
+                }
+                // Optimistic OK -> Show confirmation dialog
+                // Note: Repository will re-validate authoritatively on confirmation
+                else -> {
+                    _eventChannel.send(GroupDetailEvent.ShowLeaveConfirmation)
+                }
             }
-            
-            if (!state.canLeaveGroup) {
-                _eventChannel.send(GroupDetailEvent.ShowLeaveBlockedByBalance)
-                return@launch
-            }
-            
-            // Balance OK, member count OK -> show confirmation
-            _eventChannel.send(GroupDetailEvent.ShowLeaveConfirmation)
         }
     }
 
