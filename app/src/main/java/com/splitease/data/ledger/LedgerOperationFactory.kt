@@ -14,6 +14,8 @@ import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -75,6 +77,9 @@ class LedgerOperationFactoryImpl @Inject constructor(
     private fun deviceId(): String = installationIdProvider.getDeviceId()
     private fun now(): Long = System.currentTimeMillis()
 
+    private fun BigDecimal.toCanonicalString(): String =
+        this.setScale(2, RoundingMode.HALF_UP).toPlainString()
+
     override fun createExpenseCreateOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
@@ -84,7 +89,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             id = expense.id,
             groupId = expense.groupId,
             title = expense.title,
-            amount = expense.amount,
+            amount = expense.amount.toCanonicalString(),
             currency = expense.currency,
             payerId = expense.payerId,
             createdBy = expense.createdBy,
@@ -95,7 +100,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             lastModifiedByUserId = expense.lastModifiedByUserId,
             updatedAt = expense.updatedAt,
             deletedAt = expense.deletedAt,
-            splits = splits.map { ExpenseSplitSnapshot(it.expenseId, it.userId, it.amount) }
+            splits = splits.map { ExpenseSplitSnapshot(it.expenseId, it.userId, it.amount.toCanonicalString()) }
         )
         return LedgerOperation(
             operationId = generateOperationId(),
@@ -119,7 +124,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             id = expense.id,
             groupId = expense.groupId,
             title = expense.title,
-            amount = expense.amount,
+            amount = expense.amount.toCanonicalString(),
             currency = expense.currency,
             payerId = expense.payerId,
             createdBy = expense.createdBy,
@@ -130,7 +135,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             lastModifiedByUserId = expense.lastModifiedByUserId,
             updatedAt = expense.updatedAt,
             deletedAt = expense.deletedAt,
-            splits = splits.map { ExpenseSplitSnapshot(it.expenseId, it.userId, it.amount) }
+            splits = splits.map { ExpenseSplitSnapshot(it.expenseId, it.userId, it.amount.toCanonicalString()) }
         )
         return LedgerOperation(
             operationId = generateOperationId(),
@@ -155,7 +160,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             id = expense.id,
             groupId = expense.groupId,
             title = expense.title,
-            amount = expense.amount,
+            amount = expense.amount.toCanonicalString(),
             currency = expense.currency,
             payerId = expense.payerId,
             createdBy = expense.createdBy,
@@ -166,7 +171,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             lastModifiedByUserId = expense.lastModifiedByUserId,
             updatedAt = expense.updatedAt,
             deletedAt = expense.deletedAt ?: now(),
-            splits = splits.map { ExpenseSplitSnapshot(it.expenseId, it.userId, it.amount) }
+            splits = splits.map { ExpenseSplitSnapshot(it.expenseId, it.userId, it.amount.toCanonicalString()) }
         )
         return LedgerOperation(
             operationId = generateOperationId(),
@@ -249,7 +254,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             groupId = settlement.groupId,
             fromUserId = settlement.fromUserId,
             toUserId = settlement.toUserId,
-            amount = settlement.amount,
+            amount = settlement.amount.toCanonicalString(),
             date = settlement.date.time,
             createdByUserId = settlement.createdByUserId,
             lastModifiedByUserId = settlement.lastModifiedByUserId,

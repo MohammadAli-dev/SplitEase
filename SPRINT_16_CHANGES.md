@@ -19,6 +19,7 @@ This sprint introduced a deterministic, local, immutable ledger system to SplitE
 ### Deterministic Factory & Device ID
 - **`InstallationIdProvider`**: Introduced to generate and persist a stable UUID for each app installation in `SharedPreferences`. This identifies which device "authored" an operation.
 - **`LedgerOperationFactory`**: A pure logic component that transforms Room entities into `LedgerOperation` records. It ensures that JSON serialization is consistent and payloads are canonical.
+  - **Refinement**: Implemented **String Canonicalization** for all `BigDecimal` fields (Amount) using `setScale(2, RoundingMode.HALF_UP).toPlainString()`. This eliminates serialization non-determinism at the domain level.
 
 ### Ledger-Inclusive Atomic Commit (`AppDatabase`)
 - Updated `AppDatabase.kt` with a **Ledger-Inclusive Atomic Commit** pattern.
@@ -145,6 +146,7 @@ This PR introduces the "Local Ledger" foundation—a deterministic, immutable, a
 ### Key Changes
 - **Immutable Ledger Schema**: Added `LedgerOperation` Room entity with device-scoped `logicalClock` for authoritative ordering.
 - **Canonical Snapshots**: Implemented versioned DTOs (`ExpenseSnapshot`, etc.) stored as JSON payloads in the ledger.
+  - **Deterministic Money**: Refactored DTOs to store amounts as `String` to ensure bit-for-bit identical payloads regardless of JSON serializer configuration (BigDecimal scientific notation fix).
 - **Ledger-Inclusive Atomic Commit**: Refactored `AppDatabase` transaction helpers to ensure Business Data, Sync Intents, and Ledger Operations are committed atomically.
 - **Concurrency Handling**: Implemented a retry-on-conflict loop for logical clock allocation to resolve potential SQLite write contention inside Room transactions.
 - **Repository Instrumentation**: Updated `GroupRepository`, `ExpenseRepository`, and `SettlementRepository` to implement dual-writes (Entities + Ledger).

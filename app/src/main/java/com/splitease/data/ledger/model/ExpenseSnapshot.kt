@@ -1,6 +1,6 @@
 package com.splitease.data.ledger.model
 
-import java.math.BigDecimal
+
 
 /**
  * Canonical snapshot of an Expense entity for ledger persistence.
@@ -13,7 +13,7 @@ data class ExpenseSnapshot(
     val id: String,
     val groupId: String,
     val title: String,
-    val amount: BigDecimal,
+    val amount: String,
     val currency: String,
     val payerId: String,
     val createdBy: String,
@@ -36,5 +36,5 @@ data class ExpenseSnapshot(
 data class ExpenseSplitSnapshot(
     val expenseId: String,
     val userId: String,
-    val amount: BigDecimal
+    val amount: String
 )

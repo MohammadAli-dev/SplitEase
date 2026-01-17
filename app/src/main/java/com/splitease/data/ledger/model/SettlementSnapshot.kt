@@ -1,6 +1,6 @@
 package com.splitease.data.ledger.model
 
-import java.math.BigDecimal
+
 
 /**
  * Canonical snapshot of a Settlement entity for ledger persistence.
@@ -13,7 +13,7 @@ data class SettlementSnapshot(
     val groupId: String,
     val fromUserId: String,
     val toUserId: String,
-    val amount: BigDecimal,
+    val amount: String,
     /** Epoch millis (from Date.time) */
     val date: Long,
     val createdByUserId: String,
