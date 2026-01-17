@@ -609,6 +609,7 @@ class PullSyncServiceImpl @Inject constructor(
             fromUserId = remote.from_user_id,
             toUserId = remote.to_user_id,
             amount = amount,
+            currency = remote.currency ?: "INR", // Fetch from remote, fallback to INR for legacy data
             date = date,
             createdByUserId = remote.created_by_user_id ?: IdentityConstants.LEGACY_USER_ID,
             lastModifiedByUserId = remote.last_modified_by_user_id ?: IdentityConstants.LEGACY_USER_ID,

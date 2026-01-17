@@ -255,6 +255,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             fromUserId = settlement.fromUserId,
             toUserId = settlement.toUserId,
             amount = settlement.amount.toCanonicalString(),
+            currency = settlement.currency,
             date = settlement.date.time,
             createdByUserId = settlement.createdByUserId,
             lastModifiedByUserId = settlement.lastModifiedByUserId,

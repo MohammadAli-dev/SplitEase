@@ -126,7 +126,8 @@ class SettleUpViewModel @Inject constructor(
                         settlementRepository.createSettlement(
                             fromUserId = currentUserId,
                             toUserId = friendId,
-                            amount = amount
+                            amount = amount,
+                            currency = "INR" // TODO: Derive from group context when multi-currency is implemented
                         )
                     }
                     else -> {
@@ -134,7 +135,8 @@ class SettleUpViewModel @Inject constructor(
                         settlementRepository.createSettlement(
                             fromUserId = friendId,
                             toUserId = currentUserId,
-                            amount = amount
+                            amount = amount,
+                            currency = "INR" // TODO: Derive from group context when multi-currency is implemented
                         )
                     }
                 }

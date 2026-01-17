@@ -207,6 +207,36 @@ object DatabaseModule {
     }
 
     /**
+     * Migration from version 11 to 12:
+     * - Add currency field to settlements table.
+     * - Backfill existing rows with 'INR' (historical data correction).
+     * - Verify no NULL currencies remain.
+     *
+     * **Invariant**: All settlements must have an explicit currency, derived from context,
+     * never defaulted at runtime. The migration backfills legacy data to maintain integrity.
+     */
+    private val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Add currency column
+            db.execSQL("ALTER TABLE settlements ADD COLUMN currency TEXT")
+            
+            // Backfill existing settlements with INR (historical correction)
+            db.execSQL("UPDATE settlements SET currency = 'INR' WHERE currency IS NULL")
+            
+            // Verify no NULL values remain (integrity check)
+            val cursor = db.query("SELECT COUNT(*) FROM settlements WHERE currency IS NULL")
+            if (cursor.moveToFirst()) {
+                val nullCount = cursor.getInt(0)
+                cursor.close()
+                if (nullCount > 0) {
+                    throw IllegalStateException("Migration 11->12 failed: $nullCount settlements have NULL currency")
+                }
+            }
+            cursor.close()
+        }
+    }
+
+    /**
      * Provides the singleton Room AppDatabase configured for the application's schema.
      *
      * The database is built with migrations from versions 2→3, 3→4, 4→5, 5→6, and 6→7, and uses
@@ -230,6 +260,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_7_8)
             .addMigrations(MIGRATION_9_10)
             .addMigrations(MIGRATION_10_11)
+            .addMigrations(MIGRATION_11_12)
             .fallbackToDestructiveMigration()
             .build()
     }

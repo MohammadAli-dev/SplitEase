@@ -324,6 +324,7 @@ class GroupDetailViewModel @Inject constructor(
                     fromUserId = suggestion.fromUserId,
                     toUserId = suggestion.toUserId,
                     amount = normalized,
+                    currency = "INR", // TODO: Derive from group context when multi-currency is implemented
                     creatorUserId = creatorUserId
                 )
                 _eventChannel.send(GroupDetailEvent.ShowSnackbar("Settlement recorded"))

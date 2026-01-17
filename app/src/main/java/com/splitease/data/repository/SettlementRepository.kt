@@ -20,11 +20,13 @@ interface SettlementRepository {
      * @param fromUserId The user who paid.
      * @param toUserId The user who received.
      * @param amount The amount settled.
+     * @param currency Currency code (ISO 4217). Must be explicitly provided, never defaulted.
      */
     suspend fun createSettlement(
         fromUserId: String,
         toUserId: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        currency: String
     )
 
     /**
@@ -33,13 +35,17 @@ interface SettlementRepository {
     fun observeSettlementsBetween(userA: String, userB: String): Flow<List<Settlement>>
 
     /**
-     * Low-level execution of a settlement. Kept for flexibility if group-specific settlements are needed later.
+     * Low-level execution of a settlement.
+     *
+     * **Currency Invariant**: Currency must be explicitly provided from context,
+     * never defaulted at runtime. This ensures ledger integrity.
      */
     suspend fun executeSettlement(
         groupId: String,
         fromUserId: String,
         toUserId: String,
         amount: BigDecimal,
+        currency: String,
         creatorUserId: String
     )
 }
@@ -54,7 +60,8 @@ class SettlementRepositoryImpl @Inject constructor(
     override suspend fun createSettlement(
         fromUserId: String,
         toUserId: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        currency: String
     ) {
         // Payer is the creator implicitly for now (in absence of Auth Context here)
         // Global settlements use empty string for groupId
@@ -63,6 +70,7 @@ class SettlementRepositoryImpl @Inject constructor(
             fromUserId = fromUserId,
             toUserId = toUserId,
             amount = amount,
+            currency = currency,
             creatorUserId = fromUserId
         )
     }
@@ -76,6 +84,7 @@ class SettlementRepositoryImpl @Inject constructor(
         fromUserId: String,
         toUserId: String,
         amount: BigDecimal,
+        currency: String,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
         // Domain Guard: No self-settlement
@@ -94,6 +103,7 @@ class SettlementRepositoryImpl @Inject constructor(
             fromUserId = fromUserId,
             toUserId = toUserId,
             amount = amount.setScale(2, RoundingMode.HALF_UP),
+            currency = currency,
             date = Date(),
             createdByUserId = creatorUserId,
             lastModifiedByUserId = creatorUserId

@@ -34,7 +34,7 @@ import com.splitease.data.local.entities.User
         ConnectionStateEntity::class,
         LedgerOperation::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
