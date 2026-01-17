@@ -136,9 +136,9 @@ abstract fun settlementDao(): SettlementDao
 abstract fun connectionStateDao(): ConnectionStateDao
 
     /**
- * Accessor for the immutable ledger persistence DAO.
+ * Provides access to the DAO responsible for persisting immutable ledger operations.
  *
- * @return The LedgerDao used to persist ledger operations.
+ * @return The LedgerDao used to persist immutable ledger operations.
  */
     abstract fun ledgerDao(): LedgerDao
 

@@ -33,9 +33,7 @@ class ExpenseRepositoryImpl @Inject constructor(
 ) : ExpenseRepository {
 
     /**
-         * Persists an expense together with its splits, a corresponding sync operation, and a ledger operation in a single atomic transaction.
-         *
-         * This operation executes on the IO dispatcher; callers should not manage threading.
+         * Persist an expense with its splits, record the corresponding sync and ledger operations, and schedule a ledger push.
          *
          * @param expense The expense to persist.
          * @param splits The list of splits associated with the expense.
@@ -49,10 +47,10 @@ class ExpenseRepositoryImpl @Inject constructor(
         }
 
     /**
-         * Update an existing expense and its splits, persisting the change along with associated sync and ledger operations in a single atomic transaction.
+         * Updates an existing expense and its splits, persisting the update together with corresponding sync and ledger operations in a single atomic transaction and scheduling a ledger push.
          *
          * @param expense The expense to update.
-         * @param splits The list of splits that represent how the expense is divided.
+         * @param splits The splits that divide the expense.
          */
         override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {

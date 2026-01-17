@@ -33,6 +33,15 @@ class SyncWorker @AssistedInject constructor(
         private const val TAG = "SyncWorker"
     }
 
+    /**
+     * Performs a two-phase synchronization: pushes local pending operations first, then pulls remote updates.
+     *
+     * The worker first attempts to process all pending local operations; if that phase encounters a transient error it requests a retry.
+     * Next it performs a pull of remote updates and maps pull errors (with an underlying cause) to an appropriate Worker Result.
+     * Any uncaught exception is converted to a Worker Result using the class TAG.
+     *
+     * @return `Result.success()` when both phases complete successfully; `Result.retry()` if the push phase reports a transient failure; otherwise a `Result` converted from the pull error cause or any thrown exception.
+     */
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting sync work...")
         
@@ -68,4 +77,3 @@ class SyncWorker @AssistedInject constructor(
         }
     }
 }
-

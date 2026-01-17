@@ -141,12 +141,24 @@ data class LedgerOperationUploadDto(
 )
 
 interface SplitEaseApi {
+    /**
+     * Authenticate a user and obtain authentication details.
+     *
+     * @param req LoginRequest containing the user's email for authentication.
+     * @return AuthResponse containing the user ID, access token, user's name and email, and optional profile URL.
+     */
     @POST("auth/login")
     suspend fun login(@Body req: LoginRequest): AuthResponse
 
     @POST("auth/signup")
     suspend fun signup(@Body req: SignupRequest): AuthResponse
 
+    /**
+     * Synchronizes a batch of client operations with the remote backend.
+     *
+     * @param req The sync payload describing operations to apply on the server.
+     * @return `SyncResponse` representing the result; `success` is `true` if the sync succeeded, `false` otherwise, and `message` contains server-provided details.
+     */
     @POST("sync")
     suspend fun sync(@Body req: SyncRequest): SyncResponse
 
@@ -154,17 +166,16 @@ interface SplitEaseApi {
     // Uses Supabase PostgREST batch insert with duplicate handling
 
     /**
-     * Push ledger operations to Supabase (Write-Only).
+     * Pushes a batch of ledger operations to the remote ledger service.
      *
-     * **Sprint 17 Contract**:
-     * - Idempotent: Uses `Prefer: resolution=ignore-duplicates` header.
-     * - No reads: This is a write-only endpoint.
-     * - Batch: Accepts up to 50 operations per call.
+     * Request is write-only and should be made idempotent by using the Prefer header value
+     * "resolution=ignore-duplicates". Up to 50 operations may be sent in a single call.
      *
-     * @param authHeader Bearer token
-     * @param apiKey Supabase public key
-     * @param preferHeader Must be "resolution=ignore-duplicates" for idempotency
-     * @param operations List of ledger operations to push
+     * @param authHeader Bearer token for authorization (e.g., "Bearer ...").
+     * @param apiKey Supabase public API key.
+     * @param preferHeader Header controlling insert behavior; use "resolution=ignore-duplicates" for idempotency.
+     * @param operations List of ledger operations to upload.
+     * @return HTTP response; successful requests have an empty response body.
      */
     @POST("ledger_operations")
     suspend fun insertLedgerOperations(
