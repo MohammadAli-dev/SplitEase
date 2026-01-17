@@ -57,6 +57,13 @@ interface GroupDao {
     suspend fun getGroupById(groupId: String): Group?
 
     /**
+     * Get total group count (for fresh-install guard).
+     * Used by HydrationCoordinator to check if database is empty.
+     */
+    @Query("SELECT COUNT(*) FROM expense_groups")
+    suspend fun getGroupCountSync(): Int
+
+    /**
      * Fetches group names for the given group IDs as id/value pairs.
      *
      * @param ids The group IDs to look up.

@@ -45,6 +45,13 @@ interface SettlementDao {
     suspend fun getSettlementById(id: String): Settlement?
 
     /**
+     * Get total settlement count (for fresh-install guard).
+     * Used by HydrationCoordinator to check if database is empty.
+     */
+    @Query("SELECT COUNT(*) FROM settlements")
+    suspend fun getSettlementCountSync(): Int
+
+    /**
      * Fetches settlement amounts for the given settlement IDs.
      *
      * The query returns pairs of settlement `id` and `value` where `value` is the amount stored as a plain decimal string.

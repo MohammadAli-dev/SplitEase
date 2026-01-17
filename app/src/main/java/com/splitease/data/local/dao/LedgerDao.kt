@@ -78,4 +78,11 @@ interface LedgerDao {
      */
     @Query("SELECT * FROM ledger_operations WHERE entityType = :entityType AND entityId = :entityId ORDER BY deviceId ASC, logicalClock ASC")
     fun getOperationsForEntity(entityType: String, entityId: String): Flow<List<LedgerOperation>>
+
+    /**
+     * Get total ledger operation count (for fresh-install guard).
+     * Used by HydrationCoordinator to check if database is empty.
+     */
+    @Query("SELECT COUNT(*) FROM ledger_operations")
+    suspend fun getOperationCountSync(): Int
 }

@@ -4,6 +4,8 @@ import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
+import com.splitease.data.hydration.ReadOnlyModeManager
+import com.splitease.data.hydration.ReadOnlyViolationException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
@@ -29,7 +31,8 @@ class ExpenseRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
-    private val ledgerSyncScheduler: LedgerSyncScheduler
+    private val ledgerSyncScheduler: LedgerSyncScheduler,
+    private val readOnlyModeManager: ReadOnlyModeManager
 ) : ExpenseRepository {
 
     /**
@@ -37,9 +40,13 @@ class ExpenseRepositoryImpl @Inject constructor(
          *
          * @param expense The expense to persist.
          * @param splits The list of splits associated with the expense.
+         * @throws ReadOnlyViolationException if device is in read-only mode.
          */
     override suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>) = 
         withContext(Dispatchers.IO) {
+            if (readOnlyModeManager.isReadOnlyMode()) {
+                throw ReadOnlyViolationException("Cannot add expense in read-only mode")
+            }
             val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(expense, splits, expense.createdByUserId)
             appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
@@ -51,9 +58,13 @@ class ExpenseRepositoryImpl @Inject constructor(
          *
          * @param expense The expense to update.
          * @param splits The splits that divide the expense.
+         * @throws ReadOnlyViolationException if device is in read-only mode.
          */
         override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
+            if (readOnlyModeManager.isReadOnlyMode()) {
+                throw ReadOnlyViolationException("Cannot update expense in read-only mode")
+            }
             val syncOp = syncWriteService.createUpdateExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(expense, splits, expense.lastModifiedByUserId)
             appDatabase.updateExpenseWithLedger(expense, splits, syncOp, ledgerOp)
@@ -67,9 +78,13 @@ class ExpenseRepositoryImpl @Inject constructor(
          * If the expense does not exist, the function is a no-op.
          *
          * @param expenseId The ID of the expense to delete.
+         * @throws ReadOnlyViolationException if device is in read-only mode.
          */
         override suspend fun deleteExpense(expenseId: String) =
         withContext(Dispatchers.IO) {
+            if (readOnlyModeManager.isReadOnlyMode()) {
+                throw ReadOnlyViolationException("Cannot delete expense in read-only mode")
+            }
             // Fetch expense and splits for complete snapshot before deletion
             val expense = expenseDao.getExpense(expenseId).first() 
                 ?: return@withContext // Already deleted, no-op

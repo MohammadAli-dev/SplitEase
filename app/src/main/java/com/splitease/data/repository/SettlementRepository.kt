@@ -2,6 +2,8 @@ package com.splitease.data.repository
 
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.hydration.ReadOnlyModeManager
+import com.splitease.data.hydration.ReadOnlyViolationException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
@@ -25,6 +27,7 @@ interface SettlementRepository {
      * @param toUserId The user who received payment.
      * @param amount The settlement amount (will be stored with two decimal places).
      * @param currency The currency code (ISO 4217) for the settlement.
+     * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     suspend fun createSettlement(
         fromUserId: String,
@@ -54,6 +57,7 @@ interface SettlementRepository {
      *
      * @throws IllegalArgumentException if `fromUserId` equals `toUserId` with message "Settlement cannot be self-directed".
      * @throws IllegalArgumentException if `amount` is not positive with message "Settlement amount must be positive".
+     * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     suspend fun executeSettlement(
         groupId: String,
@@ -70,7 +74,8 @@ class SettlementRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
-    private val ledgerSyncScheduler: LedgerSyncScheduler
+    private val ledgerSyncScheduler: LedgerSyncScheduler,
+    private val readOnlyModeManager: ReadOnlyModeManager
 ) : SettlementRepository {
 
     /**
@@ -83,6 +88,7 @@ class SettlementRepositoryImpl @Inject constructor(
      *
      * @throws IllegalArgumentException if `fromUserId` equals `toUserId`.
      * @throws IllegalArgumentException if `amount` is not greater than zero.
+     * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     override suspend fun createSettlement(
         fromUserId: String,
@@ -119,6 +125,7 @@ class SettlementRepositoryImpl @Inject constructor(
      * @param currency The ISO currency code for the settlement.
      * @param creatorUserId User ID recorded as the creator of the settlement (typically the payer when no auth context is available).
      * @throws IllegalArgumentException If `fromUserId` equals `toUserId` or if `amount` is not greater than zero.
+     * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     override suspend fun executeSettlement(
         groupId: String,
@@ -128,6 +135,11 @@ class SettlementRepositoryImpl @Inject constructor(
         currency: String,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
+        // Read-only guard
+        if (readOnlyModeManager.isReadOnlyMode()) {
+            throw ReadOnlyViolationException("Cannot create settlement in read-only mode")
+        }
+        
         // Domain Guard: No self-settlement
         require(fromUserId != toUserId) {
             "Settlement cannot be self-directed"

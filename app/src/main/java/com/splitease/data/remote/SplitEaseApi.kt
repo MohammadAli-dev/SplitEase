@@ -140,6 +140,50 @@ data class LedgerOperationUploadDto(
     val logicalClock: Long
 )
 
+// ===============================
+// READ / DOWNLOAD DTOs (Inbound)
+// ===============================
+
+/**
+ * DTO for downloading LedgerOperations from Supabase.
+ *
+ * **Sprint 18 Contract**:
+ * - Strict 1:1 mapping to local [com.splitease.data.local.entities.LedgerOperation].
+ * - Direction-aware naming: "Download" indicates Cloud -> Client.
+ * - All fields are String/Long for JSON compatibility.
+ * - createdAt is included for diagnostics only; MUST NOT be used for ordering.
+ *
+ * **Read-Only**: This DTO is for SELECT only. No INSERT operations are supported.
+ */
+data class RemoteLedgerOperation(
+    @SerializedName("operation_id")
+    val operationId: String,
+
+    @SerializedName("entity_type")
+    val entityType: String,
+
+    @SerializedName("entity_id")
+    val entityId: String,
+
+    @SerializedName("operation_type")
+    val operationType: String,
+
+    @SerializedName("payload")
+    val payload: String,
+
+    @SerializedName("author_local_user_id")
+    val authorLocalUserId: String,
+
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("logical_clock")
+    val logicalClock: Long,
+
+    @SerializedName("created_at")
+    val createdAt: Long? = null
+)
+
 interface SplitEaseApi {
     /**
      * Authenticate a user and obtain authentication details.
@@ -184,6 +228,32 @@ interface SplitEaseApi {
         @Header("Prefer") preferHeader: String = "resolution=ignore-duplicates",
         @Body operations: List<LedgerOperationUploadDto>
     ): Response<Unit>
+
+    // --- Ledger Pull Endpoint (Sprint 18: Read-Only) ---
+    // Uses Supabase PostgREST SELECT for hydration
+
+    /**
+     * Fetches all ledger operations from Supabase for hydration.
+     *
+     * **Sprint 18 Contract**:
+     * - Read-only endpoint for device hydration.
+     * - The `order` parameter is a bandwidth optimization hint ONLY.
+     * - Caller MUST sort locally by (deviceId, logicalClock) regardless of server ordering.
+     * - Do NOT rely on Supabase ordering guarantees.
+     *
+     * @param authHeader Bearer token for authorization.
+     * @param apiKey Supabase public API key.
+     * @param order Hint for server-side ordering (bandwidth efficiency, NOT authoritative).
+     * @param rangeHeader Pagination: "0-999" for first 1000 rows.
+     * @return List of ledger operations; caller must sort locally.
+     */
+    @GET("ledger_operations")
+    suspend fun getLedgerOperations(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("order") order: String = "device_id.asc,logical_clock.asc",
+        @Header("Range") rangeHeader: String? = null
+    ): Response<List<RemoteLedgerOperation>>
 
     // --- Pull Sync Endpoints (Supabase PostgREST) ---
     // Note: These use Supabase table names and query syntax

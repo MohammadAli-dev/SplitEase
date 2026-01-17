@@ -39,6 +39,7 @@ interface SyncRepository {
  * Enqueues the given synchronization operation and schedules an immediate sync run.
  *
  * @param operation The SyncOperation to persist and schedule for processing.
+*/
 suspend fun enqueueOperation(operation: SyncOperation)
     /**
  * Processes the next pending sync operation from the queue, performing the necessary remote/local reconciliation
