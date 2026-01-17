@@ -49,10 +49,24 @@ interface ReadOnlyModeManager {
      * UI components should observe this to show/hide read-only indicators.
      */
     val readOnlyModeFlow: Flow<Boolean>
+
+    /**
+     * Track if a hydration attempt is currently in flight or has crashed.
+     * Sprint 18 Safety Invariant: If DB is not empty AND not read-only AND attempted == true -> CORRUPT.
+     */
+    suspend fun isHydrationAttempted(): Boolean
+    suspend fun setHydrationAttempted(attempted: Boolean)
+
+    /**
+     * Check if a wipe occurred due to inconsistent state.
+     * Consumes the flag (sets it to false) and returns true if it was set.
+     */
+    suspend fun checkAndClearWipeFlag(): Boolean
+    suspend fun setWipeOccurred()
 }
 
 // Extension property for Context-scoped DataStore
-private val Context.readOnlyModeDataStore: DataStore<Preferences> by preferencesDataStore(
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "read_only_mode_prefs"
 )
 
@@ -63,22 +77,51 @@ class ReadOnlyModeManagerImpl @Inject constructor(
 
     companion object {
         private val KEY_IS_READ_ONLY = booleanPreferencesKey("is_read_only")
+        private val KEY_HYDRATION_ATTEMPTED = booleanPreferencesKey("hydration_attempted")
+        private val KEY_WIPE_OCCURRED = booleanPreferencesKey("wipe_occurred")
     }
 
-    private val dataStore: DataStore<Preferences>
-        get() = context.readOnlyModeDataStore
-
-    override val readOnlyModeFlow: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[KEY_IS_READ_ONLY] ?: false
-    }
+    override val readOnlyModeFlow: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[KEY_IS_READ_ONLY] ?: false
+        }
 
     override suspend fun isReadOnlyMode(): Boolean {
-        return dataStore.data.first()[KEY_IS_READ_ONLY] ?: false
+        return readOnlyModeFlow.first()
     }
 
     override suspend fun enterReadOnlyMode() {
-        dataStore.edit { prefs ->
-            prefs[KEY_IS_READ_ONLY] = true
+        context.dataStore.edit { preferences ->
+            preferences[KEY_IS_READ_ONLY] = true
+        }
+    }
+
+    override suspend fun isHydrationAttempted(): Boolean {
+        return context.dataStore.data.map { preferences ->
+            preferences[KEY_HYDRATION_ATTEMPTED] ?: false
+        }.first()
+    }
+
+    override suspend fun setHydrationAttempted(attempted: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_HYDRATION_ATTEMPTED] = attempted
+        }
+    }
+
+    override suspend fun checkAndClearWipeFlag(): Boolean {
+        var eventOccurred = false
+        context.dataStore.edit { preferences ->
+            eventOccurred = preferences[KEY_WIPE_OCCURRED] ?: false
+            if (eventOccurred) {
+                preferences[KEY_WIPE_OCCURRED] = false
+            }
+        }
+        return eventOccurred
+    }
+
+    override suspend fun setWipeOccurred() {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_WIPE_OCCURRED] = true
         }
     }
 }

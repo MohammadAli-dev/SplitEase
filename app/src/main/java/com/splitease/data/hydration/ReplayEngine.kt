@@ -1,14 +1,15 @@
 package com.splitease.data.hydration
 
+import android.database.sqlite.SQLiteConstraintException
 import android.util.Log
 import com.google.gson.Gson
-import com.splitease.data.ledger.LedgerOperationFactoryImpl.Companion.ENTITY_EXPENSE
-import com.splitease.data.ledger.LedgerOperationFactoryImpl.Companion.ENTITY_GROUP
-import com.splitease.data.ledger.LedgerOperationFactoryImpl.Companion.ENTITY_MEMBER
-import com.splitease.data.ledger.LedgerOperationFactoryImpl.Companion.ENTITY_SETTLEMENT
-import com.splitease.data.ledger.LedgerOperationFactoryImpl.Companion.OP_CREATE
-import com.splitease.data.ledger.LedgerOperationFactoryImpl.Companion.OP_DELETE
-import com.splitease.data.ledger.LedgerOperationFactoryImpl.Companion.OP_UPDATE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_EXPENSE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_GROUP
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_MEMBER
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_SETTLEMENT
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_CREATE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_DELETE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_UPDATE
 import com.splitease.data.ledger.model.ExpenseSnapshot
 import com.splitease.data.ledger.model.GroupSnapshot
 import com.splitease.data.ledger.model.MemberSnapshot
@@ -20,7 +21,8 @@ import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
-import kotlinx.coroutines.Dispatchers
+import com.splitease.di.IoDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.util.Date
@@ -60,14 +62,15 @@ sealed class ReplayResult {
 @Singleton
 class ReplayEngineImpl @Inject constructor(
     private val db: AppDatabase,
-    private val gson: Gson
+    private val gson: Gson,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ReplayEngine {
 
     companion object {
         private const val TAG = "ReplayEngine"
     }
 
-    override suspend fun replay(operations: List<LedgerOperation>): ReplayResult = withContext(Dispatchers.IO) {
+    override suspend fun replay(operations: List<LedgerOperation>): ReplayResult = withContext(ioDispatcher) {
         if (operations.isEmpty()) {
             Log.d(TAG, "No operations to replay")
             return@withContext ReplayResult.Success
@@ -333,16 +336,18 @@ class ReplayEngineImpl @Inject constructor(
             }
             OP_CREATE -> {
                 // Member CREATE = add member to group
-                if (snapshot.joinedAt != null) {
-                    db.groupDao().insertMember(
-                        GroupMember(
-                            groupId = snapshot.groupId,
-                            userId = snapshot.userId,
-                            joinedAt = Date(snapshot.joinedAt)
-                        )
-                    )
-                    Log.d(TAG, "Applied MEMBER CREATE: ${snapshot.groupId}:${snapshot.userId}")
+                if (snapshot.joinedAt == null) {
+                    Log.w(TAG, "Data Quality Violation: joinedAt is NULL for groupId=${snapshot.groupId}, userId=${snapshot.userId}. Using sentinel 0L.")
                 }
+
+                db.groupDao().insertMember(
+                    GroupMember(
+                        groupId = snapshot.groupId,
+                        userId = snapshot.userId,
+                        joinedAt = Date(snapshot.joinedAt ?: 0L)
+                    )
+                )
+                Log.d(TAG, "Applied MEMBER CREATE: ${snapshot.groupId}:${snapshot.userId}")
             }
             else -> {
                 Log.w(TAG, "Unexpected MEMBER operation type: ${op.operationType}")
@@ -354,6 +359,11 @@ class ReplayEngineImpl @Inject constructor(
      * Persist the ledger operation itself to maintain local ledger integrity.
      *
      * Uses direct insert since we're hydrating (not creating new ops locally).
+     *
+     * **Idempotency Note**: [SQLiteConstraintException] is treated as benign here because
+     * the ledger_operations table is append-only and uniquely keyed by operationId.
+     * This allows hydration to safely resume after a crash. If additional constraints
+     * (FKs, CHECKs) are added in the future, this logic must be revisited.
      */
     private suspend fun persistLedgerOperation(op: LedgerOperation) {
         try {
@@ -368,9 +378,13 @@ class ReplayEngineImpl @Inject constructor(
                 deviceId = op.deviceId,
                 createdAt = op.createdAt
             )
+        } catch (e: SQLiteConstraintException) {
+            // Benign: Op already exists (idempotency during resumed hydration)
+            Log.d(TAG, "Ledger operation already exists: ${op.operationId}")
         } catch (e: Exception) {
-            // Ledger insert may fail if already exists (idempotency)
-            Log.d(TAG, "Ledger operation already exists or insert failed: ${op.operationId}")
+            // Fatal: Disk full, corruption, etc.
+            Log.e(TAG, "Fatal error persisting ledger operation ${op.operationId}: ${e.message}")
+            throw e // Rethrow to let the convergence loop handle/defer the failure
         }
     }
 }

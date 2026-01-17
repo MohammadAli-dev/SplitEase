@@ -4,6 +4,7 @@ import android.util.Log
 import com.splitease.data.auth.AuthConfig
 import com.splitease.data.auth.AuthManager
 import com.splitease.data.auth.AuthState
+import com.splitease.data.auth.TokenManager
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.remote.RemoteLedgerOperation
 import com.splitease.data.remote.SplitEaseApi
@@ -38,7 +39,8 @@ interface LedgerPullService {
 @Singleton
 class LedgerPullServiceImpl @Inject constructor(
     private val api: SplitEaseApi,
-    private val authManager: AuthManager
+    private val authManager: AuthManager,
+    private val tokenManager: TokenManager
 ) : LedgerPullService {
 
     companion object {
@@ -58,7 +60,14 @@ class LedgerPullServiceImpl @Inject constructor(
                 return@withContext Result.failure(IllegalStateException("Auth not configured"))
             }
 
-            val accessToken = AuthConfig.supabasePublicKey // Will get from token manager in real impl
+            // ATOMIC CREDENTIAL RETRIEVAL
+            // CRITICAL: We must use the user's JWT access token, NOT the static anon/public key.
+            // Supabase RLS (Row Level Security) relies on the JWT claims to determine row ownership.
+            // Using the anon key as a Bearer token would treat the request as unauthenticated.
+            val accessToken = tokenManager.getAccessToken() ?: return@withContext Result.failure(
+                IllegalStateException("Zombie Session: Authenticated state detected but Access Token is missing")
+            )
+
             val allOperations = mutableListOf<RemoteLedgerOperation>()
             var offset = 0
 
@@ -104,9 +113,16 @@ class LedgerPullServiceImpl @Inject constructor(
     /**
      * Maps remote DTO to domain entity.
      *
-     * **Invariant**: Strict 1:1 mapping, no transformations.
+     * **Invariant**: Strict 1:1 mapping.
+     * **Deterministic Fallback**: If createdAt is missing from the server, we use 0L.
+     * This ensures fleet-wide consistency (everyone sees the same history) and surfaces
+     * upstream data-quality bugs as visible "Jan 1, 1970" timestamps.
      */
     private fun RemoteLedgerOperation.toDomain(): LedgerOperation {
+        if (this.createdAt == null) {
+            Log.w(TAG, "Data Quality Violation: createdAt is NULL for opId=$operationId, deviceId=$deviceId. Using sentinel 0L.")
+        }
+
         return LedgerOperation(
             operationId = this.operationId,
             entityType = this.entityType,
@@ -116,7 +132,7 @@ class LedgerPullServiceImpl @Inject constructor(
             authorLocalUserId = this.authorLocalUserId,
             deviceId = this.deviceId,
             logicalClock = this.logicalClock,
-            createdAt = this.createdAt ?: System.currentTimeMillis()
+            createdAt = this.createdAt ?: 0L
         )
     }
 }

@@ -3,6 +3,7 @@ package com.splitease.di
 import android.content.Context
 import com.google.gson.Gson
 import com.splitease.data.auth.AuthManager
+import com.splitease.data.auth.TokenManager
 import com.splitease.data.hydration.HydrationCoordinator
 import com.splitease.data.hydration.HydrationCoordinatorImpl
 import com.splitease.data.hydration.LedgerPullService
@@ -44,18 +45,20 @@ object HydrationModule {
     @Singleton
     fun provideLedgerPullService(
         api: SplitEaseApi,
-        authManager: AuthManager
+        authManager: AuthManager,
+        tokenManager: TokenManager
     ): LedgerPullService {
-        return LedgerPullServiceImpl(api, authManager)
+        return LedgerPullServiceImpl(api, authManager, tokenManager)
     }
 
     @Provides
     @Singleton
     fun provideReplayEngine(
         db: AppDatabase,
-        gson: Gson
+        gson: Gson,
+        @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): ReplayEngine {
-        return ReplayEngineImpl(db, gson)
+        return ReplayEngineImpl(db, gson, ioDispatcher)
     }
 
     @Provides
@@ -64,8 +67,9 @@ object HydrationModule {
         db: AppDatabase,
         ledgerPullService: LedgerPullService,
         replayEngine: ReplayEngine,
-        readOnlyModeManager: ReadOnlyModeManager
+        readOnlyModeManager: ReadOnlyModeManager,
+        @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): HydrationCoordinator {
-        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, readOnlyModeManager)
+        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, readOnlyModeManager, ioDispatcher)
     }
 }

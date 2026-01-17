@@ -10,7 +10,6 @@ import androidx.work.WorkManager
 import com.splitease.data.hydration.ReadOnlyModeManager
 import com.splitease.worker.LedgerPushWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,14 +38,17 @@ class LedgerSyncScheduler @Inject constructor(
      * Schedules a one-time ledger push job that will run when network connectivity is available.
      *
      * Enqueues `LedgerPushWorker` as unique work using `LedgerPushWorker.WORK_NAME` with
-     * `ExistingWorkPolicy.KEEP`, ensuring existing scheduled work is preserved. Safe to call
-     * repeatedly; the work will only run when the device has a connected network.
+     * `ExistingWorkPolicy.KEEP`, ensuring existing scheduled work is preserved.
+     *
+     * **Concurrency**: This is a suspend function that correctly awaits IO checks (like
+     * read-only mode) without blocking the calling thread. It is part of the async
+     * persistence chain and should be called from an IO-safe coroutine context.
      *
      * **Sprint 18**: Skips scheduling if device is in read-only mode (hydrated device).
      */
-    fun schedulePush() {
+    suspend fun schedulePush() {
         // Sprint 18: Skip scheduling in read-only mode (hydrated devices must not push)
-        val isReadOnly = runBlocking { readOnlyModeManager.isReadOnlyMode() }
+        val isReadOnly = readOnlyModeManager.isReadOnlyMode()
         if (isReadOnly) {
             Log.d(TAG, "Skipping ledger push: device in read-only mode")
             return
