@@ -242,18 +242,12 @@ class GroupRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Removes a specified member from a group, enforcing exit rules and recording corresponding sync and ledger operations.
+     * Removes a member from the specified group while enforcing membership and balance rules and persisting the corresponding sync and ledger intents.
      *
-     * This operation is idempotent: if the target is not a member it returns `TargetAlreadyRemoved`. It will block removal
-     * if the target is the group's last member or if the target has a non-zero net balance; on success the removal and the
-     * associated sync/ledger intents are persisted in a single transaction.
-     *
-     * @param groupId ID of the group.
-     * @param actorUserId ID of the user performing the removal (the actor).
-     * @param targetUserId ID of the member to be removed (the target).
-     * @return `RemoveMemberResult` indicating the outcome: `Success` on successful removal; `BlockedByBalance` if the target
-     *         has a non-zero balance; `BlockedAsLastMember` if the target is the last remaining member; `TargetAlreadyRemoved`
-     *         if the target is not currently a member; `Error(message)` if an unexpected error occurred.
+     * @param groupId The group's ID.
+     * @param actorUserId The ID of the user performing the removal.
+     * @param targetUserId The ID of the member to remove.
+     * @return `RemoveMemberResult` indicating the outcome: `Success` on successful removal; `BlockedByBalance` if the target has a non-zero balance; `BlockedAsLastMember` if the target is the last remaining member; `TargetAlreadyRemoved` if the target is not a current member; `Error(message)` for unexpected failures.
      */
     override suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult = withContext(Dispatchers.IO) {
         try {

@@ -46,6 +46,20 @@ class LedgerPushWorker @AssistedInject constructor(
         const val WORK_NAME = "ledger_push_work"
     }
 
+    /**
+     * Pushes pending local ledger operations for the current device to the remote backend and advances
+     * the last-pushed logical clock as batches are successfully committed.
+     *
+     * The worker authenticates using the TokenManager, reads pending operations from the local
+     * database in batches (up to BATCH_SIZE), converts them to upload DTOs, and sends them to the API.
+     * After each successful batch the worker advances LedgerSyncStore to the maximum logical clock in
+     * that batch and continues until no pending operations remain. If no access token is available the
+     * push is skipped and treated as successful. API failures and unexpected exceptions are converted
+     * to appropriate WorkManager failure results.
+     *
+     * @return `Result.success()` if all pending operations were pushed or the push was skipped due to
+     *         missing authentication; a failure `Result` if the remote request failed or an exception occurred.
+     */
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting ledger push...")
 
@@ -102,7 +116,9 @@ class LedgerPushWorker @AssistedInject constructor(
     }
 
     /**
-     * Maps local LedgerOperation to upload DTO (1:1 field mapping).
+     * Convert this LedgerOperation into its upload DTO representation.
+     *
+     * @return A LedgerOperationUploadDto containing the same field values as this LedgerOperation.
      */
     private fun LedgerOperation.toUploadDto(): LedgerOperationUploadDto {
         return LedgerOperationUploadDto(

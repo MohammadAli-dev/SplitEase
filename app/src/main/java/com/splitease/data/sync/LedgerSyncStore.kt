@@ -31,9 +31,9 @@ class LedgerSyncStore @Inject constructor(
     }
 
     /**
-     * Get the last successfully pushed logical clock.
+     * Retrieve the most recent successfully pushed logical clock for this device.
      *
-     * @return The last pushed clock, or 0 if never pushed.
+     * @return The last pushed clock; 0 if no clock has been recorded.
      */
     suspend fun getLastPushedClock(): Long {
         return context.ledgerSyncDataStore.data.map { prefs ->

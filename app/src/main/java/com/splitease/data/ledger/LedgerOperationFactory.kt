@@ -46,17 +46,12 @@ interface LedgerOperationFactory {
     ): LedgerOperation
 
     /**
-     * Create a LedgerOperation that records an update to an existing expense.
+     * Builds a LedgerOperation representing an update to the given expense with a canonical JSON snapshot that includes the provided splits.
      *
-     * The returned operation contains a canonical, versioned JSON payload of the expense (including the provided splits),
-     * uses `ENTITY_EXPENSE` and operation type `OP_UPDATE`, sets `logicalClock` to 0 (assigned at commit), sets `deviceId`
-     * from the installation provider, and timestamps `createdAt` with the current time.
-     *
-     * @param expense The expense entity to capture in the operation payload.
-     * @param splits The expense splits to include in the payload.
-     * @param authorUserId The local user id of the author creating this operation.
-     * @return A LedgerOperation for updating the specified expense; its `payload` is the JSON ExpenseSnapshot, `entityId`
-     *         is `expense.id`, `operationType` is `"UPDATE"`, and `authorLocalUserId` is `authorUserId`.
+     * @param expense The expense to include in the operation payload.
+     * @param splits Expense splits to include in the snapshot.
+     * @param authorUserId Local user id of the operation author.
+     * @return A LedgerOperation whose payload is the JSON ExpenseSnapshot for the expense (including splits), with `entityId` set to the expense id, `operationType` set to "UPDATE", `authorLocalUserId` set to `authorUserId`, `deviceId` from the installation provider, `logicalClock` set to 0, and `createdAt` set to the current time.
      */
     fun createExpenseUpdateOp(
         expense: Expense,
@@ -82,12 +77,14 @@ interface LedgerOperationFactory {
     ): LedgerOperation
 
     /**
-     * Create a ledger operation representing the creation of a group.
+     * Creates a CREATE operation for the given group with a canonical JSON snapshot.
      *
-     * @param group The group entity to capture in the operation payload.
-     * @param members The group's members; the payload uses a canonical snapshot where members are deterministically ordered by `userId`.
+     * The snapshot includes the group's fields and members deterministically ordered by `userId`.
+     *
+     * @param group The group to snapshot.
+     * @param members The group's members; will be ordered by `userId` in the payload.
      * @param authorUserId The local user id of the operation author.
-     * @return A `LedgerOperation` with operation type "CREATE" targeting the group's id. The operation's payload is a canonical, versioned JSON snapshot of the group (including the deterministically ordered members), `deviceId` is obtained from the installation provider, `logicalClock` is set to 0, and `createdAt` is the current system time.
+     * @return A LedgerOperation representing a "CREATE" operation for the group's id whose payload is a canonical, versioned JSON GroupSnapshot.
      */
     fun createGroupCreateOp(
         group: Group,
