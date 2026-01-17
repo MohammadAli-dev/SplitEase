@@ -2,6 +2,7 @@ package com.splitease.data.repository
 
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.SyncWriteService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -15,30 +16,50 @@ import javax.inject.Singleton
 
 interface SettlementRepository {
     /**
-     * Creates a new settlement (global, not group-specific).
-     * @param fromUserId The user who paid.
-     * @param toUserId The user who received.
-     * @param amount The amount settled.
+     * Create a global settlement between two users.
+     *
+     * This records a settlement that is not tied to any group and treats the payer (`fromUserId`) as the creator of the settlement. Currency must be provided as an ISO 4217 code and will not be defaulted.
+     *
+     * @param fromUserId The user who paid and will be recorded as the creator.
+     * @param toUserId The user who received payment.
+     * @param amount The settlement amount (will be stored with two decimal places).
+     * @param currency The currency code (ISO 4217) for the settlement.
      */
     suspend fun createSettlement(
         fromUserId: String,
         toUserId: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        currency: String
     )
 
     /**
-     * Observes all settlements between two users (in either direction).
-     */
+ * Observe settlements involving the two specified users, regardless of which one is payer or payee.
+ *
+ * @return Lists of settlements between the two users (either direction), updated when the underlying data changes.
+ */
     fun observeSettlementsBetween(userA: String, userB: String): Flow<List<Settlement>>
 
     /**
-     * Low-level execution of a settlement. Kept for flexibility if group-specific settlements are needed later.
+     * Executes a settlement record and persists its associated sync and ledger operations.
+     *
+     * Performs domain validation, constructs the Settlement with the provided currency and creator, creates the corresponding sync and ledger operations, and persists them together.
+     *
+     * @param groupId The group identifier for the settlement; use an empty string to indicate a global (non-group) settlement.
+     * @param fromUserId The payer's user ID.
+     * @param toUserId The payee's user ID.
+     * @param amount The settlement amount; must be greater than zero.
+     * @param currency The currency code for the settlement; must be explicitly provided to preserve ledger integrity.
+     * @param creatorUserId The user ID recorded as the creator and last modifier of the settlement.
+     *
+     * @throws IllegalArgumentException if `fromUserId` equals `toUserId` with message "Settlement cannot be self-directed".
+     * @throws IllegalArgumentException if `amount` is not positive with message "Settlement amount must be positive".
      */
     suspend fun executeSettlement(
         groupId: String,
         fromUserId: String,
         toUserId: String,
         amount: BigDecimal,
+        currency: String,
         creatorUserId: String
     )
 }
@@ -46,13 +67,26 @@ interface SettlementRepository {
 @Singleton
 class SettlementRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
-    private val syncWriteService: SyncWriteService
+    private val syncWriteService: SyncWriteService,
+    private val ledgerOperationFactory: LedgerOperationFactory
 ) : SettlementRepository {
 
+    /**
+     * Creates a global settlement (no group) from one user to another, treating the payer as the creator.
+     *
+     * @param fromUserId The payer's user ID (also used as the creator ID for the settlement).
+     * @param toUserId The payee's user ID.
+     * @param amount The settlement amount (will be stored with two decimal places).
+     * @param currency The currency code for the settlement (must be provided; no defaulting).
+     *
+     * @throws IllegalArgumentException if `fromUserId` equals `toUserId`.
+     * @throws IllegalArgumentException if `amount` is not greater than zero.
+     */
     override suspend fun createSettlement(
         fromUserId: String,
         toUserId: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        currency: String
     ) {
         // Payer is the creator implicitly for now (in absence of Auth Context here)
         // Global settlements use empty string for groupId
@@ -61,6 +95,7 @@ class SettlementRepositoryImpl @Inject constructor(
             fromUserId = fromUserId,
             toUserId = toUserId,
             amount = amount,
+            currency = currency,
             creatorUserId = fromUserId
         )
     }
@@ -69,11 +104,26 @@ class SettlementRepositoryImpl @Inject constructor(
         return appDatabase.settlementDao().observeSettlementsBetween(userA, userB)
     }
 
+    /**
+     * Creates and persists a settlement between two users, records a corresponding sync operation and a ledger operation.
+     *
+     * The created settlement is persisted with the amount rounded to two decimal places (HALF_UP), the date set to now,
+     * and both createdByUserId and lastModifiedByUserId set to `creatorUserId`.
+     *
+     * @param groupId Identifier of the group the settlement belongs to; use an empty string for a global (non-group) settlement.
+     * @param fromUserId The payer's user ID.
+     * @param toUserId The payee's user ID.
+     * @param amount The settlement amount; will be stored scaled to two decimal places.
+     * @param currency The ISO currency code for the settlement.
+     * @param creatorUserId User ID recorded as the creator of the settlement (typically the payer when no auth context is available).
+     * @throws IllegalArgumentException If `fromUserId` equals `toUserId` or if `amount` is not greater than zero.
+     */
     override suspend fun executeSettlement(
         groupId: String,
         fromUserId: String,
         toUserId: String,
         amount: BigDecimal,
+        currency: String,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
         // Domain Guard: No self-settlement
@@ -92,13 +142,15 @@ class SettlementRepositoryImpl @Inject constructor(
             fromUserId = fromUserId,
             toUserId = toUserId,
             amount = amount.setScale(2, RoundingMode.HALF_UP),
+            currency = currency,
             date = Date(),
             createdByUserId = creatorUserId,
             lastModifiedByUserId = creatorUserId
         )
 
         val syncOp = syncWriteService.createSettlementCreateSyncOp(settlement)
+        val ledgerOp = ledgerOperationFactory.createSettlementCreateOp(settlement, creatorUserId)
 
-        appDatabase.insertSettlementWithSync(settlement, syncOp)
+        appDatabase.insertSettlementWithLedger(settlement, syncOp, ledgerOp)
     }
 }

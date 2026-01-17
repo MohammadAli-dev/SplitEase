@@ -11,6 +11,7 @@ import com.splitease.data.local.MIGRATION_9_10
 import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.UserDao
@@ -162,6 +163,20 @@ object DatabaseModule {
      * - NO client-time values are written during migration.
      */
     private val MIGRATION_7_8 = object : Migration(7, 8) {
+        /**
+         * Adds audit timestamp and tombstone columns to expenses, expense_groups, and settlements,
+         * and creates indexes on the new `updatedAt` columns.
+         *
+         * Adds `updatedAt` (INTEGER NOT NULL, default 0) and `deletedAt` (INTEGER, nullable) to:
+         * - `expenses`
+         * - `expense_groups`
+         * - `settlements`
+         *
+         * Also creates the following indexes:
+         * - `index_expenses_updatedAt` on `expenses(updatedAt)`
+         * - `index_expense_groups_updatedAt` on `expense_groups(updatedAt)`
+         * - `index_settlements_updatedAt` on `settlements(updatedAt)`
+         */
         override fun migrate(db: SupportSQLiteDatabase) {
             // Expenses
             db.execSQL("ALTER TABLE expenses ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
@@ -181,12 +196,90 @@ object DatabaseModule {
     }
 
     /**
-     * Provides the singleton Room AppDatabase configured for the application's schema.
+     * Migration from version 10 to 11:
+     * - Add ledger_operations table for immutable financial facts.
+     * - Indices for (deviceId, logicalClock) ordering and (entityType, entityId) lookups.
+     */
+    private val MIGRATION_10_11 = object : Migration(10, 11) {
+        /**
+         * Creates the `ledger_operations` table and its indices in the database.
+         *
+         * The created table stores ledger operation records with the following columns:
+         * - `operationId` (TEXT) primary key
+         * - `entityType` (TEXT)
+         * - `entityId` (TEXT)
+         * - `operationType` (TEXT)
+         * - `payload` (TEXT)
+         * - `authorLocalUserId` (TEXT)
+         * - `deviceId` (TEXT)
+         * - `logicalClock` (INTEGER)
+         * - `createdAt` (INTEGER)
+         *
+         * Also creates:
+         * - a unique index on (`deviceId`, `logicalClock`)
+         * - a non-unique index on (`entityType`, `entityId`)
+         */
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS ledger_operations (
+                    operationId TEXT NOT NULL PRIMARY KEY,
+                    entityType TEXT NOT NULL,
+                    entityId TEXT NOT NULL,
+                    operationType TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    authorLocalUserId TEXT NOT NULL,
+                    deviceId TEXT NOT NULL,
+                    logicalClock INTEGER NOT NULL,
+                    createdAt INTEGER NOT NULL
+                )
+            """.trimIndent())
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_ledger_operations_deviceId_logicalClock ON ledger_operations(deviceId, logicalClock)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_ledger_operations_entityType_entityId ON ledger_operations(entityType, entityId)")
+        }
+    }
+
+    /**
+     * Migration from version 11 to 12:
+     * - Add currency field to settlements table.
+     * - Backfill existing rows with 'INR' (historical data correction).
+     * - Verify no NULL currencies remain.
      *
-     * The database is built with migrations from versions 2→3, 3→4, 4→5, 5→6, and 6→7, and uses
-     * fallbackToDestructiveMigration as a safety net.
+     * **Invariant**: All settlements must have an explicit currency, derived from context,
+     * never defaulted at runtime. The migration backfills legacy data to maintain integrity.
+     */
+    private val MIGRATION_11_12 = object : Migration(11, 12) {
+        /**
+         * Adds a `currency` column to the `settlements` table, backfills existing rows with `"INR"`, and verifies that no NULL values remain.
+         *
+         * @param db The writable database instance for this migration.
+         * @throws IllegalStateException if any settlement row still has a NULL `currency` after backfill.
+         */
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Add currency column
+            db.execSQL("ALTER TABLE settlements ADD COLUMN currency TEXT")
+            
+            // Backfill existing settlements with INR (historical correction)
+            db.execSQL("UPDATE settlements SET currency = 'INR' WHERE currency IS NULL")
+            
+            // Verify no NULL values remain (integrity check)
+            val cursor = db.query("SELECT COUNT(*) FROM settlements WHERE currency IS NULL")
+            if (cursor.moveToFirst()) {
+                val nullCount = cursor.getInt(0)
+                cursor.close()
+                if (nullCount > 0) {
+                    throw IllegalStateException("Migration 11->12 failed: $nullCount settlements have NULL currency")
+                }
+            }
+            cursor.close()
+        }
+    }
+
+    /**
+     * Creates and provides the singleton Room database used by the application.
      *
-     * @return `AppDatabase` instance configured with the registered migrations and destructive fallback.
+     * Registers migrations 2→3, 3→4, 4→5, 5→6, 6→7, 7→8, 9→10, 10→11, and 11→12, and enables destructive migration as a fallback.
+     *
+     * @return The configured AppDatabase instance.
      */
     @Provides
     @Singleton
@@ -203,6 +296,8 @@ object DatabaseModule {
             .addMigrations(MIGRATION_6_7)
             .addMigrations(MIGRATION_7_8)
             .addMigrations(MIGRATION_9_10)
+            .addMigrations(MIGRATION_10_11)
+            .addMigrations(MIGRATION_11_12)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -245,5 +340,17 @@ object DatabaseModule {
     @Provides
     fun provideConnectionStateDao(db: AppDatabase): ConnectionStateDao {
         return db.connectionStateDao()
+    }
+
+    /**
+     * Provides the DAO for persisting immutable ledger operations.
+     *
+     * Intended for internal persistence; UI components do not observe ledger data directly.
+     *
+     * @return The LedgerDao instance for accessing ledger operations.
+     */
+    @Provides
+    fun provideLedgerDao(db: AppDatabase): LedgerDao {
+        return db.ledgerDao()
     }
 }

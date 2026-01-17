@@ -96,6 +96,17 @@ class SettleUpViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Initiates a settlement for the amount entered in the UI and updates the view state to reflect progress and outcome.
+     *
+     * If the UI state does not allow settling, the call returns immediately. Otherwise the function sets `isLoading`
+     * to true, reads the entered amount, the current balance with the friend, and the current user id from the user
+     * context. If the user id is missing, it sets `errorMessage` to "User context missing" and stops. If the balance is
+     * zero, it sets `errorMessage` to "No balance to settle" and stops. For a negative balance the current user pays the
+     * friend; for a positive balance the friend pays the current user. A settlement is created via the repository with
+     * currency "INR". On success the UI state is updated to `isSettled = true` and `isLoading = false`. On failure the
+     * UI state is updated with the exception message and `isLoading = false`.
+     */
     fun onSettleUp() {
         if (!_uiState.value.canSettle) return
 
@@ -126,7 +137,8 @@ class SettleUpViewModel @Inject constructor(
                         settlementRepository.createSettlement(
                             fromUserId = currentUserId,
                             toUserId = friendId,
-                            amount = amount
+                            amount = amount,
+                            currency = "INR" // TODO: Derive from group context when multi-currency is implemented
                         )
                     }
                     else -> {
@@ -134,7 +146,8 @@ class SettleUpViewModel @Inject constructor(
                         settlementRepository.createSettlement(
                             fromUserId = friendId,
                             toUserId = currentUserId,
-                            amount = amount
+                            amount = amount,
+                            currency = "INR" // TODO: Derive from group context when multi-currency is implemented
                         )
                     }
                 }

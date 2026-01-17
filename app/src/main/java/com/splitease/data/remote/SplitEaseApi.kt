@@ -82,6 +82,7 @@ data class RemoteSettlement(
     val from_user_id: String,
     val to_user_id: String,
     val amount: String, // BigDecimal as string
+    val currency: String? = null, // Optional for backward compatibility with old server data
     val date: String, // ISO-8601 timestamp
     val created_by_user_id: String?,
     val last_modified_by_user_id: String?,
