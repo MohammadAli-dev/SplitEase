@@ -56,27 +56,35 @@ import com.splitease.data.local.entities.User
  * **Architectural Decision: Entity-Specific Transaction Helpers**
  *
  * This database uses entity-specific methods like `insertExpenseWithLedger`,
- * `updateExpenseWithLedger`, etc. to ensure atomicity between business data,
+ * `updateExpenseWithLedger`, etc., to ensure atomicity between business data,
  * sync operations, and ledger operations.
  *
  * ### Why Entity-Specific Methods?
  *
- * Room's `@Transaction` annotation is **method-scoped**, not lambda-scoped.
- * Unlike traditional ORMs, Room does NOT provide `runInTransaction { ... }` blocks
- * where you can call arbitrary DAO methods inside the lambda.
+ * Although Room supports lambda-scoped transactions via `RoomDatabase.runInTransaction(...)`
+ * and the `room-ktx` `withTransaction { ... }` helper, we intentionally choose
+ * **entity-specific helpers** in this class for the following reasons:
  *
- * **The alternatives are:**
- * 1. ✅ **Entity-specific helpers** (what we chose) - type-safe, explicit atomicity
- * 2. ❌ **Generic dispatch with `Any`** - loses type safety, harder to test
- * 3. ❌ **Repository-level coordination** - technically impossible with Room's API
- * 4. ❌ **Custom transaction manager** - reimplements Room's infrastructure
+ * 1. ✅ **Explicit Atomicity Contracts**: We define a "Domain Fact" (e.g., Expense + Sync + Ledger)
+ *    as a single named method. This prevents developers from accidentally omitting
+ *    required ledger records when writing ad-hoc transaction blocks in repositories.
+ * 2. ✅ **Type Safety & Encapsulation**: Repository-level code remains pure; it doesn't
+ *    need to know the internal details of how many DAOs must be coordinated.
+ * 3. ✅ **Centralized Invariant Visibility**: All cross-table atomic mutations are
+ *    registered in this file, making it the single source of truth for sync-aware commits.
+ *
+ * ### Alternatives Considered:
+ * - ❌ **Generic `withTransaction` in Repositories**: Risks "Transaction Leakage" and
+ *    inconsistent atomic commits if logic is duplicated across repositories.
+ * - ❌ **Generic dispatch with `Any`**: Loses type safety and makes debugging harder.
+ * - ❌ **Custom transaction manager**: Adds unnecessary complexity on top of Room.
  *
  * ### Invariant to Enforce:
  *
  * > **Every financial mutation MUST commit the entity, SyncOp, and LedgerOp atomically.**
  *
  * If you add a new mutation type, you MUST create a corresponding `*WithLedger` method
- * in this class. Do NOT call DAO methods + `commitLedgerOp` separately from repositories.
+ * in this class. Do NOT call DAO methods + `withTransaction` separately from repositories.
  *
  * ### Current Ledger-Aware Methods:
  * - `insertExpenseWithLedger` (CREATE)
@@ -152,28 +160,28 @@ abstract fun connectionStateDao(): ConnectionStateDao
      * **Terminology**: Part of the "Ledger-Inclusive Atomic Commit" pattern.
      *
      * **Rule**: This is the ONLY code path allowed to persist a LedgerOperation.
-     * Clock is allocated atomically to ensure monotonicity.
+     *
+     * **Atomic Clock Allocation**: The logical clock is calculated and assigned by the
+     * database engine in a single SQL statement. This eliminates the livelock bug where
+     * retry loops inside a @Transaction cannot see other connections' commits due to
+     * snapshot isolation.
+     *
+     * **Concurrency Safety**: Multiple threads can call this method concurrently within
+     * their own transactions. SQLite's internal B-Tree locking ensures monotonic clocks
+     * without application-level retry logic.
      */
     @androidx.room.Transaction
     open suspend fun commitLedgerOp(ledgerOp: LedgerOperation) {
-        // Option A: Retry-on-conflict loop to handle race conditions in MAX(clock) allocation.
-        // Unique index on (deviceId, logicalClock) ensures we don't duplicate, 
-        // and catch/retry allows recovering from concurrent inserts.
-        var attempts = 0
-        val maxAttempts = 3
-        
-        while (attempts < maxAttempts) {
-            try {
-                val nextClock = ledgerDao().getNextLogicalClock(ledgerOp.deviceId)
-                val finalOp = ledgerOp.copy(logicalClock = nextClock)
-                ledgerDao().insert(finalOp)
-                return // Success
-            } catch (e: android.database.sqlite.SQLiteConstraintException) {
-                attempts++
-                if (attempts >= maxAttempts) throw e
-                // Otherwise retry loop will re-calculate MAX(clock)
-            }
-        }
+        ledgerDao().insertWithAtomicClock(
+            operationId = ledgerOp.operationId,
+            entityType = ledgerOp.entityType,
+            entityId = ledgerOp.entityId,
+            operationType = ledgerOp.operationType,
+            payload = ledgerOp.payload,
+            authorLocalUserId = ledgerOp.authorLocalUserId,
+            deviceId = ledgerOp.deviceId,
+            createdAt = ledgerOp.createdAt
+        )
     }
 
     /**

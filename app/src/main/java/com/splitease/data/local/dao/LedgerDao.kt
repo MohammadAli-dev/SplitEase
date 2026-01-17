@@ -20,21 +20,50 @@ import kotlinx.coroutines.flow.Flow
 interface LedgerDao {
 
     /**
-     * Inserts a new ledger operation. Operations are immutable after insertion.
-     * Use [OnConflictStrategy.ABORT] to fail on duplicate operationId.
-     */
-    @Insert(onConflict = OnConflictStrategy.ABORT)
-    suspend fun insert(operation: LedgerOperation)
-
-    /**
-     * Computes the next logical clock value for the given device.
-     * Returns `COALESCE(MAX(logicalClock), 0) + 1` scoped to [deviceId].
+     * Atomically inserts a ledger operation with the next logical clock.
      *
-     * **Contract**: MUST be executed inside the same database transaction as [insert].
-     * Failure to do so risks non-monotonic clocks on concurrent access or crashes.
+     * **Atomic Clock Allocation**: The logical clock is computed and assigned in a single
+     * SQL statement via a subquery. This eliminates race conditions and retry loops that
+     * would livelock inside a Room @Transaction due to snapshot isolation.
+     *
+     * **Implementation**: Uses INSERT with a SELECT subquery to calculate
+     * `COALESCE(MAX(logicalClock), 0) + 1` for the given deviceId at insertion time.
+     *
+     * This is the ONLY correct way to allocate monotonically increasing clocks in SQLite
+     * under concurrent access within the same transaction boundary.
+     *
+     * @param operationId Unique operation identifier (UUID)
+     * @param entityType Type of entity (EXPENSE, SETTLEMENT, etc.)
+     * @param entityId Entity ID
+     * @param operationType Operation type (CREATE, UPDATE, DELETE)
+     * @param payload JSON snapshot
+     * @param authorLocalUserId Local user who authored this operation
+     * @param deviceId Device identifier
+     * @param createdAt Timestamp (epoch millis)
      */
-    @Query("SELECT COALESCE(MAX(logicalClock), 0) + 1 FROM ledger_operations WHERE deviceId = :deviceId")
-    suspend fun getNextLogicalClock(deviceId: String): Long
+    @Query("""
+        INSERT INTO ledger_operations (
+            operationId, entityType, entityId, operationType, payload,
+            authorLocalUserId, deviceId, logicalClock, createdAt
+        )
+        SELECT 
+            :operationId, :entityType, :entityId, :operationType, :payload,
+            :authorLocalUserId, :deviceId,
+            COALESCE(MAX(logicalClock), 0) + 1,
+            :createdAt
+        FROM ledger_operations
+        WHERE deviceId = :deviceId
+    """)
+    suspend fun insertWithAtomicClock(
+        operationId: String,
+        entityType: String,
+        entityId: String,
+        operationType: String,
+        payload: String,
+        authorLocalUserId: String,
+        deviceId: String,
+        createdAt: Long
+    )
 
     /**
      * Retrieves all ledger operations ordered by (deviceId, logicalClock).
