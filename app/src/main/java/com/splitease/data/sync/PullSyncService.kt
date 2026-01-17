@@ -67,7 +67,7 @@ sealed class PullSyncResult {
         val newCursor: String? = null // New cursor value (if changed)
     ) : PullSyncResult()
 
-    data class Error(val message: String) : PullSyncResult()
+    data class Error(val message: String, val cause: Throwable? = null) : PullSyncResult()
 }
 
 @Singleton
@@ -92,6 +92,13 @@ class PullSyncServiceImpl @Inject constructor(
         }
     }
 
+    /**
+     * Performs a pull-based synchronization with the remote server and reconciles remote changes into the local database.
+     *
+     * This operation: fetches remote groups, expenses, splits, and settlements since the last saved cursor; applies all local database changes atomically based on remote data and local pending operations; and advances the sync cursor when appropriate. Authentication is required; failures produce an error result and do not leave partial local changes.
+     *
+     * @return A [PullSyncResult]. On success, returns `PullSyncResult.Success` containing counts of inserted/updated/deleted entities and an optional `newCursor` representing the advanced remote timestamp. On failure, returns `PullSyncResult.Error` with an explanatory message and an optional cause.
+     */
     override suspend fun performPullSync(): PullSyncResult = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Starting pull sync...")
@@ -231,7 +238,7 @@ class PullSyncServiceImpl @Inject constructor(
         } catch (e: Exception) {
             // ✅ Transaction rolled back automatically on any exception
             Log.e(TAG, "Pull sync failed: ${e.message}", e)
-            PullSyncResult.Error("Pull sync failed: ${e.message}")
+            PullSyncResult.Error("Pull sync failed: ${e.message}", e)
         }
     }
 

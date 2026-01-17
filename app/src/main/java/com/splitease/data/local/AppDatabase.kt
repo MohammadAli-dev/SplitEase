@@ -8,6 +8,7 @@ import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.LedgerDao
+import com.splitease.data.local.dao.LedgerUploadDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.dao.UserDao
@@ -135,11 +136,21 @@ abstract fun settlementDao(): SettlementDao
 abstract fun connectionStateDao(): ConnectionStateDao
 
     /**
- * Accessor for the immutable ledger persistence DAO.
+ * Provides access to the DAO responsible for persisting immutable ledger operations.
  *
- * @return The LedgerDao used to persist ledger operations.
+ * @return The LedgerDao used to persist immutable ledger operations.
  */
     abstract fun ledgerDao(): LedgerDao
+
+    /**
+     * Accessor for ledger sync/upload operations.
+     *
+     * **Sprint 17 Contract**: Separated from [ledgerDao] to maintain invariant:
+     * "LedgerDao must never expose 'what to sync next' queries."
+     *
+     * @return The LedgerUploadDao used for fetching pending uploads.
+     */
+    abstract fun ledgerUploadDao(): LedgerUploadDao
 
     /**
      * Update an existing expense, replace its splits, and record the corresponding sync operation in a single database transaction.

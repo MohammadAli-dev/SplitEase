@@ -47,4 +47,15 @@ These are not issues — just future polish ideas that don't block current sprin
 
 ---
 
-*Nothing here blocks or weakens Sprint 15A.*
+## Sprint 16 Observations (2026-01-17)
+
+### 1. Contextual Currency Derivations for Settlements
+- **Current**: Settlements created in `SettleUpViewModel` and `GroupDetailViewModel` hard-code "INR" when calling the repository.
+- **Future fix**:
+    - **Contextual Fetch**: Use the `Group` entity's currency (or the user's default setting) as the source of truth.
+    - **Blocked Execution**: If a currency cannot be definitively resolved from the context, the settlement operation should be blocked, and a validation error should be surfaced to the user.
+- **Why**: This aligns with the ledger invariant: "All settlements must have an explicit currency, derived from context, never defaulted at runtime." Hardcoding "INR" is a placeholder that must be replaced to support multi-currency groups and cross-border settlements.
+
+---
+
+*Nothing here blocks or weakens Sprint 16.*

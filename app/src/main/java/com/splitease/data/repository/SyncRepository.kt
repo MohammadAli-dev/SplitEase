@@ -25,6 +25,7 @@ import com.splitease.data.auth.AuthConfig
 import com.splitease.data.auth.TokenManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -34,10 +35,39 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 interface SyncRepository {
-    suspend fun enqueueOperation(operation: SyncOperation)
-    suspend fun processNextOperation(): Boolean
-    suspend fun processAllPending()
-    fun triggerImmediateSync()
+    /**
+ * Enqueues the given synchronization operation and schedules an immediate sync run.
+ *
+ * @param operation The SyncOperation to persist and schedule for processing.
+suspend fun enqueueOperation(operation: SyncOperation)
+    /**
+ * Processes the next pending sync operation from the queue, performing the necessary remote/local reconciliation
+ * and updating the operation's state accordingly.
+ *
+ * The function will handle permanent failures by marking operations failed or aborted and will remove successful
+ * operations from the queue. If processing cannot proceed due to a transient condition (for example network or
+ * rate-limit errors), processing is deferred.
+ *
+ * @return `true` if an operation was taken from the queue and processed (including success, permanent failure, or
+ * aborted due to newer remote data); `false` if there was no pending operation or processing was deferred due to a
+ * transient error.
+ */
+suspend fun processNextOperation(): Boolean
+    /**
+ * Attempts to process the entire pending sync queue in order.
+ *
+ * Processes pending synchronization operations until the queue is empty or processing cannot continue (for example due to transient failures that prevent progress).
+ *
+ * @return `true` if no pending operations remain after this attempt, `false` if one or more operations remain (for example due to transient failures or rate limiting).
+ */
+suspend fun processAllPending(): Boolean
+    /**
+ * Schedules an immediate background synchronization job that requires network connectivity.
+ *
+ * Enqueues (or replaces) the pending sync work so the queue is processed as soon as network
+ * constraints are satisfied.
+ */
+fun triggerImmediateSync()
     
     /** Flow of failed sync operations (excludes AUTH failures for UI) */
     val failedOperations: Flow<List<SyncOperation>>
@@ -228,6 +258,18 @@ class SyncRepositoryImpl @Inject constructor(
         Log.d("SyncRepository", "Reconciliation fetch not yet implemented for $entityType/$entityId (API pending)")
     }
 
+    /**
+     * Processes the next pending sync operation from the queue.
+     *
+     * Attempts to push one pending SyncOperation to the remote API, performing freshness checks
+     * and updating the local sync row according to the outcome (deleted on success, marked failed,
+     * or marked aborted if a newer remote version exists). Handles transient vs permanent errors
+     * to decide whether the operation should be retried.
+     *
+     * @return `true` if an operation was processed to a terminal state (deleted, marked failed, or aborted);
+     * `false` if there was no pending operation or processing was interrupted by a retryable/transient error
+     * (so the operation should be retried later).
+     */
     override suspend fun processNextOperation(): Boolean = withContext(Dispatchers.IO) {
         val operation = syncDao.getNextPendingOperation() ?: return@withContext false
         val attemptAt = System.currentTimeMillis()
@@ -317,10 +359,25 @@ class SyncRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun processAllPending() = withContext(Dispatchers.IO) {
+    /**
+     * Processes the queued pending sync operations until the queue is empty or processing is interrupted.
+     *
+     * Processes operations in order and stops if an operation indicates a transient failure that should be retried later.
+     *
+     * @return `true` if all pending operations were processed and none remain, `false` if processing stopped due to a transient error and pending operations remain.
+     */
+    override suspend fun processAllPending(): Boolean = withContext(Dispatchers.IO) {
+        var completed = true
         while (processNextOperation()) {
             // Loop until empty or explicit false return
         }
+        
+        // If there are still pending operations, it means processNextOperation returned false (transient error)
+        if (syncDao.getPendingSyncCount().first() > 0) {
+            completed = false
+        }
+        
+        completed
     }
 
     // --- Push-Phase Freshness Check Helpers ---

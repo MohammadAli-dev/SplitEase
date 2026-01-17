@@ -6,6 +6,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Query
+import com.google.gson.annotations.SerializedName
 
 // DTOs
 data class LoginRequest(val email: String)
@@ -99,15 +100,90 @@ data class RemoteExpenseSplit(
     val amount: String // BigDecimal as string
 )
 
+// ===============================
+// WRITE / UPLOAD DTOs (Outbound)
+// ===============================
+
+/**
+ * DTO for uploading LedgerOperations to Supabase.
+ *
+ * **Sprint 17 Contract**:
+ * - Strict 1:1 mapping to local [com.splitease.data.local.entities.LedgerOperation].
+ * - Direction-aware naming: "Upload" indicates Client -> Cloud.
+ * - All UUIDs are serialized as Strings for Supabase compatibility.
+ *
+ * **Write-Only**: This DTO is for INSERT only. No SELECT operations are supported.
+ */
+data class LedgerOperationUploadDto(
+    @SerializedName("operation_id")
+    val operationId: String,
+
+    @SerializedName("entity_type")
+    val entityType: String,
+
+    @SerializedName("entity_id")
+    val entityId: String,
+
+    @SerializedName("operation_type")
+    val operationType: String,
+
+    @SerializedName("payload")
+    val payload: String,
+
+    @SerializedName("author_local_user_id")
+    val authorLocalUserId: String,
+
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("logical_clock")
+    val logicalClock: Long
+)
+
 interface SplitEaseApi {
+    /**
+     * Authenticate a user and obtain authentication details.
+     *
+     * @param req LoginRequest containing the user's email for authentication.
+     * @return AuthResponse containing the user ID, access token, user's name and email, and optional profile URL.
+     */
     @POST("auth/login")
     suspend fun login(@Body req: LoginRequest): AuthResponse
 
     @POST("auth/signup")
     suspend fun signup(@Body req: SignupRequest): AuthResponse
 
+    /**
+     * Synchronizes a batch of client operations with the remote backend.
+     *
+     * @param req The sync payload describing operations to apply on the server.
+     * @return `SyncResponse` representing the result; `success` is `true` if the sync succeeded, `false` otherwise, and `message` contains server-provided details.
+     */
     @POST("sync")
     suspend fun sync(@Body req: SyncRequest): SyncResponse
+
+    // --- Ledger Push Endpoint (Sprint 17: Write-Only) ---
+    // Uses Supabase PostgREST batch insert with duplicate handling
+
+    /**
+     * Pushes a batch of ledger operations to the remote ledger service.
+     *
+     * Request is write-only and should be made idempotent by using the Prefer header value
+     * "resolution=ignore-duplicates". Up to 50 operations may be sent in a single call.
+     *
+     * @param authHeader Bearer token for authorization (e.g., "Bearer ...").
+     * @param apiKey Supabase public API key.
+     * @param preferHeader Header controlling insert behavior; use "resolution=ignore-duplicates" for idempotency.
+     * @param operations List of ledger operations to upload.
+     * @return HTTP response; successful requests have an empty response body.
+     */
+    @POST("ledger_operations")
+    suspend fun insertLedgerOperations(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Header("Prefer") preferHeader: String = "resolution=ignore-duplicates",
+        @Body operations: List<LedgerOperationUploadDto>
+    ): Response<Unit>
 
     // --- Pull Sync Endpoints (Supabase PostgREST) ---
     // Note: These use Supabase table names and query syntax
@@ -215,6 +291,6 @@ interface SplitEaseApi {
  * Used during push-phase freshness check.
  */
 data class RemoteTimestampResponse(
-    @com.google.gson.annotations.SerializedName("updated_at")
+    @SerializedName("updated_at")
     val updatedAt: String
 )

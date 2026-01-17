@@ -5,6 +5,7 @@ import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.ledger.LedgerOperationFactory
+import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -27,13 +28,12 @@ class ExpenseRepositoryImpl @Inject constructor(
     private val expenseDao: ExpenseDao,
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService,
-    private val ledgerOperationFactory: LedgerOperationFactory
+    private val ledgerOperationFactory: LedgerOperationFactory,
+    private val ledgerSyncScheduler: LedgerSyncScheduler
 ) : ExpenseRepository {
 
     /**
-         * Persists an expense together with its splits, a corresponding sync operation, and a ledger operation in a single atomic transaction.
-         *
-         * This operation executes on the IO dispatcher; callers should not manage threading.
+         * Persist an expense with its splits, record the corresponding sync and ledger operations, and schedule a ledger push.
          *
          * @param expense The expense to persist.
          * @param splits The list of splits associated with the expense.
@@ -43,19 +43,21 @@ class ExpenseRepositoryImpl @Inject constructor(
             val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(expense, splits, expense.createdByUserId)
             appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
         }
 
     /**
-         * Update an existing expense and its splits, persisting the change along with associated sync and ledger operations in a single atomic transaction.
+         * Updates an existing expense and its splits, persisting the update together with corresponding sync and ledger operations in a single atomic transaction and scheduling a ledger push.
          *
          * @param expense The expense to update.
-         * @param splits The list of splits that represent how the expense is divided.
+         * @param splits The splits that divide the expense.
          */
         override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
             val syncOp = syncWriteService.createUpdateExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(expense, splits, expense.lastModifiedByUserId)
             appDatabase.updateExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
         }
 
     /**
@@ -76,6 +78,7 @@ class ExpenseRepositoryImpl @Inject constructor(
             val syncOp = syncWriteService.createDeleteExpenseSyncOp(expenseId)
             val ledgerOp = ledgerOperationFactory.createExpenseDeleteOp(expense, splits, expense.lastModifiedByUserId)
             appDatabase.deleteExpenseWithLedger(expenseId, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
         }
 
     /**
