@@ -58,54 +58,46 @@ class LedgerPushWorker @AssistedInject constructor(
 
         val deviceId = installationIdProvider.getDeviceId()
 
-        // 2. Get pending operations
-        val lastPushedClock = ledgerSyncStore.getLastPushedClock()
-        Log.d(TAG, "Fetching ops after clock $lastPushedClock for device $deviceId")
-
-        val pendingOps = appDatabase.ledgerUploadDao()
-            .getOperationsAfter(deviceId, lastPushedClock, BATCH_SIZE)
-
-        if (pendingOps.isEmpty()) {
-            Log.d(TAG, "No pending operations to push")
-            return Result.success()
-        }
-
-        Log.d(TAG, "Pushing ${pendingOps.size} operations...")
-
-        // 3. Map to DTOs
-        val dtos = pendingOps.map { it.toUploadDto() }
-
-        // 4. Push to Supabase
         return try {
-            val response = api.insertLedgerOperations(
-                authHeader = "Bearer $accessToken",
-                apiKey = AuthConfig.supabasePublicKey,
-                operations = dtos
-            )
+            while (true) {
+                // 2. Get pending operations
+                val lastPushedClock = ledgerSyncStore.getLastPushedClock()
+                Log.d(TAG, "Fetching ops after clock $lastPushedClock for device $deviceId")
 
-            if (response.isSuccessful) {
-                // 5. Advance cursor to max clock in batch
-                val maxClock = pendingOps.maxOf { it.logicalClock }
-                ledgerSyncStore.setLastPushedClock(maxClock)
-                Log.d(TAG, "Push successful, cursor advanced to $maxClock")
+                val pendingOps = appDatabase.ledgerUploadDao()
+                    .getOperationsAfter(deviceId, lastPushedClock, BATCH_SIZE)
 
-                // 6. Check if more ops pending
-                if (pendingOps.size == BATCH_SIZE) {
-                    Log.d(TAG, "Batch full, more ops may be pending, retrying...")
-                    Result.retry()
-                } else {
-                    Result.success()
+                if (pendingOps.isEmpty()) {
+                    Log.d(TAG, "No more pending operations to push. Queue exhausted.")
+                    break
                 }
-            } else {
-                response.toWorkResult(TAG)
+
+                Log.d(TAG, "Draining batch: pushing ${pendingOps.size} operations...")
+
+                // 3. Map to DTOs
+                val dtos = pendingOps.map { it.toUploadDto() }
+
+                // 4. Push to Supabase
+                val response = api.insertLedgerOperations(
+                    authHeader = "Bearer $accessToken",
+                    apiKey = AuthConfig.supabasePublicKey,
+                    operations = dtos
+                )
+
+                if (response.isSuccessful) {
+                    // 5. Advance cursor to max clock in batch
+                    val maxClock = pendingOps.maxOf { it.logicalClock }
+                    ledgerSyncStore.setLastPushedClock(maxClock)
+                    Log.d(TAG, "Batch committed, cursor advanced to $maxClock")
+                    
+                    // Loop continues automatically to pick up any ops added mid-push
+                } else {
+                    return response.toWorkResult(TAG)
+                }
             }
+            Result.success()
         } catch (e: Exception) {
-            Log.e(TAG, "Push failed: ${e.message}", e)
-            if (runAttemptCount < 3) {
-                Result.retry()
-            } else {
-                Result.failure()
-            }
+            e.toWorkResult(TAG)
         }
     }
 

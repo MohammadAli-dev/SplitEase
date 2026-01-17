@@ -22,5 +22,11 @@
 
 **Rule**: Workers must NOT reason about raw HTTP status codes. Use `response.toWorkResult()` or `exception.toWorkResult()`.
 
+### 4. Drain Loop Invariant (Append-Only Workers)
+**Policy**: Workers handling append-only data (like the Ledger Mirror) must use a "Drain Loop" rather than relying on WorkManager rescheduling for liveness.
+- **Rule**: The worker must loop (`while(true)`) and only exit with `Result.success()` when a fetch from the local database returns an empty result.
+- **Rationale**: This prevents race conditions where new data is written during worker execution while using `ExistingWorkPolicy.KEEP`, ensuring that no operations are "stranded" in the local database.
+- **Performance**: Internalizing the loop avoids the overhead of WorkManager rescheduling and ensures near-instant data durability.
+
 ---
 *Created: 2026-01-17 during Sprint 17 Consolidation.*
