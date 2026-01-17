@@ -57,6 +57,7 @@ interface LedgerOperationFactory {
      * @param authorUserId The local user id of the author creating this operation.
      * @return A LedgerOperation for updating the specified expense; its `payload` is the JSON ExpenseSnapshot, `entityId`
      *         is `expense.id`, `operationType` is `"UPDATE"`, and `authorLocalUserId` is `authorUserId`.
+     */
     fun createExpenseUpdateOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
@@ -87,6 +88,7 @@ interface LedgerOperationFactory {
      * @param members The group's members; the payload uses a canonical snapshot where members are deterministically ordered by `userId`.
      * @param authorUserId The local user id of the operation author.
      * @return A `LedgerOperation` with operation type "CREATE" targeting the group's id. The operation's payload is a canonical, versioned JSON snapshot of the group (including the deterministically ordered members), `deviceId` is obtained from the installation provider, `logicalClock` is set to 0, and `createdAt` is the current system time.
+     */
     fun createGroupCreateOp(
         group: Group,
         members: List<GroupMember>,

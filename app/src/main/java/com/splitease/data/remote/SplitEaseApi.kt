@@ -109,6 +109,30 @@ interface SplitEaseApi {
     @POST("sync")
     suspend fun sync(@Body req: SyncRequest): SyncResponse
 
+    // --- Ledger Push Endpoint (Sprint 17: Write-Only) ---
+    // Uses Supabase PostgREST batch insert with duplicate handling
+
+    /**
+     * Push ledger operations to Supabase (Write-Only).
+     *
+     * **Sprint 17 Contract**:
+     * - Idempotent: Uses `Prefer: resolution=ignore-duplicates` header.
+     * - No reads: This is a write-only endpoint.
+     * - Batch: Accepts up to 50 operations per call.
+     *
+     * @param authHeader Bearer token
+     * @param apiKey Supabase public key
+     * @param preferHeader Must be "resolution=ignore-duplicates" for idempotency
+     * @param operations List of ledger operations to push
+     */
+    @POST("ledger_operations")
+    suspend fun insertLedgerOperations(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Header("Prefer") preferHeader: String = "resolution=ignore-duplicates",
+        @Body operations: List<LedgerOperationUploadDto>
+    ): Response<Unit>
+
     // --- Pull Sync Endpoints (Supabase PostgREST) ---
     // Note: These use Supabase table names and query syntax
     // Authorization header must include Bearer token

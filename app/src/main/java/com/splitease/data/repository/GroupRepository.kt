@@ -5,6 +5,7 @@ import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.ledger.LedgerOperationFactory
+import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
 import com.splitease.domain.BalanceCalculator
 import com.splitease.domain.GroupExitValidator
@@ -104,7 +105,8 @@ interface GroupRepository {
 class GroupRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService,
-    private val ledgerOperationFactory: LedgerOperationFactory
+    private val ledgerOperationFactory: LedgerOperationFactory,
+    private val ledgerSyncScheduler: LedgerSyncScheduler
 ) : GroupRepository {
 
     companion object {
@@ -161,10 +163,11 @@ class GroupRepositoryImpl @Inject constructor(
             val ledgerOp = ledgerOperationFactory.createGroupCreateOp(group, members, creatorUserId)
 
             appDatabase.insertGroupWithMembersAndLedger(group, members, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
         }
 
     /**
-     * Attempts to remove the specified user from the given group while enforcing domain rules.
+     * Attempts to remove the specified user from the specified group while enforcing domain rules.
      *
      * The operation is idempotent. It prevents removal when the user is the last group member or when the
      * user's net balance for the group is non-zero. On success, the member removal and associated sync and
@@ -228,6 +231,7 @@ class GroupRepositoryImpl @Inject constructor(
             val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, userId)
             val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, userId, userId)
             appDatabase.removeMemberWithLedger(groupId, userId, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
 
             Log.d(TAG, "leaveGroup: Success [groupId=$groupId, userId=$userId, syncOpId=${syncOp.id}]")
             LeaveGroupResult.Success
@@ -304,6 +308,7 @@ class GroupRepositoryImpl @Inject constructor(
             val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, targetUserId)
             val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, targetUserId, actorUserId)
             appDatabase.removeMemberWithLedger(groupId, targetUserId, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
 
             Log.d(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=Success syncOpId=${syncOp.id}")
             RemoveMemberResult.Success

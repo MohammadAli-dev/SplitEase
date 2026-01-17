@@ -5,6 +5,7 @@ import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.ledger.LedgerOperationFactory
+import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -27,7 +28,8 @@ class ExpenseRepositoryImpl @Inject constructor(
     private val expenseDao: ExpenseDao,
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService,
-    private val ledgerOperationFactory: LedgerOperationFactory
+    private val ledgerOperationFactory: LedgerOperationFactory,
+    private val ledgerSyncScheduler: LedgerSyncScheduler
 ) : ExpenseRepository {
 
     /**
@@ -43,6 +45,7 @@ class ExpenseRepositoryImpl @Inject constructor(
             val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(expense, splits, expense.createdByUserId)
             appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
         }
 
     /**
@@ -56,6 +59,7 @@ class ExpenseRepositoryImpl @Inject constructor(
             val syncOp = syncWriteService.createUpdateExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(expense, splits, expense.lastModifiedByUserId)
             appDatabase.updateExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
         }
 
     /**
@@ -76,6 +80,7 @@ class ExpenseRepositoryImpl @Inject constructor(
             val syncOp = syncWriteService.createDeleteExpenseSyncOp(expenseId)
             val ledgerOp = ledgerOperationFactory.createExpenseDeleteOp(expense, splits, expense.lastModifiedByUserId)
             appDatabase.deleteExpenseWithLedger(expenseId, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
         }
 
     /**
