@@ -25,6 +25,7 @@ import com.splitease.data.auth.AuthConfig
 import com.splitease.data.auth.TokenManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -36,7 +37,7 @@ import javax.inject.Singleton
 interface SyncRepository {
     suspend fun enqueueOperation(operation: SyncOperation)
     suspend fun processNextOperation(): Boolean
-    suspend fun processAllPending()
+    suspend fun processAllPending(): Boolean
     fun triggerImmediateSync()
     
     /** Flow of failed sync operations (excludes AUTH failures for UI) */
@@ -317,10 +318,18 @@ class SyncRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun processAllPending() = withContext(Dispatchers.IO) {
+    override suspend fun processAllPending(): Boolean = withContext(Dispatchers.IO) {
+        var completed = true
         while (processNextOperation()) {
             // Loop until empty or explicit false return
         }
+        
+        // If there are still pending operations, it means processNextOperation returned false (transient error)
+        if (syncDao.getPendingSyncCount().first() > 0) {
+            completed = false
+        }
+        
+        completed
     }
 
     // --- Push-Phase Freshness Check Helpers ---

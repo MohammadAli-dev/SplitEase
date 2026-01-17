@@ -12,6 +12,7 @@ import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.remote.LedgerOperationUploadDto
 import com.splitease.data.remote.SplitEaseApi
+import com.splitease.data.remote.toWorkResult
 import com.splitease.data.sync.LedgerSyncStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -96,12 +97,7 @@ class LedgerPushWorker @AssistedInject constructor(
                     Result.success()
                 }
             } else {
-                Log.e(TAG, "Push failed: HTTP ${response.code()}")
-                if (response.code() in 500..599) {
-                    Result.retry() // Server error, retry
-                } else {
-                    Result.failure() // Client error (4xx), don't retry
-                }
+                response.toWorkResult(TAG)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Push failed: ${e.message}", e)

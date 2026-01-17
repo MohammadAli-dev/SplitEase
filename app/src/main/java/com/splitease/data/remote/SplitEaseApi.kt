@@ -6,6 +6,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Query
+import com.google.gson.annotations.SerializedName
 
 // DTOs
 data class LoginRequest(val email: String)
@@ -97,6 +98,46 @@ data class RemoteExpenseSplit(
     val expense_id: String,
     val user_id: String,
     val amount: String // BigDecimal as string
+)
+
+// ===============================
+// WRITE / UPLOAD DTOs (Outbound)
+// ===============================
+
+/**
+ * DTO for uploading LedgerOperations to Supabase.
+ *
+ * **Sprint 17 Contract**:
+ * - Strict 1:1 mapping to local [com.splitease.data.local.entities.LedgerOperation].
+ * - Direction-aware naming: "Upload" indicates Client -> Cloud.
+ * - All UUIDs are serialized as Strings for Supabase compatibility.
+ *
+ * **Write-Only**: This DTO is for INSERT only. No SELECT operations are supported.
+ */
+data class LedgerOperationUploadDto(
+    @SerializedName("operation_id")
+    val operationId: String,
+
+    @SerializedName("entity_type")
+    val entityType: String,
+
+    @SerializedName("entity_id")
+    val entityId: String,
+
+    @SerializedName("operation_type")
+    val operationType: String,
+
+    @SerializedName("payload")
+    val payload: String,
+
+    @SerializedName("author_local_user_id")
+    val authorLocalUserId: String,
+
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("logical_clock")
+    val logicalClock: Long
 )
 
 interface SplitEaseApi {
@@ -239,6 +280,6 @@ interface SplitEaseApi {
  * Used during push-phase freshness check.
  */
 data class RemoteTimestampResponse(
-    @com.google.gson.annotations.SerializedName("updated_at")
+    @SerializedName("updated_at")
     val updatedAt: String
 )

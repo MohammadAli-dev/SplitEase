@@ -20,8 +20,7 @@ import javax.inject.Singleton
  * - Cursor is per-device (scoped by InstallationIdProvider's deviceId).
  * - Resilient: If cursor is lost, resync from clock 0 (idempotent).
  *
- * **Storage**: Uses DataStore (sync_preferences).
- */
+ * **Storage**: Uses DataStore (ledger_sync_prefs). */
 @Singleton
 class LedgerSyncStore @Inject constructor(
     @ApplicationContext private val context: Context

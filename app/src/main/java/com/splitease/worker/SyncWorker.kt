@@ -8,6 +8,7 @@ import androidx.work.WorkerParameters
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.sync.PullSyncResult
 import com.splitease.data.sync.PullSyncService
+import com.splitease.data.remote.toWorkResult
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -38,7 +39,11 @@ class SyncWorker @AssistedInject constructor(
         return try {
             // 1️⃣ PUSH FIRST: Process all pending operations (FIFO order)
             Log.d(TAG, "Phase 1: Push pending operations...")
-            syncRepository.processAllPending()
+            val pushCompleted = syncRepository.processAllPending()
+            if (!pushCompleted) {
+                Log.w(TAG, "Push phase interrupted by transient error. Rescheduling...")
+                return Result.retry()
+            }
             
             // 2️⃣ PULL SECOND: Fetch and reconcile remote updates
             Log.d(TAG, "Phase 2: Pull remote updates...")
@@ -49,22 +54,17 @@ class SyncWorker @AssistedInject constructor(
                     Log.d(TAG, "Sync completed: $pullResult")
                 }
                 is PullSyncResult.Error -> {
-                    Log.w(TAG, "Pull sync failed (non-fatal): ${pullResult.message}")
-                    // Pull failure is non-fatal - push still succeeded
+                    Log.w(TAG, "Phase 2 (Pull) failed: ${pullResult.message}")
+                    if (pullResult.cause != null) {
+                        return pullResult.cause.toWorkResult(TAG)
+                    }
                 }
             }
             
             Log.d(TAG, "Sync work completed successfully")
             Result.success()
         } catch (e: Exception) {
-            Log.e(TAG, "Sync work failed: ${e.message}")
-            
-            // Retry for transient failures
-            if (runAttemptCount < 3) {
-                Result.retry()
-            } else {
-                Result.failure()
-            }
+            e.toWorkResult(TAG)
         }
     }
 }

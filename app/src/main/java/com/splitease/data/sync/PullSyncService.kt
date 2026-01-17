@@ -67,7 +67,7 @@ sealed class PullSyncResult {
         val newCursor: String? = null // New cursor value (if changed)
     ) : PullSyncResult()
 
-    data class Error(val message: String) : PullSyncResult()
+    data class Error(val message: String, val cause: Throwable? = null) : PullSyncResult()
 }
 
 @Singleton
@@ -231,7 +231,7 @@ class PullSyncServiceImpl @Inject constructor(
         } catch (e: Exception) {
             // ✅ Transaction rolled back automatically on any exception
             Log.e(TAG, "Pull sync failed: ${e.message}", e)
-            PullSyncResult.Error("Pull sync failed: ${e.message}")
+            PullSyncResult.Error("Pull sync failed: ${e.message}", e)
         }
     }
 
