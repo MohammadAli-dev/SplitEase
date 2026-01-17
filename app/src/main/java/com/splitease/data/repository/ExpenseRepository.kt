@@ -40,9 +40,7 @@ class ExpenseRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(expense, splits, expense.createdByUserId)
-            // Using direct DAO insert since no ledger-aware version exists yet
-            expenseDao.insertExpenseWithSync(expense, splits, syncOp)
-            appDatabase.commitLedgerOp(ledgerOp)
+            appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
         }
 
     override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =

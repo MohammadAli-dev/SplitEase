@@ -50,6 +50,43 @@ import com.splitease.data.local.entities.User
  * idempotency under at-least-once delivery semantics.
  *
  * See `/docs/SYNC_INVARIANTS.md` for full documentation.
+ *
+ * ## Ledger-Inclusive Atomic Commit Pattern (Sprint 16+)
+ *
+ * **Architectural Decision: Entity-Specific Transaction Helpers**
+ *
+ * This database uses entity-specific methods like `insertExpenseWithLedger`,
+ * `updateExpenseWithLedger`, etc. to ensure atomicity between business data,
+ * sync operations, and ledger operations.
+ *
+ * ### Why Entity-Specific Methods?
+ *
+ * Room's `@Transaction` annotation is **method-scoped**, not lambda-scoped.
+ * Unlike traditional ORMs, Room does NOT provide `runInTransaction { ... }` blocks
+ * where you can call arbitrary DAO methods inside the lambda.
+ *
+ * **The alternatives are:**
+ * 1. ✅ **Entity-specific helpers** (what we chose) - type-safe, explicit atomicity
+ * 2. ❌ **Generic dispatch with `Any`** - loses type safety, harder to test
+ * 3. ❌ **Repository-level coordination** - technically impossible with Room's API
+ * 4. ❌ **Custom transaction manager** - reimplements Room's infrastructure
+ *
+ * ### Invariant to Enforce:
+ *
+ * > **Every financial mutation MUST commit the entity, SyncOp, and LedgerOp atomically.**
+ *
+ * If you add a new mutation type, you MUST create a corresponding `*WithLedger` method
+ * in this class. Do NOT call DAO methods + `commitLedgerOp` separately from repositories.
+ *
+ * ### Current Ledger-Aware Methods:
+ * - `insertExpenseWithLedger` (CREATE)
+ * - `updateExpenseWithLedger` (UPDATE)
+ * - `deleteExpenseWithLedger` (DELETE)
+ * - `insertGroupWithMembersAndLedger` (CREATE)
+ * - `removeMemberWithLedger` (DELETE)
+ * - `insertSettlementWithLedger` (CREATE)
+ *
+ * @see commitLedgerOp for the internal ledger persistence primitive
  */
 abstract class AppDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
@@ -137,6 +174,28 @@ abstract fun connectionStateDao(): ConnectionStateDao
                 // Otherwise retry loop will re-calculate MAX(clock)
             }
         }
+    }
+
+    /**
+     * Insert expense with ledger tracking.
+     *
+     * **Atomicity guarantee**: Expense, splits, sync operation, and ledger operation
+     * are committed in a single database transaction. If any step fails, all changes
+     * are rolled back.
+     *
+     * This is the CREATE counterpart to [updateExpenseWithLedger] and [deleteExpenseWithLedger].
+     */
+    @androidx.room.Transaction
+    open suspend fun insertExpenseWithLedger(
+        expense: Expense,
+        splits: List<ExpenseSplit>,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        expenseDao().insertExpense(expense)
+        expenseDao().insertSplits(splits)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
     }
 
     /**
