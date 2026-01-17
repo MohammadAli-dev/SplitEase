@@ -73,10 +73,10 @@ abstract class DataModule {
     ): TransactionRunner
 
     /**
-     * Binds UserRepository to its concrete implementation for dependency injection.
+     * Provides the singleton UserRepository implementation for injection.
      *
-     * @param userRepositoryImpl The implementation provided when a `UserRepository` is requested.
-     * @return The bound `UserRepository` implementation.
+     * @param userRepositoryImpl The concrete implementation to bind.
+     * @return The bound UserRepository implementation.
      */
     @Binds
     @Singleton
@@ -84,12 +84,24 @@ abstract class DataModule {
             userRepositoryImpl: UserRepositoryImpl
     ): UserRepository
 
+    /**
+     * Binds the InstallationIdProvider interface to its InstallationIdProviderImpl implementation in the application-wide singleton component.
+     *
+     * @param installationIdProviderImpl The concrete InstallationIdProvider implementation to bind.
+     * @return The bound InstallationIdProvider.
+     */
     @Binds
     @Singleton
     abstract fun bindInstallationIdProvider(
             installationIdProviderImpl: com.splitease.data.device.InstallationIdProviderImpl
     ): com.splitease.data.device.InstallationIdProvider
 
+    /**
+     * Binds `LedgerOperationFactoryImpl` as the implementation of `LedgerOperationFactory` for injection.
+     *
+     * @param ledgerOperationFactoryImpl Concrete `LedgerOperationFactory` implementation to bind.
+     * @return The `LedgerOperationFactory` interface bound to the provided implementation.
+     */
     @Binds
     @Singleton
     abstract fun bindLedgerOperationFactory(

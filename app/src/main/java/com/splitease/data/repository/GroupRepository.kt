@@ -112,15 +112,17 @@ class GroupRepositoryImpl @Inject constructor(
     }
 
     /**
-         * Creates a new group with the given metadata and members, persists it in the local database, and records a sync intent for backend synchronization.
+         * Create a new group with the specified metadata and initial members, persist it locally, and record both sync and ledger operations for backend synchronization.
+         *
+         * The group, its members, and the corresponding sync and ledger operations are persisted together in a single transaction to ensure atomic, offline-safe creation.
          *
          * @param name The group's display name.
          * @param type A string identifying the group's type or category.
-         * @param memberIds List of user IDs to be added as group members.
+         * @param memberIds List of user IDs to add as the group's initial members.
          * @param hasTripDates Whether the group includes trip start/end dates.
          * @param tripStartDate Trip start timestamp in milliseconds since the Unix epoch, or `null` if not set.
          * @param tripEndDate Trip end timestamp in milliseconds since the Unix epoch, or `null` if not set.
-         * @param creatorUserId The user ID of the group's creator; recorded as the creator and last modifier.
+         * @param creatorUserId The user ID recorded as the group's creator and last modifier.
          */
         override suspend fun createGroup(
         name: String,
@@ -162,18 +164,14 @@ class GroupRepositoryImpl @Inject constructor(
         }
 
     /**
-     * Attempts to remove a user from a group, enforcing business rules and recording a sync operation.
+     * Attempts to remove the specified user from the given group while enforcing domain rules.
      *
-     * This operation is idempotent and persists changes via the local database while creating a sync intent
-     * for backend reconciliation. It will:
-     * - Return AlreadyRemoved if the user is not a member.
-     * - Prevent removal when the user is the last member of the group.
-     * - Prevent removal when the user's net balance for the group is non-zero.
-     * - On success, remove the member and record a group-member-remove sync operation in a single transaction.
-     * Any unexpected error is captured and returned as LeaveGroupResult.Error with an explanatory message.
+     * The operation is idempotent. It prevents removal when the user is the last group member or when the
+     * user's net balance for the group is non-zero. On success, the member removal and associated sync and
+     * ledger operations are recorded atomically.
      *
-     * @return `LeaveGroupResult.Success` on successful removal;
-     * `LeaveGroupResult.AlreadyRemoved` if the user was not a member;
+     * @return `LeaveGroupResult.Success` when the user was removed;
+     * `LeaveGroupResult.AlreadyRemoved` if the user is not a current member;
      * `LeaveGroupResult.BlockedAsLastMember` if removing would leave the group empty;
      * `LeaveGroupResult.BlockedByBalance` if the user's balance prevents leaving;
      * `LeaveGroupResult.Error(message)` for unexpected failures with a diagnostic message.
@@ -240,12 +238,18 @@ class GroupRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Attempts to remove another member from a group, enforcing business rules and recording a sync operation.
+     * Removes a specified member from a group, enforcing exit rules and recording corresponding sync and ledger operations.
      *
-     * This operation is idempotent and persists changes via the local database while creating a sync intent
-     * for backend reconciliation. It mirrors the logic of [leaveGroup] but with explicit actor/target roles.
+     * This operation is idempotent: if the target is not a member it returns `TargetAlreadyRemoved`. It will block removal
+     * if the target is the group's last member or if the target has a non-zero net balance; on success the removal and the
+     * associated sync/ledger intents are persisted in a single transaction.
      *
-     * @return `RemoveMemberResult` indicating success or the specific blocking reason.
+     * @param groupId ID of the group.
+     * @param actorUserId ID of the user performing the removal (the actor).
+     * @param targetUserId ID of the member to be removed (the target).
+     * @return `RemoveMemberResult` indicating the outcome: `Success` on successful removal; `BlockedByBalance` if the target
+     *         has a non-zero balance; `BlockedAsLastMember` if the target is the last remaining member; `TargetAlreadyRemoved`
+     *         if the target is not currently a member; `Error(message)` if an unexpected error occurred.
      */
     override suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult = withContext(Dispatchers.IO) {
         try {

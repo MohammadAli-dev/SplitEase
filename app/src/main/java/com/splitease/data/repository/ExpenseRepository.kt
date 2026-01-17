@@ -31,11 +31,13 @@ class ExpenseRepositoryImpl @Inject constructor(
 ) : ExpenseRepository {
 
     /**
-     * Persists expense, splits, sync operation, and ledger operation atomically.
-     * 
-     * Threading: Switches to Dispatchers.IO internally.
-     * Callers (ViewModels) must not assume or manage threading.
-     */
+         * Persists an expense together with its splits, a corresponding sync operation, and a ledger operation in a single atomic transaction.
+         *
+         * This operation executes on the IO dispatcher; callers should not manage threading.
+         *
+         * @param expense The expense to persist.
+         * @param splits The list of splits associated with the expense.
+         */
     override suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>) = 
         withContext(Dispatchers.IO) {
             val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
@@ -43,14 +45,28 @@ class ExpenseRepositoryImpl @Inject constructor(
             appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
         }
 
-    override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
+    /**
+         * Update an existing expense and its splits, persisting the change along with associated sync and ledger operations in a single atomic transaction.
+         *
+         * @param expense The expense to update.
+         * @param splits The list of splits that represent how the expense is divided.
+         */
+        override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
             val syncOp = syncWriteService.createUpdateExpenseSyncOp(expense, splits)
             val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(expense, splits, expense.lastModifiedByUserId)
             appDatabase.updateExpenseWithLedger(expense, splits, syncOp, ledgerOp)
         }
 
-    override suspend fun deleteExpense(expenseId: String) =
+    /**
+         * Deletes the expense identified by [expenseId] and its associated splits, creating and persisting
+         * a corresponding sync operation and ledger operation as a single atomic change.
+         *
+         * If the expense does not exist, the function is a no-op.
+         *
+         * @param expenseId The ID of the expense to delete.
+         */
+        override suspend fun deleteExpense(expenseId: String) =
         withContext(Dispatchers.IO) {
             // Fetch expense and splits for complete snapshot before deletion
             val expense = expenseDao.getExpense(expenseId).first() 
@@ -62,7 +78,13 @@ class ExpenseRepositoryImpl @Inject constructor(
             appDatabase.deleteExpenseWithLedger(expenseId, syncOp, ledgerOp)
         }
 
-    override fun getExpense(expenseId: String) = expenseDao.getExpense(expenseId)
+    /**
+ * Observes an expense by its identifier.
+ *
+ * @param expenseId The identifier of the expense to observe.
+ * @return A Flow that emits the current `Expense` for the given id or `null` if not present; emits new values if the stored expense changes.
+ */
+override fun getExpense(expenseId: String) = expenseDao.getExpense(expenseId)
     
     override fun getSplits(expenseId: String) = expenseDao.getSplits(expenseId)
 }
