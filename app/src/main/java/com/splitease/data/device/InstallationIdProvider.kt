@@ -17,9 +17,13 @@ import javax.inject.Singleton
  */
 interface InstallationIdProvider {
     /**
-     * Returns the stable device ID for this installation.
-     * Thread-safe and idempotent.
-     */
+ * Obtain the stable device identifier for this app installation.
+ *
+ * This method is thread-safe and returns the same identifier on subsequent calls within the same installation.
+ * The identifier is persisted across app launches (stored in private SharedPreferences) but will change if the app is uninstalled and reinstalled.
+ *
+ * @return The persistent per-installation device identifier as a UUID string.
+ */
     fun getDeviceId(): String
 }
 
@@ -35,6 +39,14 @@ class InstallationIdProviderImpl @Inject constructor(
     @Volatile
     private var cachedId: String? = null
 
+    /**
+     * Provides a stable device identifier for this app installation.
+     *
+     * The identifier is cached in memory and persisted to the app's private SharedPreferences so subsequent
+     * calls return the same value across app restarts and updates. The identifier is reset if the app is uninstalled.
+     *
+     * @return The installation-scoped device identifier as a `String`.
+     */
     override fun getDeviceId(): String {
         cachedId?.let { return it }
 

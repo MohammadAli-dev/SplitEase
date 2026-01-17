@@ -596,6 +596,18 @@ class PullSyncServiceImpl @Inject constructor(
         )
     }
 
+    /**
+     * Maps a RemoteSettlement DTO into a local Settlement entity, producing `null` when required fields
+     * cannot be parsed.
+     *
+     * Mapping copies identifiers and participants, converts the amount and date, uses `updatedAtMillis`
+     * for the resulting entity's `updatedAt`, and sets `currency` from the remote value with a fallback
+     * to `"INR"` for legacy records.
+     *
+     * @param remote The remote settlement object to convert.
+     * @param updatedAtMillis The epoch milliseconds to set as the local entity's `updatedAt`.
+     * @return A populated `Settlement` when conversion succeeds, or `null` if amount or date parsing fails.
+     */
     private fun mapRemoteToLocalSettlement(remote: RemoteSettlement, updatedAtMillis: Long): Settlement? {
         val amount = parseAmount(remote.amount, "Settlement:${remote.id}") ?: return null
         val date = parseIso8601ToDate(remote.date)

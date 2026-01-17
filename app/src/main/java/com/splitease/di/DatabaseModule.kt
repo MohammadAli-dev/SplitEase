@@ -163,6 +163,20 @@ object DatabaseModule {
      * - NO client-time values are written during migration.
      */
     private val MIGRATION_7_8 = object : Migration(7, 8) {
+        /**
+         * Adds audit timestamp and tombstone columns to expenses, expense_groups, and settlements,
+         * and creates indexes on the new `updatedAt` columns.
+         *
+         * Adds `updatedAt` (INTEGER NOT NULL, default 0) and `deletedAt` (INTEGER, nullable) to:
+         * - `expenses`
+         * - `expense_groups`
+         * - `settlements`
+         *
+         * Also creates the following indexes:
+         * - `index_expenses_updatedAt` on `expenses(updatedAt)`
+         * - `index_expense_groups_updatedAt` on `expense_groups(updatedAt)`
+         * - `index_settlements_updatedAt` on `settlements(updatedAt)`
+         */
         override fun migrate(db: SupportSQLiteDatabase) {
             // Expenses
             db.execSQL("ALTER TABLE expenses ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
@@ -187,6 +201,24 @@ object DatabaseModule {
      * - Indices for (deviceId, logicalClock) ordering and (entityType, entityId) lookups.
      */
     private val MIGRATION_10_11 = object : Migration(10, 11) {
+        /**
+         * Creates the `ledger_operations` table and its indices in the database.
+         *
+         * The created table stores ledger operation records with the following columns:
+         * - `operationId` (TEXT) primary key
+         * - `entityType` (TEXT)
+         * - `entityId` (TEXT)
+         * - `operationType` (TEXT)
+         * - `payload` (TEXT)
+         * - `authorLocalUserId` (TEXT)
+         * - `deviceId` (TEXT)
+         * - `logicalClock` (INTEGER)
+         * - `createdAt` (INTEGER)
+         *
+         * Also creates:
+         * - a unique index on (`deviceId`, `logicalClock`)
+         * - a non-unique index on (`entityType`, `entityId`)
+         */
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS ledger_operations (
@@ -216,6 +248,12 @@ object DatabaseModule {
      * never defaulted at runtime. The migration backfills legacy data to maintain integrity.
      */
     private val MIGRATION_11_12 = object : Migration(11, 12) {
+        /**
+         * Adds a `currency` column to the `settlements` table, backfills existing rows with `"INR"`, and verifies that no NULL values remain.
+         *
+         * @param db The writable database instance for this migration.
+         * @throws IllegalStateException if any settlement row still has a NULL `currency` after backfill.
+         */
         override fun migrate(db: SupportSQLiteDatabase) {
             // Add currency column
             db.execSQL("ALTER TABLE settlements ADD COLUMN currency TEXT")
@@ -237,12 +275,11 @@ object DatabaseModule {
     }
 
     /**
-     * Provides the singleton Room AppDatabase configured for the application's schema.
+     * Creates and provides the singleton Room database used by the application.
      *
-     * The database is built with migrations from versions 2→3, 3→4, 4→5, 5→6, and 6→7, and uses
-     * fallbackToDestructiveMigration as a safety net.
+     * Registers migrations 2→3, 3→4, 4→5, 5→6, 6→7, 7→8, 9→10, 10→11, and 11→12, and enables destructive migration as a fallback.
      *
-     * @return `AppDatabase` instance configured with the registered migrations and destructive fallback.
+     * @return The configured AppDatabase instance.
      */
     @Provides
     @Singleton
@@ -306,8 +343,11 @@ object DatabaseModule {
     }
 
     /**
-     * Provides the LedgerDao for immutable ledger operation persistence.
-     * For internal use only; UI never observes ledger directly.
+     * Provides the DAO for persisting immutable ledger operations.
+     *
+     * Intended for internal persistence; UI components do not observe ledger data directly.
+     *
+     * @return The LedgerDao instance for accessing ledger operations.
      */
     @Provides
     fun provideLedgerDao(db: AppDatabase): LedgerDao {

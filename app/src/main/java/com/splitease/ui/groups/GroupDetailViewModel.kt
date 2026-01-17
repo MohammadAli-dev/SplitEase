@@ -292,12 +292,12 @@ class GroupDetailViewModel @Inject constructor(
 
 
     /**
-     * Enqueues and executes a settlement for the given suggestion, optionally using a custom amount.
+     * Execute a settlement suggestion for the current group, optionally using a custom amount.
      *
-     * Prevents concurrent execution of the same suggestion, normalizes the final amount to two decimal
-     * places (HALF_UP), uses the current user's identity as the creator, and emits snackbar events on
-     * success or failure. If the current user identity is unavailable a snackbar is shown and the
-     * execution is aborted.
+     * If the same suggestion is already executing this call returns immediately. The final amount
+     * will be rounded to two decimal places using HALF_UP. The current user is used as the creator;
+     * if the current user identity is unavailable the operation is aborted and a snackbar event is emitted.
+     * Emits a snackbar event on success or failure.
      *
      * @param suggestion The settlement suggestion to execute (contains from/to user IDs, key, and default amount).
      * @param amount Optional custom amount to use instead of the suggestion's amount; will be rounded to two decimals.
