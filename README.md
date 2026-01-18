@@ -139,11 +139,19 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 
 SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional Data Flow (UDF)**.
 
-### Core Principles
+### Core Architectural Pillars
 
 1. **Offline-First**: The local database (Room) is the single source of truth. The UI never observes network responses directly.
 
-2. **Unidirectional Data Flow**: Data flows in one direction:
+2. **Tiered Reconciliation**:
+    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively resolves entity state using deterministic ordering (REPLACE semantics) to ensure local consistency across all devices.
+    - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only diagnostic metadata after Tier 1 convergence.
+
+3. **Atomic Identity Linking**:
+    - **`ClaimManager`**: Orchestrates secure invite claiming and inviter discovery.
+    - **`AppDatabase.mergePhantomToReal`**: Atomic transaction that reassigns all foreign-key references from a local phantom user to a real cloud user without data loss.
+
+4. **Unidirectional Data Flow**: Data flows in one direction:
    ```
    User Action → ViewModel → Repository → Room → Flow → UI
    ```
