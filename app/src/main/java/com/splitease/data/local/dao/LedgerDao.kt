@@ -101,4 +101,11 @@ interface LedgerDao {
      */
     @Query("SELECT COUNT(*) FROM ledger_operations")
     suspend fun getOperationCountSync(): Int
+
+    /**
+     * Checks if a specific ledger operation exists.
+     * Used by ResolutionUseCase to verify chosenOpRef points to a valid historical operation.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM ledger_operations WHERE deviceId = :deviceId AND logicalClock = :logicalClock)")
+    suspend fun exists(deviceId: String, logicalClock: Long): Boolean
 }

@@ -28,6 +28,12 @@ interface LedgerConflictDao {
     suspend fun upsertConflict(conflict: LedgerConflictEntity)
 
     /**
+     * Looks up a specific conflict by ID.
+     */
+    @Query("SELECT * FROM ledger_conflicts WHERE conflictId = :conflictId")
+    suspend fun lookupConflict(conflictId: String): LedgerConflictEntity?
+
+    /**
      * Inserts multiple conflict records.
      */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

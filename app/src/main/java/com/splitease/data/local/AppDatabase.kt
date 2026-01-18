@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.splitease.data.local.converters.Converters
+import com.splitease.data.local.dao.ConflictResolutionDao
 import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
@@ -13,6 +14,7 @@ import com.splitease.data.local.dao.LedgerUploadDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.dao.UserDao
+import com.splitease.data.local.entities.ConflictResolutionEntity
 import com.splitease.data.local.entities.ConnectionStateEntity
 import com.splitease.data.local.entities.ConnectionStatus
 import com.splitease.data.local.entities.Expense
@@ -36,9 +38,10 @@ import com.splitease.data.local.entities.User
         SyncOperation::class,
         ConnectionStateEntity::class,
         LedgerOperation::class,
-        LedgerConflictEntity::class
+        LedgerConflictEntity::class,
+        ConflictResolutionEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 
@@ -164,6 +167,16 @@ abstract fun connectionStateDao(): ConnectionStateDao
      * @return The LedgerConflictDao used for conflict persistence and observation.
      */
     abstract fun ledgerConflictDao(): LedgerConflictDao
+
+    /**
+     * Provides access to the DAO for persisted conflict resolutions.
+     *
+     * **Sprint 21 Contract**: This table is DERIVED STATE, not source of truth.
+     * Populated exclusively during ledger replay. Insert-only semantics.
+     *
+     * @return The ConflictResolutionDao used for resolution persistence and lookup.
+     */
+    abstract fun conflictResolutionDao(): ConflictResolutionDao
 
 
     /**

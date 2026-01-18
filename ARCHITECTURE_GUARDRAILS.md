@@ -100,9 +100,31 @@ Repositories **never** talk to `WorkManager`, `Retrofit`, or API interfaces. The
 - UI never triggers sync directly.
 
 ---
-
-## 6. Change Safety Checklist (MANDATORY)
-
++
++## 6. Conflict Resolution Guardrails
++
++### 6.1 Sealed Execution
++Conflict resolution **must** be deterministic and user-driven. Heuristics or "smart" auto-resolutions are forbidden.
++
++### 6.2 Suppression-Based Model
++Conflicts are resolved by **suppressing** operations during replay. The ledger history is never modified, deleted, or re-written to resolve a conflict. 
++
++### 6.3 Derived State Only
++The `conflict_resolutions` table is strictly **derived state**.
++- It must be populated ONLY during ledger replay.
++- Direct writes from the UI/Repository to this table are forbidden.
++- The first resolution encountered for a `conflictId` wins (`INSERT OR IGNORE`).
++
++### 6.4 Write Preconditions
++Resolving a conflict requires:
++- Local existence of the conflict diagnostic.
++- Membership of the chosen operation in the conflict set.
++- Explicit write authority (`PRIMARY` or `PROMOTED`).
++
++---
++
++## 7. Change Safety Checklist (MANDATORY)
++
 Before merging any PR, the author must verify:
 - [ ] `./gradlew assembleDebug` passes.
 - [ ] **Kotlin Compatibility**: No Kotlin 1.9+ features (like `entries`) added.

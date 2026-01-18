@@ -23,6 +23,10 @@ import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_SETTLEM
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_CREATE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_DELETE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_UPDATE
+import com.splitease.data.resolution.ConflictResolutionPayload
+import com.splitease.data.resolution.ResolutionType
+import com.splitease.data.conflict.LedgerOpRef
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_RESOLVE_CONFLICT
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.UUID
@@ -136,6 +140,22 @@ interface LedgerOperationFactory {
         authorUserId: String
     ): LedgerOperation
 
+    /**
+     * Creates a RESOLVE_CONFLICT operation payload.
+     *
+     * @param conflictId The ID of the conflict being resolved.
+     * @param resolutionType The type of resolution (e.g. KEEP_OPERATION).
+     * @param chosenOpRef The operation reference chosen by the user.
+     * @param authorUserId The local user ID performing the resolution.
+     * @return A LedgerOperation containing the serialized [ConflictResolutionPayload].
+     */
+    suspend fun createResolutionOp(
+        conflictId: String,
+        resolutionType: ResolutionType,
+        chosenOpRef: LedgerOpRef,
+        authorUserId: String
+    ): LedgerOperation
+
     companion object {
         const val ENTITY_EXPENSE = "EXPENSE"
         const val ENTITY_GROUP = "GROUP"
@@ -145,6 +165,8 @@ interface LedgerOperationFactory {
         const val OP_CREATE = "CREATE"
         const val OP_UPDATE = "UPDATE"
         const val OP_DELETE = "DELETE"
+        /** Sprint 21: Explicit conflict resolution operation type. */
+        const val OP_RESOLVE_CONFLICT = "RESOLVE_CONFLICT"
     }
 }
 
@@ -379,6 +401,31 @@ class LedgerOperationFactoryImpl @Inject constructor(
             entityId = settlement.id,
             operationType = OP_CREATE,
             payload = gson.toJson(snapshot),
+            authorLocalUserId = authorUserId,
+            deviceId = deviceId(),
+            logicalClock = 0L,
+            createdAt = now()
+        )
+    }
+
+    override suspend fun createResolutionOp(
+        conflictId: String,
+        resolutionType: ResolutionType,
+        chosenOpRef: LedgerOpRef,
+        authorUserId: String
+    ): LedgerOperation {
+        ensureNotReadOnly()
+        val payload = ConflictResolutionPayload(
+            conflictId = conflictId,
+            resolutionType = resolutionType,
+            chosenOpRef = chosenOpRef
+        )
+        return LedgerOperation(
+            operationId = generateOperationId(),
+            entityType = "CONFLICT_RESOLUTION", // Or N/A - payload has conflict info
+            entityId = conflictId,
+            operationType = OP_RESOLVE_CONFLICT,
+            payload = gson.toJson(payload),
             authorLocalUserId = authorUserId,
             deviceId = deviceId(),
             logicalClock = 0L,

@@ -17,7 +17,7 @@ enum class EntityType {
          * Parses a string to [EntityType], returning null for unknown values.
          * This parser is used during conflict detection to convert ledger operation types.
          */
-        fun fromString(value: String): EntityType? = entries.find { it.name == value }
+        fun fromString(value: String): EntityType? = values().find { it.name == value }
     }
 }
 
