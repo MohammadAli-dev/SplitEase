@@ -186,9 +186,9 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 ┌───────────────────────────────┐      ┌────────────────────────────────┐
 │       WRITE PATH (PUSH)       │      │       READ PATH (PULL)         │
 │                               │      │                                │
-│ 1. DB: [ledger_operations]    │      │ 1. [Supabase]: Pull Remote Ops │
+│ 1. DB: [ledger_operations]    │      │ 1. [Remote API]: Pull Ops      │
 │ 2. WorkManager: [PushWorker]  │      │ 2. [ReplayEngine]: Tier 1      │
-│ 3. [Supabase]: Remote Mirror  │      │    (Deterministic Replay)      │
+│ 3. [Remote Service]: Mirror   │      │    (Deterministic Replay)      │
 │                               │      │ 3. [ConflictDetector]: Tier 2  │
 │                               │      │    (Multi-Device Detection)    │
 └───────────────┬───────────────┘      └──────────────┬─────────────────┘
@@ -345,7 +345,7 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `amount` | TEXT | Payment amount |
 | `date` | INTEGER | Timestamp |
 
-#### `sync_operations` Table (Critical for Offline-First)
+#### `sync_operations` Table (Legacy Sync Queue)
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER (PK) | Auto-increment (FIFO order) |
@@ -356,6 +356,21 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `status` | TEXT | "PENDING", "SYNCED", "FAILED" |
 | `failureReason` | TEXT? | Error message if failed |
 | `failureType` | TEXT? | "VALIDATION", "AUTH", "NETWORK", "UNKNOWN" |
+
+#### `ledger_operations` Table (Modern Financial Ledger)
+| Column | Type | Description |
+|--------|------|-------------|
+| `operationId` | TEXT (PK) | Unique UUID for the operation |
+| `deviceId` | TEXT | ID of the device that created the record |
+| `logicalClock` | INTEGER | Monotonic per-device counter (Authoritative) |
+| `payload` | TEXT | Full entity snapshot (JSON) |
+
+#### `ledger_conflicts` Table (Diagnostic Metadata)
+| Column | Type | Description |
+|--------|------|-------------|
+| `conflictId` | TEXT (PK) | Deterministic SHA-256 fingerprint |
+| `entityId` | TEXT | ID of the conflicted entity |
+| `opRefs` | TEXT | JSON list of involved (deviceId:clock) pairs |
 
 ### How Write-Ahead Sync Works
 
