@@ -177,14 +177,14 @@ class LedgerOperationFactoryImpl @Inject constructor(
         this.setScale(2, RoundingMode.HALF_UP).toPlainString()
 
     /**
-     * Guard to enforce read-only mode at the factory level.
+     * Guard to enforce write permissions at the factory level.
+     * Throws [WritePermissionDeniedException] if the device role does not permit writes.
      */
     private suspend fun ensureNotReadOnly() {
         if (!deviceRoleManager.canWrite()) {
             throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
         }
     }
-
     override suspend fun createExpenseCreateOp(
         expense: Expense,
         splits: List<ExpenseSplit>,

@@ -130,7 +130,7 @@ class PromotionCoordinatorTest {
     }
 
     @Test
-    fun `promoteToWriter enters FAILED_PERMANENTLY if ledger sets mismatch`() = runTest {
+    fun `promoteToWriter aborts without state change if ledger sets mismatch before IN_PROGRESS`() = runTest {
         // Given
         coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.REPLICA
         coEvery { deviceRoleManager.getPromotionState() } returns PromotionState.NOT_STARTED
@@ -146,10 +146,9 @@ class PromotionCoordinatorTest {
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is PromotionInvariantException)
         
-        // Should NOT set FAILED_PERMANENTLY on strictly PRE-CONDITION failure (step 3), only step 5?
-        // Let's check logic.
-        // Logic: Step 3 (Precondition) -> returns failure, DOES NOT set FAILED_PERMANENTLY.
-        // Correct, because we haven't set IN_PROGRESS yet. FAILED_PERMANENTLY is for when we commited intent but failed later.
+        // Verify: Pre-condition failure must NOT set FAILED_PERMANENTLY.
+        // FAILED_PERMANENTLY is reserved for failures *after* we have committed to IN_PROGRESS.
+        // Here, we should simply bail out and leave the device as-is (allow retry later).
         
         coVerify(exactly = 0) { deviceRoleManager.setPromotionState(PromotionState.FAILED_PERMANENTLY) }
         coVerify(exactly = 0) { deviceRoleManager.setPromotionState(PromotionState.IN_PROGRESS) }

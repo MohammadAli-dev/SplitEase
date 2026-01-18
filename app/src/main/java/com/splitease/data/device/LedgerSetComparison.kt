@@ -21,4 +21,10 @@ sealed class LedgerSetComparison {
      * @param reason Human-readable description of the mismatch.
      */
     data class NotEqual(val reason: String) : LedgerSetComparison()
+
+    /**
+     * Ledger comparison failed due to an error (e.g. network, parsing).
+     * This is distinct from NotEqual - the sets MIGHT be equal, but we don't know.
+     */
+    data class Error(val message: String) : LedgerSetComparison()
 }

@@ -72,7 +72,7 @@ class LedgerSetComparatorImpl @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e(TAG, "LEDGER_COMPARISON_ERROR: ${e.message}", e)
-            LedgerSetComparison.NotEqual("Comparison failed: ${e.message}")
+            LedgerSetComparison.Error("Comparison failed: ${e.message}")
         }
     }
 

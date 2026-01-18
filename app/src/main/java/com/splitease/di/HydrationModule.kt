@@ -24,10 +24,9 @@ import javax.inject.Singleton
  *
  * **Sprint 18 Contract**:
  * - All components are singletons to ensure consistent state across the app.
- * - ReadOnlyModeManager is provided early and injected into repositories.
+ * - DeviceRoleManager is injected to manage device role state during hydration.
  * - HydrationCoordinator orchestrates the full hydration flow.
- */
-@Module
+ */@Module
 @InstallIn(SingletonComponent::class)
 object HydrationModule {
 

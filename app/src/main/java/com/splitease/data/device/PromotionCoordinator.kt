@@ -110,7 +110,10 @@ class PromotionCoordinatorImpl @Inject constructor(
         }
 
         // Re-check: PromotionState == NOT_STARTED or IN_PROGRESS (for recovery)
-        if (state != PromotionState.NOT_STARTED && state != PromotionState.IN_PROGRESS) {
+        // CRASH RECOVERY EXCEPTION: Allow COMPLETED if we are fixing a partial commit (role == REPLICA)
+        val isRecoveringPartialCommit = (state == PromotionState.COMPLETED && role == DeviceRole.REPLICA)
+        
+        if (!isRecoveringPartialCommit && state != PromotionState.NOT_STARTED && state != PromotionState.IN_PROGRESS) {
             Log.w(TAG, "PROMOTION_ABORT: unexpected state $state")
             return Result.failure(
                 PromotionInvariantException("Unexpected promotion state: $state")
@@ -126,12 +129,24 @@ class PromotionCoordinatorImpl @Inject constructor(
         }
 
         // Check: Ledger set equality (always recompute, never cache)
+        // Check: Ledger set equality (always recompute, never cache)
         val comparison = ledgerSetComparator.compareLocalAndRemote()
-        if (comparison is LedgerSetComparison.NotEqual) {
-            Log.w(TAG, "PROMOTION_ABORT: ledger mismatch - ${comparison.reason}")
-            return Result.failure(
-                PromotionInvariantException("Ledger set mismatch: ${comparison.reason}")
-            )
+        when (comparison) {
+            is LedgerSetComparison.NotEqual -> {
+                Log.w(TAG, "PROMOTION_ABORT: ledger mismatch - ${comparison.reason}")
+                return Result.failure(
+                    PromotionInvariantException("Ledger set mismatch: ${comparison.reason}")
+                )
+            }
+            is LedgerSetComparison.Error -> {
+                Log.e(TAG, "PROMOTION_ABORT: ledger check error - ${comparison.message}")
+                return Result.failure(
+                    PromotionInvariantException("Ledger check failed (transient): ${comparison.message}")
+                )
+            }
+            LedgerSetComparison.Equal -> {
+                // Proceed
+            }
         }
 
         Log.d(TAG, "PROMOTION_PRECONDITIONS_PASSED: ledger sets equal")
@@ -156,13 +171,29 @@ class PromotionCoordinatorImpl @Inject constructor(
         }
 
         // Re-check ledger equality (always recompute)
+        // Re-check ledger equality (always recompute)
         val finalComparison = ledgerSetComparator.compareLocalAndRemote()
-        if (finalComparison is LedgerSetComparison.NotEqual) {
-            Log.e(TAG, "PROMOTION_FINAL_FAIL: ledger mismatch - ${finalComparison.reason}")
-            deviceRoleManager.setPromotionState(PromotionState.FAILED_PERMANENTLY)
-            return Result.failure(
-                PromotionInvariantException("Final ledger set mismatch: ${finalComparison.reason}")
-            )
+        when (finalComparison) {
+            is LedgerSetComparison.NotEqual -> {
+                Log.e(TAG, "PROMOTION_FINAL_FAIL: ledger mismatch - ${finalComparison.reason}")
+                deviceRoleManager.setPromotionState(PromotionState.FAILED_PERMANENTLY)
+                return Result.failure(
+                    PromotionInvariantException("Final ledger set mismatch: ${finalComparison.reason}")
+                )
+            }
+            is LedgerSetComparison.Error -> {
+                // If the FINAL check errors out, we are in IN_PROGRESS.
+                // We cannot transition to PROMOTED because we aren't sure.
+                // But we also shouldn't set FAILED_PERMANENTLY for a transient network error.
+                // We should stay IN_PROGRESS so we can retry later (via recoverPromotionIfNeeded).
+                Log.e(TAG, "PROMOTION_FINAL_ABORT: ledger check error - ${finalComparison.message}")
+                return Result.failure(
+                    PromotionInvariantException("Final ledger check error (retryable): ${finalComparison.message}")
+                )
+            }
+            LedgerSetComparison.Equal -> {
+                // Proceed
+            }
         }
 
         Log.d(TAG, "PROMOTION_FINAL_VALIDATION_PASSED")
@@ -188,6 +219,41 @@ class PromotionCoordinatorImpl @Inject constructor(
             val result = promoteToWriter()
             if (result.isFailure) {
                 Log.e(TAG, "PROMOTION_RECOVERY_FAILED: ${result.exceptionOrNull()?.message}")
+            }
+        } else if (state == PromotionState.COMPLETED) {
+            // CRASH CONSISTENCY FIX:
+            // If state is COMPLETED but role is still REPLICA, the app crashed between
+            // the two commits in promoteToWriter(). We must recover by re-driving the flow.
+            val role = deviceRoleManager.getDeviceRole()
+            if (role == DeviceRole.REPLICA) {
+                Log.w(TAG, "PROMOTION_RECOVERY: found COMPLETED state but REPLICA role (crash during commit). Retrying promotion to finalize role.")
+                // We call promoteToWriter() which handles the idempotency check (lines 65-68 will pass)
+                // BUT we need it to NOT exit early if it's REPLICA.
+                // Wait, if it is COMPLETED and REPLICA...
+                
+                // Let's check promoteToWriter logic:
+                // currentState == COMPLETED -> lines 65 check role.
+                // If role == REPLICA, line 65 is FALSE.
+                // Line 71 checks if REPLICA. True.
+                // Line 79 checks FAILED_PERMANENTLY. False.
+                // Then it enters lock.
+                // Inside lock: checks REPLICA. True.
+                // Checks NOT_STARTED or IN_PROGRESS... -> !!! IT WILL FAIL HERE !!!
+                // because state is COMPLETED.
+                
+                // So we CANNOT just call promoteToWriter() as-is unless we modify it to allow COMPLETED state.
+                // Ideally, we should modify executePromotionUnderLock to allow COMPLETED if we are recovering.
+                
+                // OR, we manually fix it here as I did before. 
+                // Coderabbit says: "invoke promoteToWriter() exactly like the IN_PROGRESS branch".
+                // But it also says: "modify ... promoteToWriter ... to recognize COMPLETED+REPLICA".
+                
+                // I will invoke promoteToWriter() here, BUT I must ALSO modify validation in executePromotionUnderLock.
+                
+                val result = promoteToWriter()
+                if (result.isFailure) {
+                    Log.e(TAG, "PROMOTION_RECOVERY_FAILED: ${result.exceptionOrNull()?.message}")
+                }
             }
         }
     }

@@ -194,6 +194,10 @@ class GroupRepositoryImpl @Inject constructor(
     override suspend fun leaveGroup(groupId: String, userId: String): LeaveGroupResult = withContext(Dispatchers.IO) {
         ledgerWriteGate.withWriteLock {
             try {
+                if (!deviceRoleManager.canWrite()) {
+                    throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+                }
+
                 // 1. Fetch current members (single source of truth for this operation)
                 val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
                 val memberCount = currentMembers.size

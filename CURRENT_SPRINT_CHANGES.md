@@ -60,8 +60,8 @@ Following a comprehensive architectural audit, the hydration and auth systems we
 
 ### 4. Identity Integrity & Leakage Protection
 To prevent cross-user data contamination and stale identity visibility:
-- **Atomic Identity Invalidation**: Updated `TokenManager` to detect `cloudUserId` changes. Upon a user swap, cached `UserProfile` data (name/email) is atomically wiped.- **Persistence Boundary Guard**: `saveUserProfile` now validates that the incoming profile's ID matches the active session, blocking mismatched identity persistence.
-- **Atomic Logout Reset**: Verified that `logout()` performs a destructive identity reset, clearing all tokens and the persisted profile cache simultaneously.
+- **Atomic Identity Invalidation**: Updated `TokenManager` to detect `cloudUserId` changes. Upon a user swap, cached `UserProfile` data (name/email) is atomically wiped.
+- **Persistence Boundary Guard**: `saveUserProfile` now validates that the incoming profile's ID matches the active session, blocking mismatched identity persistence.- **Atomic Logout Reset**: Verified that `logout()` performs a destructive identity reset, clearing all tokens and the persisted profile cache simultaneously.
 
 ### 5. Read-Only Mode Enforcement
 - **ReadOnlyModeManager**: Created a persistent DataStore-backed flag. Once a device hydrates, it enters a permanent read-only state.
@@ -100,6 +100,15 @@ This sprint implements explicit, crash-safe device role promotion and enforces s
 ### 3. Foundation Migration
 - **DeviceRoleManager**: Retired the legacy `ReadOnlyModeManager` and migrated all permission logic to the unified `DeviceRoleManager`.
 - **System-Wide Alignment**: Updated `LedgerOperationFactory`, `LedgerSyncScheduler`, and the Hydration system to observe the new role-based permission model.
+
+### 4. CodeRabbit/ChatGPT Safety Audit & Crash-Hardening
+Following a comprehensive architectural audit, the promotion and hydration subsystems were further hardened against failure-path inconsistencies and crash windows:
+- **Semantic Error Differentiation**: Enhanced `LedgerSetComparator` with a distinct `Error` state to distinguish between transient failures (network/deserialization) and genuine ledger mismatches.
+- **Transient-Safe Promotion**: Instrumented `PromotionCoordinator` to treat comparison errors as retryable, preventing transient network glitches from incorrectly triggering terminal `FAILED_PERMANENTLY` transitions.
+- **Atomic-Commit Gap Recovery**: Hardened `recoverPromotionIfNeeded` to detect and repair the "zombie" state `(PromotionState.COMPLETED + DeviceRole.REPLICA)` by re-driving the promotion through `promoteToWriter`. This closes the crash window between the two persistent writes.
+- **Mutex Lifecycle Protection**: Replaced implicit lock-release logic in `HydrationCoordinator.hydrate()` with explicit lock-state tracking (`val locked = tryLock()`) to prevent `IllegalStateException` during cleanup.
+- **Repository Invariant Alignment**: Enforced `canWrite()` guards in `GroupRepository.leaveGroup()` to ensure membership mutations are consistently gated by device role, matching the existing security model for group creation and user removal.
+- **Test Integrity**: Renamed test cases in `PromotionCoordinatorTest` to accurately reflect their assertions, ensuring the executable documentation correctly describes the promotion state machine's invariants.
 
 ## Verification Results
 - **Build**: Successfully passed Kotlin compilation and KSP processing.

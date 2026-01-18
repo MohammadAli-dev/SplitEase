@@ -102,7 +102,8 @@ class HydrationCoordinatorImpl @Inject constructor(
         // === ATOMIC ADMISSION ===
         // Hydration is single-flight and best-effort. If already running, we fail fast instead
         // of blocking. Aborted is a valid outcome to prevent redundant work, not an error.
-        if (!actionMutex.tryLock()) {
+        val locked = actionMutex.tryLock()
+        if (!locked) {
             Log.d(TAG, "Hydration attempt ignored: already in progress")
             return@withContext HydrationResult.Aborted("Hydration already in progress")
         }
@@ -186,7 +187,9 @@ class HydrationCoordinatorImpl @Inject constructor(
             Log.e(TAG, "Unexpected error during hydration flow", e)
             HydrationResult.Failed(e)
         } finally {
-            actionMutex.unlock()
+            if (locked) {
+                actionMutex.unlock()
+            }
         }
     }
 
