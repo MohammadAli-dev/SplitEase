@@ -58,4 +58,16 @@ These are not issues — just future polish ideas that don't block current sprin
 
 ---
 
-*Nothing here blocks or weakens Sprint 16.*
+## Sprint 18 Observations (2026-01-17)
+
+### 1. Hydration Data Quality Observability
+- **Context**: `LedgerPullService` and `ReplayEngine` use deterministic sentinels (`0L`) for missing `createdAt` and `joinedAt` timestamps to maintain fleet-wide consistency and prevent data loss.
+- **Future Polish**:
+    - Add lightweight, in-memory counters during hydration to track how many operations use these sentinels (e.g., `missingCreatedAtCount`, `missingJoinedAtCount`).
+    - Increment the counters whenever a null timestamp is encountered during mapping or replay.
+    - At the end of a hydration run, emit a single summary `Log.w` summarizing the data quality of the replayed ledger.
+- **Goal**: Improved top-level observability for identifying "dirty" historical data in the cloud ledger at a glance.
+
+---
+
+*Nothing here blocks or weakens Sprint 18.*

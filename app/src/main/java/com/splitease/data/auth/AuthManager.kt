@@ -40,6 +40,17 @@ interface AuthManager {
      * Initialized based on TokenManager on cold start (no network call).
      */
     val authState: StateFlow<AuthState>
+    
+    /**
+     * Initializes authentication state by restoring local sessions and refreshing tokens.
+     *
+     * **Architectural Contract**:
+     * - **Idempotent**: Safe to call multiple times.
+     * - **Non-blocking**: Must be invoked from a coroutine, performs IO internally.
+     * - **Fatal-Fail Safe**: Should swallow/handle network errors internally to allow
+     *   progressive enhancement (offline-first).
+     */
+    suspend fun initialize()
 
     /**
      * One-shot error events for UI consumption (snackbars, toasts).
@@ -167,30 +178,42 @@ class AuthManagerImpl @Inject constructor(
     private val _userProfile = MutableStateFlow<UserProfile?>(null)
     override val userProfile: StateFlow<UserProfile?> = _userProfile.asStateFlow()
 
-    init {
-        // Initialize auth state based on TokenManager (no network call)
-        scope.launch {
-            initializeAuthState()
+    override suspend fun initialize() = withContext(Dispatchers.IO) {
+        Log.d(TAG, "initialize: starting auth recovery")
+        
+        // Restore cached profile FIRST for immediate bootstrap availability
+        val cachedProfile = tokenManager.getSavedUserProfile()
+        if (cachedProfile != null) {
+            Log.d(TAG, "initialize: restored cached UserProfile for bootstrap")
+            _userProfile.value = cachedProfile
         }
-    }
 
-    /**
-     * Initialize auth state from TokenManager.
-     * Called on cold start. No network call.
-     */
-    private suspend fun initializeAuthState() {
         val hasValidToken = tokenManager.hasValidToken().first()
         
         if (hasValidToken) {
             val cloudUserId = tokenManager.getCloudUserId()
             if (cloudUserId != null) {
+                Log.d(TAG, "initialize: valid token found, authenticated as $cloudUserId")
                 _authState.value = AuthState.Authenticated(cloudUserId)
             } else {
-                // Token exists but no user ID - treat as unauthenticated
+                Log.w(TAG, "initialize: token exists but no cloudUserId, treating as unauthenticated")
                 _authState.value = AuthState.Unauthenticated
             }
         } else {
-            _authState.value = AuthState.Unauthenticated
+            // Token is either missing or expired. Attempt refresh.
+            // **Authority Rule**: Refresh is the authoritative source of truth.
+            // Restoration from cache is for bootstrap rendering ONLY.
+            val refreshToken = tokenManager.getRefreshToken()
+            if (!refreshToken.isNullOrBlank()) {
+                Log.d(TAG, "initialize: token expired but refresh token exists, attempting refresh")
+                val success = refreshAccessToken() // This handles state update internally
+                if (!success) {
+                    Log.d(TAG, "initialize: refresh failed, remaining unauthenticated")
+                }
+            } else {
+                Log.d(TAG, "initialize: no tokens found, unauthenticated")
+                _authState.value = AuthState.Unauthenticated
+            }
         }
     }
 
@@ -400,11 +423,15 @@ class AuthManagerImpl @Inject constructor(
             val name = authResponse.user?.userMetadata?.name 
                 ?: authResponse.user?.userMetadata?.fullName
             val email = authResponse.user?.email
-            _userProfile.value = UserProfile(
+            
+            val profile = UserProfile(
                 cloudUserId = cloudUserId,
                 name = name,
                 email = email
             )
+            
+            _userProfile.value = profile
+            tokenManager.saveUserProfile(profile)
             
             _authState.value = AuthState.Authenticated(cloudUserId)
             enqueueIdentityLinkingIfNeeded()

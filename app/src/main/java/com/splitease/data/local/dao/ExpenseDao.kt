@@ -131,6 +131,13 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE id = :id") suspend fun getExpenseById(id: String): Expense?
 
     /**
+     * Get total expense count (for fresh-install guard).
+     * Used by HydrationCoordinator to check if database is empty.
+     */
+    @Query("SELECT COUNT(*) FROM expenses")
+    suspend fun getExpenseCountSync(): Int
+
+    /**
      * Fetches all expense splits belonging to the specified expense for reconciliation.
      *
      * @param expenseId The ID of the expense whose splits should be retrieved.

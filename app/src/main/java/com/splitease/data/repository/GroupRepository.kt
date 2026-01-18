@@ -4,6 +4,8 @@ import android.util.Log
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
+import com.splitease.data.hydration.ReadOnlyModeManager
+import com.splitease.data.hydration.ReadOnlyViolationException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
@@ -55,6 +57,7 @@ interface GroupRepository {
      * @param tripStartDate Trip start timestamp in epoch milliseconds, or `null` if not applicable.
      * @param tripEndDate Trip end timestamp in epoch milliseconds, or `null` if not applicable.
      * @param creatorUserId The user ID of the group creator.
+     * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     suspend fun createGroup(
         name: String,
@@ -97,6 +100,7 @@ interface GroupRepository {
      *         `RemoveMemberResult.BlockedByBalance` if the target's net balance is not zero;
      *         `RemoveMemberResult.BlockedAsLastMember` if the target is the group's last member;
      *         or `RemoveMemberResult.Error(message)` if an error occurs.
+     * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult
 }
@@ -106,7 +110,8 @@ class GroupRepositoryImpl @Inject constructor(
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
-    private val ledgerSyncScheduler: LedgerSyncScheduler
+    private val ledgerSyncScheduler: LedgerSyncScheduler,
+    private val readOnlyModeManager: ReadOnlyModeManager
 ) : GroupRepository {
 
     companion object {
@@ -125,6 +130,7 @@ class GroupRepositoryImpl @Inject constructor(
          * @param tripStartDate Trip start timestamp in milliseconds since the Unix epoch, or `null` if not set.
          * @param tripEndDate Trip end timestamp in milliseconds since the Unix epoch, or `null` if not set.
          * @param creatorUserId The user ID recorded as the group's creator and last modifier.
+         * @throws ReadOnlyViolationException if device is in read-only mode.
          */
         override suspend fun createGroup(
         name: String,
@@ -135,6 +141,9 @@ class GroupRepositoryImpl @Inject constructor(
         tripEndDate: Long?,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
+            if (readOnlyModeManager.isReadOnlyMode()) {
+                throw ReadOnlyViolationException("Cannot create group in read-only mode")
+            }
             val groupId = UUID.randomUUID().toString()
             val now = Date()
 
@@ -251,6 +260,9 @@ class GroupRepositoryImpl @Inject constructor(
      */
     override suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult = withContext(Dispatchers.IO) {
         try {
+            if (readOnlyModeManager.isReadOnlyMode()) {
+                throw ReadOnlyViolationException("Cannot remove member in read-only mode")
+            }
             // 1. Fetch current members (single source of truth for this operation)
             val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
             val memberCount = currentMembers.size

@@ -2,6 +2,8 @@ package com.splitease.data.ledger
 
 import com.google.gson.Gson
 import com.splitease.data.device.InstallationIdProvider
+import com.splitease.data.hydration.ReadOnlyModeManager
+import com.splitease.data.hydration.ReadOnlyViolationException
 import com.splitease.data.ledger.model.ExpenseSnapshot
 import com.splitease.data.ledger.model.ExpenseSplitSnapshot
 import com.splitease.data.ledger.model.GroupMemberSnapshot
@@ -14,6 +16,13 @@ import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_EXPENSE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_GROUP
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_MEMBER
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_SETTLEMENT
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_CREATE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_DELETE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_UPDATE
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.UUID
@@ -39,7 +48,7 @@ interface LedgerOperationFactory {
      * @param authorUserId Local user id of the author who performed the operation.
      * @return A LedgerOperation for entity type "EXPENSE" with operation type "CREATE". The operation contains a canonical, versioned JSON snapshot of the expense and splits as its payload, a generated operationId, deviceId from the installation provider, `logicalClock` set to 0, and `createdAt` set to the current timestamp.
      */
-    fun createExpenseCreateOp(
+    suspend fun createExpenseCreateOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
         authorUserId: String
@@ -53,7 +62,7 @@ interface LedgerOperationFactory {
      * @param authorUserId Local user id of the operation author.
      * @return A LedgerOperation whose payload is the JSON ExpenseSnapshot for the expense (including splits), with `entityId` set to the expense id, `operationType` set to "UPDATE", `authorLocalUserId` set to `authorUserId`, `deviceId` from the installation provider, `logicalClock` set to 0, and `createdAt` set to the current time.
      */
-    fun createExpenseUpdateOp(
+    suspend fun createExpenseUpdateOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
         authorUserId: String
@@ -70,7 +79,7 @@ interface LedgerOperationFactory {
      * @param authorUserId Local user id of the author of this operation.
      * @return A `LedgerOperation` whose payload is the JSON-serialized `ExpenseSnapshot` for the deleted expense.
      */
-    fun createExpenseDeleteOp(
+    suspend fun createExpenseDeleteOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
         authorUserId: String
@@ -86,7 +95,7 @@ interface LedgerOperationFactory {
      * @param authorUserId The local user id of the operation author.
      * @return A LedgerOperation representing a "CREATE" operation for the group's id whose payload is a canonical, versioned JSON GroupSnapshot.
      */
-    fun createGroupCreateOp(
+    suspend fun createGroupCreateOp(
         group: Group,
         members: List<GroupMember>,
         authorUserId: String
@@ -106,7 +115,7 @@ interface LedgerOperationFactory {
      * @param authorUserId The local user id performing the removal.
      * @return A `LedgerOperation` representing the member removal. 
      */
-    fun createMemberRemoveOp(
+    suspend fun createMemberRemoveOp(
         groupId: String,
         userId: String,
         authorUserId: String
@@ -122,61 +131,66 @@ interface LedgerOperationFactory {
      * @param authorUserId Local user id of the author of this operation.
      * @return A LedgerOperation whose entityId is the settlement's id, whose payload is the JSON SettlementSnapshot, whose authorLocalUserId is `authorUserId`, whose deviceId is obtained from the installation provider, whose logicalClock is 0, and whose createdAt is the current system time in milliseconds.
      */
-    fun createSettlementCreateOp(
+    suspend fun createSettlementCreateOp(
         settlement: Settlement,
         authorUserId: String
     ): LedgerOperation
+
+    companion object {
+        const val ENTITY_EXPENSE = "EXPENSE"
+        const val ENTITY_GROUP = "GROUP"
+        const val ENTITY_SETTLEMENT = "SETTLEMENT"
+        const val ENTITY_MEMBER = "MEMBER"
+
+        const val OP_CREATE = "CREATE"
+        const val OP_UPDATE = "UPDATE"
+        const val OP_DELETE = "DELETE"
+    }
 }
 
 @Singleton
 class LedgerOperationFactoryImpl @Inject constructor(
     private val gson: Gson,
-    private val installationIdProvider: InstallationIdProvider
+    private val installationIdProvider: InstallationIdProvider,
+    private val readOnlyModeManager: ReadOnlyModeManager
 ) : LedgerOperationFactory {
 
     /**
- * Create a new unique identifier for a ledger operation.
- *
- * @return A UUID string to use as the operation identifier.
- */
-private fun generateOperationId(): String = UUID.randomUUID().toString()
+     * Create a new unique identifier for a ledger operation.
+     */
+    private fun generateOperationId(): String = UUID.randomUUID().toString()
+    
     /**
- * Retrieve the current installation's device identifier.
- *
- * @return The device identifier string.
- */
-private fun deviceId(): String = installationIdProvider.getDeviceId()
+     * Retrieve the current installation's device identifier.
+     */
+    private fun deviceId(): String = installationIdProvider.getDeviceId()
+    
     /**
- * Gets the current wall-clock time in milliseconds since the Unix epoch.
- *
- * @return Current time in milliseconds since January 1, 1970 UTC.
- */
-private fun now(): Long = System.currentTimeMillis()
+     * Gets the current wall-clock time in milliseconds since the Unix epoch.
+     */
+    private fun now(): Long = System.currentTimeMillis()
 
     /**
-         * Produces a canonical plain-string representation of this BigDecimal with exactly two decimal places.
-         *
-         * The value is rounded to two decimal places using HALF_UP and formatted without scientific notation.
-         *
-         * @receiver The BigDecimal to canonicalize.
-         * @return A string with exactly two decimal places, rounded HALF_UP, and no exponential notation.
-         */
-        private fun BigDecimal.toCanonicalString(): String =
+     * Produces a canonical plain-string representation of this BigDecimal with exactly two decimal places.
+     */
+    private fun BigDecimal.toCanonicalString(): String =
         this.setScale(2, RoundingMode.HALF_UP).toPlainString()
 
     /**
-     * Create a ledger operation that records the creation of an expense as a canonical, versioned JSON snapshot.
-     *
-     * @param expense The expense entity to serialize into the snapshot.
-     * @param splits The expense splits to include in the snapshot; split amounts are canonicalized to two decimals.
-     * @param authorUserId The local user id of the operation author.
-     * @return A `LedgerOperation` with `operationType` set to `CREATE`, `entityType` `EXPENSE`, `entityId` equal to the expense id, a JSON `payload` containing the `ExpenseSnapshot`, `logicalClock` set to `0L` (placeholder), and `createdAt` set to the current time.
+     * Guard to enforce read-only mode at the factory level.
      */
-    override fun createExpenseCreateOp(
+    private suspend fun ensureNotReadOnly() {
+        if (readOnlyModeManager.isReadOnlyMode()) {
+            throw ReadOnlyViolationException("Cannot create ledger operations in read-only mode")
+        }
+    }
+
+    override suspend fun createExpenseCreateOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
         authorUserId: String
     ): LedgerOperation {
+        ensureNotReadOnly()
         val snapshot = ExpenseSnapshot(
             id = expense.id,
             groupId = expense.groupId,
@@ -207,21 +221,12 @@ private fun now(): Long = System.currentTimeMillis()
         )
     }
 
-    /**
-     * Create a ledger operation representing an update to an expense.
-     *
-     * The resulting operation's payload contains a canonical ExpenseSnapshot serialized to JSON.
-     *
-     * @param expense The expense entity to snapshot for the update.
-     * @param splits The expense splits to include in the snapshot.
-     * @param authorUserId The local user id of the author creating the operation.
-     * @return A LedgerOperation for the expense update whose payload is the serialized ExpenseSnapshot.
-     */
-    override fun createExpenseUpdateOp(
+    override suspend fun createExpenseUpdateOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
         authorUserId: String
     ): LedgerOperation {
+        ensureNotReadOnly()
         val snapshot = ExpenseSnapshot(
             id = expense.id,
             groupId = expense.groupId,
@@ -252,22 +257,12 @@ private fun now(): Long = System.currentTimeMillis()
         )
     }
 
-    /**
-     * Create a ledger operation representing deletion of an expense that carries a full, canonical snapshot.
-     *
-     * The produced operation's payload is a JSON-serialized ExpenseSnapshot that includes the expense data and its splits.
-     * The snapshot's `deletedAt` is set to the expense's `deletedAt` if present, otherwise to the current time.
-     *
-     * @param expense The expense to delete; its full snapshot will be embedded in the operation payload.
-     * @param splits The expense's splits to include in the snapshot; amounts are converted to canonical string form.
-     * @param authorUserId Local user id of the actor creating the delete operation.
-     * @return A LedgerOperation with operationType `DELETE`, entityType `EXPENSE`, and a payload containing the ExpenseSnapshot JSON.
-     */
-    override fun createExpenseDeleteOp(
+    override suspend fun createExpenseDeleteOp(
         expense: Expense,
         splits: List<ExpenseSplit>,
         authorUserId: String
     ): LedgerOperation {
+        ensureNotReadOnly()
         // DELETE still carries full snapshot for replay reversibility
         val snapshot = ExpenseSnapshot(
             id = expense.id,
@@ -299,22 +294,12 @@ private fun now(): Long = System.currentTimeMillis()
         )
     }
 
-    /**
-     * Create a LedgerOperation representing the creation of a group.
-     *
-     * The operation's payload is a JSON-serialized GroupSnapshot containing the group's fields
-     * and the provided members (members are included in the snapshot sorted by `userId`).
-     *
-     * @param group The source Group whose snapshot will be embedded in the operation payload.
-     * @param members The group's members to include in the snapshot; they will be sorted by `userId`.
-     * @param authorUserId Local user id of the author of this operation.
-     * @return A LedgerOperation for creating the given group with a JSON payload of the canonical GroupSnapshot.
-     */
-    override fun createGroupCreateOp(
+    override suspend fun createGroupCreateOp(
         group: Group,
         members: List<GroupMember>,
         authorUserId: String
     ): LedgerOperation {
+        ensureNotReadOnly()
         val snapshot = GroupSnapshot(
             id = group.id,
             name = group.name,
@@ -345,22 +330,12 @@ private fun now(): Long = System.currentTimeMillis()
         )
     }
 
-    /**
-     * Creates a LedgerOperation that records removal of a user from a group.
-     *
-     * @param groupId The identifier of the group the member is removed from.
-     * @param userId The identifier of the user being removed.
-     * @param authorUserId The local user id of the operation author.
-     * @return A LedgerOperation representing the member removal. The operation's payload is a JSON-serialized
-     * MemberSnapshot with `removedAt` set to the current time. The operation uses the composite entityId
-     * "<groupId>:<userId>", entityType `MEMBER`, operationType `DELETE`, logicalClock `0`, and has `createdAt`
-     * set to the current time.
-     */
-    override fun createMemberRemoveOp(
+    override suspend fun createMemberRemoveOp(
         groupId: String,
         userId: String,
         authorUserId: String
     ): LedgerOperation {
+        ensureNotReadOnly()
         val snapshot = MemberSnapshot(
             groupId = groupId,
             userId = userId,
@@ -380,19 +355,11 @@ private fun now(): Long = System.currentTimeMillis()
         )
     }
 
-    /**
-     * Creates a ledger operation representing the creation of a settlement.
-     *
-     * Builds a canonical SettlementSnapshot (amount scaled to two decimals as a plain string) serialized to JSON and returns a LedgerOperation carrying that payload.
-     *
-     * @param settlement The settlement to snapshot into the operation payload.
-     * @param authorUserId The local user id of the operation author.
-     * @return A LedgerOperation for creating the settlement whose payload is the JSON-serialized SettlementSnapshot; `logicalClock` is set to 0 and `createdAt` is the current time.
-     */
-    override fun createSettlementCreateOp(
+    override suspend fun createSettlementCreateOp(
         settlement: Settlement,
         authorUserId: String
     ): LedgerOperation {
+        ensureNotReadOnly()
         val snapshot = SettlementSnapshot(
             id = settlement.id,
             groupId = settlement.groupId,
@@ -417,16 +384,5 @@ private fun now(): Long = System.currentTimeMillis()
             logicalClock = 0L,
             createdAt = now()
         )
-    }
-
-    companion object {
-        const val ENTITY_EXPENSE = "EXPENSE"
-        const val ENTITY_GROUP = "GROUP"
-        const val ENTITY_SETTLEMENT = "SETTLEMENT"
-        const val ENTITY_MEMBER = "MEMBER"
-
-        const val OP_CREATE = "CREATE"
-        const val OP_UPDATE = "UPDATE"
-        const val OP_DELETE = "DELETE"
     }
 }
