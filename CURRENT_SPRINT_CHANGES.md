@@ -109,6 +109,9 @@ Following a comprehensive architectural audit, the promotion and hydration subsy
 - **Mutex Lifecycle Protection**: Replaced implicit lock-release logic in `HydrationCoordinator.hydrate()` with explicit lock-state tracking (`val locked = tryLock()`) to prevent `IllegalStateException` during cleanup.
 - **Repository Invariant Alignment**: Enforced `canWrite()` guards in `GroupRepository.leaveGroup()` to ensure membership mutations are consistently gated by device role, matching the existing security model for group creation and user removal.
 - **Test Integrity**: Renamed test cases in `PromotionCoordinatorTest` to accurately reflect their assertions, ensuring the executable documentation correctly describes the promotion state machine's invariants.
+- **Fail-Closed Default Role**: Updated `DeviceRoleManager` to map invalid or corrupted role strings to `REPLICA` instead of `PRIMARY`. This ensures the system fails-closed upon data corruption, preventing unintended privilege escalation.
+- **Permission Flow Integrity**: Refactored `GroupRepository` to move write-permission guards outside of broad `try/catch` blocks. This prevents `WritePermissionDeniedException` from being swallowed and misclassified as generic operational errors.
+- **Permission Model Documentation**: Corrected misleading comments in `LedgerSyncScheduler` to accurately reflect that `PROMOTED` is a writable role, while only `REPLICA` and `IN_PROGRESS` are blocked from pushing.
 
 ## Verification Results
 - **Build**: Successfully passed Kotlin compilation and KSP processing.

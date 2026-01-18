@@ -113,7 +113,8 @@ class DeviceRoleManagerImpl @Inject constructor(
                 try {
                     DeviceRole.valueOf(roleString)
                 } catch (e: IllegalArgumentException) {
-                    DeviceRole.PRIMARY
+                    android.util.Log.e("DeviceRoleManager", "CRITICAL: Corrupted device role '$roleString'. Defaulting to REPLICA for safety.")
+                    DeviceRole.REPLICA
                 }
             } else {
                 DeviceRole.PRIMARY // Fresh install default
