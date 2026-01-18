@@ -103,6 +103,10 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 | **Sync Status Visibility** | ✅ Complete | Global and group-scoped sync indicators |
 | **Manual Sync Control** | ✅ Complete | "Sync Now" button with debounce protection |
 | **Sync Health Telemetry** | ✅ Complete | PAUSED state detection for stuck operations |
+| **Conflict Detection** | ✅ Complete | Explicit, deterministic detection of multi-device mutations |
+| **Conflict Identity** | ✅ Complete | SHA-256 stable fingerprints for audit-safe history |
+| **Read-Only Visibility** | ✅ Complete | Surfacing conflicts in UI without resolution (Sprint 20 scope) |
+
 
 ### 🎯 Sync Status Indicators
 
@@ -135,11 +139,19 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 
 SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional Data Flow (UDF)**.
 
-### Core Principles
+### Core Architectural Pillars
 
 1. **Offline-First**: The local database (Room) is the single source of truth. The UI never observes network responses directly.
 
-2. **Unidirectional Data Flow**: Data flows in one direction:
+2. **Tiered Reconciliation**:
+    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively resolves entity state using deterministic ordering (REPLACE semantics) to ensure local consistency across all devices.
+    - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only diagnostic metadata after Tier 1 convergence.
+
+3. **Atomic Identity Linking**:
+    - **`ClaimManager`**: Orchestrates secure invite claiming and inviter discovery.
+    - **`AppDatabase.mergePhantomToReal`**: Atomic transaction that reassigns all foreign-key references from a local phantom user to a real cloud user without data loss.
+
+4. **Unidirectional Data Flow**: Data flows in one direction:
    ```
    User Action → ViewModel → Repository → Room → Flow → UI
    ```
@@ -153,41 +165,49 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 ### Data Flow Diagram (ASCII)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         UI LAYER                                │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐ │
-│  │  Screens    │◄───│  ViewModel  │◄───│  StateFlow<UiState> │ │
-│  │  (Compose)  │    │             │    │                     │ │
-│  └─────────────┘    └──────┬──────┘    └─────────────────────┘ │
-└────────────────────────────┼────────────────────────────────────┘
-                             │ User Action
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       DOMAIN LAYER                              │
-│  ┌─────────────────────┐    ┌─────────────────────────────────┐│
-│  │   SplitValidator    │    │   SettlementCalculator          ││
-│  │   (Split types)     │    │   (Debt simplification)         ││
-│  ├─────────────────────┤    ├─────────────────────────────────┤│
-│  │   BalanceCalculator │    │   MoneyFormatter                ││
-│  │   (Who owes whom)   │    │   (Display formatting)          ││
-│  └─────────────────────┘    └─────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        DATA LAYER                               │
-│  ┌─────────────────┐    ┌─────────────────┐                    │
-│  │   Repository    │───▶│   Room (SSOT)   │◄─── Flow<T>        │
-│  │                 │    │   DAOs          │                    │
-│  └────────┬────────┘    └─────────────────┘                    │
-│           │                                                     │
-│           ▼                                                     │
-│  ┌─────────────────┐    ┌─────────────────┐                    │
-│  │ SyncOperation   │───▶│   WorkManager   │───▶ Remote API     │
-│  │ (Queue)         │    │   (SyncWorker)  │     (Mocked)       │
-│  └─────────────────┘    └─────────────────┘                    │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            UI LAYER (Compose)                           │
+│  ┌──────────────┐        ┌───────────────┐        ┌──────────────────┐  │
+│  │   Screens    │◀───────│   ViewModel   │◀───────│StateFlow<UiState>│  │
+│  └──────────────┘        └───────┬───────┘        └──────────────────┘  │
+└──────────────────────────────────┼──────────────────────────────────────┘
+                                   │ User Action (Write) / Observation (Read)
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           REPOSITORY LAYER                              │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │  Writes: Appends [LedgerOperation] to DB + Triggers Sync          │  │
+│  │  Reads:  Observes [Room] Entity Streams (Instant + Offline)       │  │
+│  └───────────────────────────────┬───────────────────────────────────┘  │
+└──────────────────────────────────┼──────────────────────────────────────┘
+                                   │
+        ┌──────────────────────────┴──────────────────────────┐
+        ▼                                                     ▼
+┌───────────────────────────────┐      ┌────────────────────────────────┐
+│       WRITE PATH (PUSH)       │      │       READ PATH (PULL)         │
+│                               │      │                                │
+│ 1. DB: [ledger_operations]    │      │ 1. [Remote API]: Pull Ops      │
+│ 2. WorkManager: [PushWorker]  │      │ 2. [ReplayEngine]: Tier 1      │
+│ 3. [Remote Service]: Mirror   │      │    (Deterministic Replay)      │
+│                               │      │ 3. [ConflictDetector]: Tier 2  │
+│                               │      │    (Multi-Device Detection)    │
+└───────────────┬───────────────┘      └──────────────┬─────────────────┘
+                │                                     │
+                └───────────────┬─────────────────────┘
+                                ▼
+                    ┌────────────────────────┐
+                    │     ROOM DATABASE      │
+                    │ (Single Source of Truth)│
+                    │ ┌────────────────────┐ │
+                    │ │  Local States      │ │
+                    │ ├────────────────────┤ │
+                    │ │  Ledger History    │ │
+                    │ ├────────────────────┤ │
+                    │ │  Conflict Metadata │ │
+                    │ └────────────────────┘ │
+                    └────────────────────────┘
 ```
+
 
 ### Why This Architecture?
 
@@ -325,7 +345,7 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `amount` | TEXT | Payment amount |
 | `date` | INTEGER | Timestamp |
 
-#### `sync_operations` Table (Critical for Offline-First)
+#### `sync_operations` Table (Legacy Sync Queue)
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER (PK) | Auto-increment (FIFO order) |
@@ -336,6 +356,21 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `status` | TEXT | "PENDING", "SYNCED", "FAILED" |
 | `failureReason` | TEXT? | Error message if failed |
 | `failureType` | TEXT? | "VALIDATION", "AUTH", "NETWORK", "UNKNOWN" |
+
+#### `ledger_operations` Table (Modern Financial Ledger)
+| Column | Type | Description |
+|--------|------|-------------|
+| `operationId` | TEXT (PK) | Unique UUID for the operation |
+| `deviceId` | TEXT | ID of the device that created the record |
+| `logicalClock` | INTEGER | Monotonic per-device counter (Authoritative) |
+| `payload` | TEXT | Full entity snapshot (JSON) |
+
+#### `ledger_conflicts` Table (Diagnostic Metadata)
+| Column | Type | Description |
+|--------|------|-------------|
+| `conflictId` | TEXT (PK) | Deterministic SHA-256 fingerprint |
+| `entityId` | TEXT | ID of the conflicted entity |
+| `opRefs` | TEXT | JSON list of involved (deviceId:clock) pairs |
 
 ### How Write-Ahead Sync Works
 

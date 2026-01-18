@@ -3,7 +3,11 @@ package com.splitease.data.hydration
 import android.database.sqlite.SQLiteConstraintException
 import android.util.Log
 import com.google.gson.Gson
+import com.splitease.data.conflict.ConflictDetector
+import com.splitease.data.conflict.ConflictMapper
+import com.splitease.data.conflict.LedgerPrefix
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_EXPENSE
+
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_GROUP
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_MEMBER
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_SETTLEMENT
@@ -129,8 +133,43 @@ class ReplayEngineImpl @Inject constructor(
         }
 
         Log.d(TAG, "Replay complete: ${applied.size} operations applied in $pass passes")
+
+        // SPRINT 20: Conflict Detection (Post-Convergence)
+        // Invariant: Runs ONLY after full convergence. Fail-open semantics.
+        runCatching {
+            detectAndPersistConflicts(sortedOps)
+        }.onFailure { e ->
+            Log.w(TAG, "Conflict detection failed (non-blocking): ${e.message}")
+        }
+
         ReplayResult.Success
     }
+
+    /**
+     * Detects and persists conflicts after replay convergence.
+     *
+     * **Sprint 20 Invariants:**
+     * - Runs ONLY after full convergence (called from replay()).
+     * - Uses encapsulated LedgerPrefix for structural safety.
+     * - Fail-open: Detection failures must not affect replay outcome.
+     * - Conflicts are strictly device-local and never synced.
+     */
+    private suspend fun detectAndPersistConflicts(operations: List<LedgerOperation>) {
+        val prefix = LedgerPrefix.fromConvergedReplay(operations)
+        val detector = ConflictDetector()
+        val conflicts = detector.detect(prefix)
+
+        if (conflicts.isEmpty()) {
+            Log.d(TAG, "No conflicts detected")
+            return
+        }
+
+        Log.d(TAG, "Detected ${conflicts.size} conflicts, persisting...")
+        val entities = conflicts.map { ConflictMapper.toEntity(it) }
+        db.ledgerConflictDao().upsertConflicts(entities)
+        Log.d(TAG, "Persisted ${conflicts.size} conflicts")
+    }
+
 
     /**
      * Check if an operation's dependencies are satisfied.

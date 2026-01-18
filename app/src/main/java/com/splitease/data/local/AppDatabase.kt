@@ -7,6 +7,7 @@ import com.splitease.data.local.converters.Converters
 import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.LedgerConflictDao
 import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.dao.LedgerUploadDao
 import com.splitease.data.local.dao.SettlementDao
@@ -18,6 +19,7 @@ import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
+import com.splitease.data.local.entities.LedgerConflictEntity
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
 import com.splitease.data.local.entities.SyncOperation
@@ -33,11 +35,13 @@ import com.splitease.data.local.entities.User
         Settlement::class,
         SyncOperation::class,
         ConnectionStateEntity::class,
-        LedgerOperation::class
+        LedgerOperation::class,
+        LedgerConflictEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
+
 @TypeConverters(Converters::class)
 /**
  * SplitEase Room database.
@@ -151,6 +155,16 @@ abstract fun connectionStateDao(): ConnectionStateDao
      * @return The LedgerUploadDao used for fetching pending uploads.
      */
     abstract fun ledgerUploadDao(): LedgerUploadDao
+
+    /**
+     * Provides access to the DAO for persisting detected conflicts.
+     *
+     * **Sprint 20 Contract**: Conflict data is strictly device-local and never synced.
+     *
+     * @return The LedgerConflictDao used for conflict persistence and observation.
+     */
+    abstract fun ledgerConflictDao(): LedgerConflictDao
+
 
     /**
      * Update an existing expense, replace its splits, and record the corresponding sync operation in a single database transaction.
