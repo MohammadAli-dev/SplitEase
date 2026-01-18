@@ -29,6 +29,11 @@ object ConflictMapper {
     /**
      * Converts a persistence entity to a domain [LedgerConflict].
      * Returns null if the entity type is unknown.
+     *
+     * **Sprint 20 Fail-Open Invariant:**
+     * Persisted conflict data is diagnostic and non-authoritative. Deserialization failures
+     * (e.g. corrupted JSON) must not crash the app. Failures are logged and degraded
+     * gracefully to an empty [opRefs] list.
      */
     fun fromEntity(entity: LedgerConflictEntity): LedgerConflict? {
         val entityType = EntityType.fromString(entity.entityType) ?: return null
@@ -37,7 +42,22 @@ object ConflictMapper {
         } catch (e: IllegalArgumentException) {
             return null
         }
-        val opRefs: List<LedgerOpRef> = gson.fromJson(entity.opRefs, opRefsType)
+
+        // Unsafe JSON deserialization: guard against null or malformed data
+        val opRefs: List<LedgerOpRef> = try {
+            gson.fromJson<List<LedgerOpRef>>(entity.opRefs, opRefsType)
+                ?.filterNotNull()
+                ?: emptyList()
+        } catch (e: Exception) {
+            // SPRINT 20: Diagnostic data must not be fatal. Log and fail open.
+            android.util.Log.w(
+                "ConflictMapper",
+                "Corrupted opRefs for conflictId=${entity.conflictId}. Defaulting to empty list.",
+                e
+            )
+            emptyList()
+        }
+
         return LedgerConflict(
             conflictId = entity.conflictId,
             entityId = entity.entityId,
@@ -47,3 +67,4 @@ object ConflictMapper {
         )
     }
 }
+

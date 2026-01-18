@@ -103,6 +103,10 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 | **Sync Status Visibility** | ✅ Complete | Global and group-scoped sync indicators |
 | **Manual Sync Control** | ✅ Complete | "Sync Now" button with debounce protection |
 | **Sync Health Telemetry** | ✅ Complete | PAUSED state detection for stuck operations |
+| **Conflict Detection** | ✅ Complete | Explicit, deterministic detection of multi-device mutations |
+| **Conflict Identity** | ✅ Complete | SHA-256 stable fingerprints for audit-safe history |
+| **Read-Only Visibility**| ✅ Complete | Surfacing conflicts in UI without resolution (Sprint 20 scope) |
+
 
 ### 🎯 Sync Status Indicators
 

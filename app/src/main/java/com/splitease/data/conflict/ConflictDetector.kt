@@ -111,10 +111,26 @@ internal class ConflictDetector {
         entityId: String,
         opRefs: List<LedgerOpRef>
     ): String {
-        val opRefsString = opRefs.joinToString(",") { "${it.deviceId}:${it.logicalClock}" }
-        val canonicalString = "${entityType.name}|$entityId|$opRefsString"
+        /**
+         * Encodes a string component with its length prefix to prevent delimiter collisions.
+         * Format: <length>:<value>
+         */
+        fun encode(s: String): String = "${s.length}:$s"
+
+        // Build canonical string using length-prefixed components (CodeRabbit/CTO Audit)
+        // Format: typeEncoded|idEncoded|opRef1,opRef2,...
+        // where opRef is deviceEncoded:logicalClock
+        val typeEncoded = encode(entityType.name)
+        val idEncoded = encode(entityId)
+        
+        val opRefsEncoded = opRefs.joinToString(",") { 
+            "${encode(it.deviceId)}:${it.logicalClock}"
+        }
+
+        val canonicalString = "$typeEncoded|$idEncoded|$opRefsEncoded"
         return sha256(canonicalString)
     }
+
 
     /**
      * Computes SHA-256 hash of the input string, returning hex-encoded result.

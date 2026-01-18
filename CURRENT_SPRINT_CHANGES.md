@@ -123,3 +123,56 @@ Following a comprehensive architectural audit, the promotion and hydration subsy
 ---
 
 *Verified: Sprint 19 Core Integrated.*
+
+---
+
+# Sprint 20: Explicit Conflict Detection & Visibility (No Resolution)
+
+## Overview
+This sprint introduces explicit, deterministic conflict detection for the multi-device ledger system. It transitions the system from silent "last-write-wins" outcomes to observable "facts" by detecting where more than one device has mutated a logical entity. In accordance with the sprint objective, no resolution or data mutation is performed; results are surfaced as read-only diagnostic metadata.
+
+## Key Changes
+
+### 1. Domain Models & Taxonomy
+- **LedgerConflict**: Introduced the primary domain model for conflicts, containing the `entityId`, `entityType`, and a strictly ordered set of `opRefs` (deviceId, logicalClock).
+- **ConflictType**: Categorized conflicts into:
+    - `POST_DELETE_MUTATION`: Multi-device mutation where at least one is a DELETE and one is Non-DELETE (including CREATE).
+    - `HARD_DELETE_CLASH`: More than one device deleted the same entity.
+    - `MULTIPLE_WRITERS`: Standard fallback for multi-device updates.
+- **Structural Integrity**: Encapsulated the input contract using a `LedgerPrefix` value type, ensuring it can only be constructed by the `ReplayEngine` after proven convergence.
+
+### 2. Deterministic Identity & Fingerprinting
+- **Canonical Fingerprint**: Implemented `conflictId` generation using `SHA-256` hashing over a stable delimiter-defined string: `entityType.name|entityId|sorted(deviceId:logicalClock,...)`.
+- **Identity Invariant**: Any change in the involved operations produces a new `conflictId`, ensuring the history is strictly append-only and audit-safe.
+- **Payload Immutability**: Enforced the contract that for a given `conflictId`, the payload must be byte-for-byte identical across all devices and executions.
+
+### 3. Detection Engine
+- **O(N) Complexity**: Specifically implemented a single-pass grouping and detection strategy to maintain performance as the ledger grows.
+- **Output Stability**: Enforced lexicographical sorting of results by `(entityType.name, entityId, conflictId)` for cross-device list consistency.
+- **Fail-Open Integration**: Hooked `ConflictDetector` into `ReplayEngine.replay()` with `runCatching` semantics, ensuring that detection failures logged as warnings never block financial replay or sync.
+
+### 4. Data Layer & Persistence
+- **Room Schema (v13)**: Introduced the `ledger_conflicts` table, keyed by the deterministic `conflictId`.
+- **Strict Locality**: Committed to the invariant that conflicts are device-local and are never uploaded, mirrored, or referenced in remote systems.
+- **Mapping & Visibility**: Implemented `ConflictMapper` for lossless persistence and `ConflictRepository` for read-only visibility surface.
+
+### 5. Conflict Hardening & Audit (CodeRabbit Review)
+Following an architectural audit, the conflict system was hardened against edge-case failures and logical collisions:
+- **Collision-Resistant Fingerprinting**: Refactored `conflictId` generation in `ConflictDetector` to use **Length-Prefixing** (`len:value`) for all string components. This provides a mathematical guarantee against delimiter collisions (e.g., if an ID or device name contains `|` or `:`).
+- **Graceful Deserialization Fail-Open**: Hardened `ConflictMapper.fromEntity` to treat persisted JSON as untrusted input. Implemented a `try-catch` boundary around `gson.fromJson` and added explicit recovery to an empty `opRefs` list. This ensures that corrupted diagnostic rows never crash the application or block repository flows.
+- **Fail-Open Logging**: Standardized internal error reporting via `Log.w` for non-authoritative diagnostic failures, adhering to the sprint's "non-blocking visibility" mantra.
+
+## Verification Results
+- **Comprehensive Unit Tests**:
+    - Verified single-device exclusions (no conflict emitted).
+    - Verified all 3 classification types.
+    - Verified SHA-256 fingerprint stability across reordered inputs.
+    - **Collision Regression**: Verified that ID overlaps (e.g., `123|A` vs `123`) produce unique fingerprints via length-prefixing.
+    - Verified lexicographical output sorting for UI/audit stability.
+    - Verified pre-detection deduplication of duplicate ledger ops.
+- **Structural Integrity**: Verified `LedgerPrefix` encapsulation via internal private construction.
+- **Performance**: Verified linear $O(N)$ execution path.
+
+
+**Sprint 20 Status: Core Detection Integrated & Verified.**
+

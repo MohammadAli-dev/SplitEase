@@ -5,9 +5,13 @@
 - **Persistence**: `AppDatabase` uses `@Transaction` blocks to atomically persist entity data (e.g., `Expense` + `ExpenseSplit`) alongside the `SyncOperation` record.
 - **Execution**: FIFO processing via `PushSyncService` (managed by WorkManager).
 - **Pull Flow**: Manual trigger via `PullSyncService.performPullSync()`. Fetches entities in specific order: `Groups` → `Expenses` (with `Splits`) → `Settlements`.
-- **Conflict Detection**: Timestamp-based logic using server-generated `updatedAt` (epoch millis) for remote items versus local `updatedAt`.
-- **Dirty State Protection**: `isLocalDirty` check (via `SyncDao.hasPendingOperationForEntity`) prevents fetching remote data over local changes that are yet to be pushed.
+- **Conflict Detection (Sprint 20)**: Introduced explicit, deterministic conflict detection.
+    - **Detection Boundary**: Runs exclusively after full remote ledger exhaustion and replay convergence.
+    - **Identity**: Conflicts are keyed by a deterministic `conflictId` (SHA-256 fingerprint of the entity type, ID, and sorted operations).
+    - **Invariants**: Detection is O(N) linear, monotonic (append-only), and strictly device-local (never synced).
+    - **Visibility**: Surfaced via `ConflictRepository` without resolve/resolution logic.
 - **Transactions**: Atomic transactions exist per-entity (e.g., `insertExpenseWithSync` includes splits and the sync op).
+
 
 ## 2️⃣ Identity Model (Current)
 - **User Table**: `users(id String, name, email?, profileUrl?)`.

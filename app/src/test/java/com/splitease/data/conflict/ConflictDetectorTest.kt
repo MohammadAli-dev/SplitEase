@@ -13,7 +13,9 @@ import org.junit.Test
  * - Classification rules (closed table)
  * - Output ordering (lexicographical by Type, ID, Hash)
  * - Single-device operations do not produce conflicts
+ * - Collision resistance (length-prefixing validation)
  */
+
 class ConflictDetectorTest {
 
     private lateinit var detector: ConflictDetector
@@ -206,7 +208,33 @@ class ConflictDetectorTest {
     }
 
     @Test
+    fun `collision resistance prevents ID and device overlap`() {
+        // Scenario 1: ID contains a suffix that looks like a device name
+        val ops1 = listOf(
+            createOp("123|dev-A", "EXPENSE", "UPDATE", "dev-B", 1),
+            createOp("123|dev-A", "EXPENSE", "UPDATE", "dev-C", 1)
+        )
+
+        // Scenario 2: ID is shorter, but the device name starts with the same suffix
+        val ops2 = listOf(
+            createOp("123", "EXPENSE", "UPDATE", "dev-A|dev-B", 1),
+            createOp("123", "EXPENSE", "UPDATE", "dev-C", 1)
+        )
+
+        // Without length prefixing, Scenario 1 and 2 would both join to 
+        // "EXPENSE|123|dev-A|dev-B:1,dev-C:1" (assuming | separator for all)
+        // With length prefixing, they are unique.
+
+        val conflict1 = detector.detect(LedgerPrefix.fromConvergedReplay(ops1))[0]
+        val conflict2 = detector.detect(LedgerPrefix.fromConvergedReplay(ops2))[0]
+
+        assertNotEquals("IDs should be different due to length prefixing", 
+            conflict1.conflictId, conflict2.conflictId)
+    }
+
+    @Test
     fun `empty operations produce no conflicts`() {
+
         val prefix = LedgerPrefix.fromConvergedReplay(emptyList())
         val conflicts = detector.detect(prefix)
 
