@@ -42,6 +42,7 @@ class HydrationCoordinatorTest {
         every { android.util.Log.e(any(), any()) } returns 0
         every { android.util.Log.e(any(), any(), any()) } returns 0
         every { android.util.Log.w(any(), any<String>()) } returns 0
+        every { android.util.Log.i(any(), any()) } returns 0
 
         every { appDatabase.expenseDao() } returns expenseDao
         every { appDatabase.groupDao() } returns groupDao
@@ -61,21 +62,24 @@ class HydrationCoordinatorTest {
         
         // AND: Hydration attempted flag is TRUE (crashed during hydration)
         coEvery { readOnlyModeManager.isHydrationAttempted() } returns true
+        
+        // AND: Remediation in progress flag is FALSE (fresh start)
+        coEvery { readOnlyModeManager.isRemediationInProgress() } returns false
 
         // WHEN
         val result = coordinator.remediateInconsistency()
 
         // THEN
-        // 1. Database should be wiped
-        coVerify { appDatabase.clearAllTables() }
-        
-        // 2. Hydration attempted flag should be cleared (reset for next attempt)
-        coVerify { readOnlyModeManager.setHydrationAttempted(false) }
+        // 1. Remediation flag should be set to true then false
+        coVerifyOrder {
+            readOnlyModeManager.setRemediationInProgress(true)
+            readOnlyModeManager.setHydrationAttempted(false)
+            appDatabase.clearAllTables()
+            readOnlyModeManager.setWipeOccurred()
+            readOnlyModeManager.setRemediationInProgress(false)
+        }
 
-        // 3. Wipe occurred flag should be set (for user notification)
-        coVerify { readOnlyModeManager.setWipeOccurred() }
-
-        // 4. Result should be Remedied
+        // 2. Result should be Remedied
         assertEquals(InconsistencyStatus.Remedied, result)
     }
 

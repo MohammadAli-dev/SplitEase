@@ -44,9 +44,10 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 - **HydrationCoordinator**: Orchestrates the hydration flow including a **fresh-install guard**, operation pull, and final read-only lock. It uses a **Fast-Fail Admission** strategy (Mutex) to prevent concurrent hydration attempts.
 
 ### 2. Security & Token Management
-- **JWT Authorization**: Fixed a critical security vulnerability in `LedgerPullService`. Switched from the Supabase public "anon" key to the user's real JWT access token retrieved via `TokenManager`.
-- **Identity Integrity Guard**: Implemented a "Zombie Session" guard that fails hydration if the user is logically authenticated but the access token is missing from secure storage.
-- **Deterministic Auth Initialization**: Refactored `AuthManager` to remove non-deterministic background initialization. Introduced an explicit `suspend fun initialize()` which is now called by the `AppStartupInitializer` during bootstrap. This ensures session recovery and token refreshes are completed BEFORE the app's sync or identity flows begin, eliminating race conditions.
+- **JWT Authorization**: Fixed a critical security vulnerability in `LedgerPullService`. Switched from the Supabase public "anon" key to the user's real JWT access token.
+- **Identity Integrity Guard**: Implemented a "Zombie Session" guard that fails hydration if the user is logically authenticated but the access token is missing.
+- **Bootstrapped Identity Restoration**: `AuthManager` now persists and restores the `UserProfile` from secure storage during cold start. This ensures the UI has immediate access to identity data before the authoritative network refresh completes.
+- **Deterministic Auth Initialization**: Refactored `AuthManager` to remove non-deterministic background initialization. Introduced an explicit `suspend fun initialize()` called by `AppStartupInitializer` to ensure session recovery is complete before sync or identity flows begin.
 
 ### 3. Strict Hydration Enforcement (CodeRabbit Refinements)
 - **Fail-Fast for Malformed Data**: Replaced deterministic sentinels (`0L`) with strict invariant enforcement. `LedgerPullService` now throws `HydrationInvariantException` if `createdAt` is missing. `ReplayEngine` throws if `joinedAt` is missing during member creation.
@@ -56,7 +57,9 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 - **Ledger Integrity Protection**: Updated `persistLedgerOperation` to distinguish between benign `SQLiteConstraintException` (idempotency during resumption) and fatal system failures (e.g., Disk Full), which are now logged and rethrown to trigger clean hydration failure.
 - **Global Error Boundaries**: Hardened `HydrationCoordinator` by wrapping both `hydrate()` and `remediateInconsistency()` in global try-catch blocks. This ensures that unexpected IO or DataStore failures result in a descriptive `Failed` result rather than an application crash.
 - **Enhanced Inconsistency Tracking**: Expanded the `InconsistencyStatus` sealed interface to include a `Failed` case, enabling robust error reporting during critical app startup remediation cycles.
-- **Fail-Safe Remediation Sequencing**: Hardened `remediateInconsistency` by reordering operations (Flag Reset -> DB Wipe -> Status Update). This ensures that a crash during the cleanup process leaves the system in a safe retry state rather than a stale "hydration attempted" state.
+- **Serialized Remediation**: `HydrationCoordinator.remediateInconsistency` is now protected by the global `actionMutex`, preventing destructive DB wipes from racing with active hydration/replay tasks.
+- **Crash-Safe Remediation Progress**: Introduced a transient `remediationInProgress` flag. In the event of a crash during the remediation phase (Flag Reset -> DB Wipe), the next boot treats the progress flag as authoritative and forces a fresh cleanup.
+- **Structured Remediation Lifecycle**: Added structured logging for `START`, `RESUMED`, and `COMPLETE` phases of the remediation process for better production observability.
 
 ### 4. Read-Only Mode Enforcement
 - **ReadOnlyModeManager**: Created a persistent DataStore-backed flag. Once a device hydrates, it enters a permanent read-only state.

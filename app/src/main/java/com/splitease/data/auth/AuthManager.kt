@@ -180,6 +180,14 @@ class AuthManagerImpl @Inject constructor(
 
     override suspend fun initialize() = withContext(Dispatchers.IO) {
         Log.d(TAG, "initialize: starting auth recovery")
+        
+        // Restore cached profile FIRST for immediate bootstrap availability
+        val cachedProfile = tokenManager.getSavedUserProfile()
+        if (cachedProfile != null) {
+            Log.d(TAG, "initialize: restored cached UserProfile for bootstrap")
+            _userProfile.value = cachedProfile
+        }
+
         val hasValidToken = tokenManager.hasValidToken().first()
         
         if (hasValidToken) {
@@ -193,6 +201,8 @@ class AuthManagerImpl @Inject constructor(
             }
         } else {
             // Token is either missing or expired. Attempt refresh.
+            // **Authority Rule**: Refresh is the authoritative source of truth.
+            // Restoration from cache is for bootstrap rendering ONLY.
             val refreshToken = tokenManager.getRefreshToken()
             if (!refreshToken.isNullOrBlank()) {
                 Log.d(TAG, "initialize: token expired but refresh token exists, attempting refresh")
@@ -413,11 +423,15 @@ class AuthManagerImpl @Inject constructor(
             val name = authResponse.user?.userMetadata?.name 
                 ?: authResponse.user?.userMetadata?.fullName
             val email = authResponse.user?.email
-            _userProfile.value = UserProfile(
+            
+            val profile = UserProfile(
                 cloudUserId = cloudUserId,
                 name = name,
                 email = email
             )
+            
+            _userProfile.value = profile
+            tokenManager.saveUserProfile(profile)
             
             _authState.value = AuthState.Authenticated(cloudUserId)
             enqueueIdentityLinkingIfNeeded()

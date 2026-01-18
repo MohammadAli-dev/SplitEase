@@ -69,6 +69,17 @@ interface TokenManager {
      * Get the stored cloud user ID.
      */
     fun getCloudUserId(): String?
+
+    /**
+     * Save the user profile (name, email) as a bootstrap cache.
+     * This is NOT the source of truth, just for immediate startup rendering.
+     */
+    fun saveUserProfile(profile: UserProfile)
+
+    /**
+     * Get the cached user profile.
+     */
+    fun getSavedUserProfile(): UserProfile?
 }
 
 @Singleton
@@ -81,6 +92,8 @@ class TokenManagerImpl @Inject constructor(
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_EXPIRY_TIMESTAMP = "expiry_timestamp"
         private const val KEY_CLOUD_USER_ID = "cloud_user_id"
+        private const val KEY_USER_NAME = "user_name"
+        private const val KEY_USER_EMAIL = "user_email"
         
         /** Safety buffer to trigger refresh before actual expiry (30 seconds) */
         private const val EXPIRY_SAFETY_BUFFER_MS = 30_000L
@@ -149,6 +162,20 @@ class TokenManagerImpl @Inject constructor(
         return encryptedPrefs.getString(KEY_REFRESH_TOKEN, null)
     }
 
+    override fun saveUserProfile(profile: UserProfile) {
+        encryptedPrefs.edit()
+            .putString(KEY_USER_NAME, profile.name)
+            .putString(KEY_USER_EMAIL, profile.email)
+            .apply()
+    }
+
+    override fun getSavedUserProfile(): UserProfile? {
+        val cloudUserId = getCloudUserId() ?: return null
+        val name = encryptedPrefs.getString(KEY_USER_NAME, null)
+        val email = encryptedPrefs.getString(KEY_USER_EMAIL, null)
+        return UserProfile(cloudUserId, name, email)
+    }
+
     override fun hasValidToken(): Flow<Boolean> {
         // Re-check validity each time the flow is collected
         return _tokenState.map { 
@@ -162,6 +189,8 @@ class TokenManagerImpl @Inject constructor(
             .remove(KEY_REFRESH_TOKEN)
             .remove(KEY_EXPIRY_TIMESTAMP)
             .remove(KEY_CLOUD_USER_ID)
+            .remove(KEY_USER_NAME)
+            .remove(KEY_USER_EMAIL)
             .apply()
 
         _tokenState.value = false

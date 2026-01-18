@@ -6,6 +6,7 @@ import com.splitease.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -179,42 +180,65 @@ class HydrationCoordinatorImpl @Inject constructor(
         }
     }
 
+    /**
+     * Remediates inconsistent local state caused by crashed/partial hydration attempts.
+     *
+     * **Remediation Invariants**:
+     * 1. **Destructive**: Clears all local data to ensure a clean slate for retry.
+     * 2. **Serialized**: Held under [actionMutex] to prevent interleaved replays.
+     * 3. **Crash-Resumable**: Uses a persistent `remediationInProgress` flag to recover
+     *    from crashes during the destruction phase.
+     * 4. **Fatal-Safe**: Fails toward retry; any failure during wipe results in a
+     *    forced retry on next boot.
+     */
     override suspend fun remediateInconsistency(): InconsistencyStatus = withContext(ioDispatcher) {
-        try {
-            val isEmpty = isDatabaseEmpty()
-            val isReadOnly = readOnlyModeManager.isReadOnlyMode()
-            val isAttempted = readOnlyModeManager.isHydrationAttempted()
+        actionMutex.withLock {
+            try {
+                val isEmpty = isDatabaseEmpty()
+                val isReadOnly = readOnlyModeManager.isReadOnlyMode()
+                val isAttempted = readOnlyModeManager.isHydrationAttempted()
+                val isResuming = readOnlyModeManager.isRemediationInProgress()
 
-            Log.d(TAG, "Checking invariants: empty=$isEmpty, readOnly=$isReadOnly, attempted=$isAttempted")
+                // === "DIRTY" State Detection ===
+                // Condition:
+                // - We are resuming a previous remediation crash (isResuming == true)
+                // - OR DB is NOT empty AND device is NOT locked AND hydration WAS attempted.
+                if (isResuming || (!isEmpty && !isReadOnly && isAttempted)) {
 
-            // === "DIRTY" State Detection ===
-            // Condition: DB is NOT empty AND device is NOT locked AND hydration WAS attempted.
-            // This implies the process crashed/died after replay but before the lock was set.
-            if (!isEmpty && !isReadOnly && isAttempted) {
-                val expenseCount = db.expenseDao().getExpenseCountSync()
-                val groupCount = db.groupDao().getGroupCountSync()
-                
-                Log.e(TAG, "CRITICAL: Inconsistent state detected! (Dirty Hydration). " +
-                        "Wiping ${expenseCount} expenses, ${groupCount} groups to ensure safety.")
+                    if (isResuming) {
+                        Log.w(TAG, "STRUCTURED_LOG: REMEDIATION_RESUMED - Recovering from previous remediation crash.")
+                    } else {
+                        val expenseCount = db.expenseDao().getExpenseCountSync()
+                        val groupCount = db.groupDao().getGroupCountSync()
+                        Log.e(TAG, "STRUCTURED_LOG: REMEDIATION_START - Inconsistent state detected! " +
+                                "Wiping ${expenseCount} expenses, ${groupCount} groups.")
+                    }
 
-                // 1. Clear the attempted flag FIRST (Intent phase)
-                // If we crash during the wipe, the next boot sees a fresh state attempt.
-                readOnlyModeManager.setHydrationAttempted(false)
+                    // 1. Set the remediation flag (Intent phase)
+                    readOnlyModeManager.setRemediationInProgress(true)
 
-                // 2. WIPE THE DATABASE (Action phase)
-                db.clearAllTables()
-                
-                // 3. Set the "Wipe Occurred" flag (Finalize phase)
-                readOnlyModeManager.setWipeOccurred()
-                
-                return@withContext InconsistencyStatus.Remedied
+                    // 2. Clear the attempted flag (Target state)
+                    readOnlyModeManager.setHydrationAttempted(false)
+
+                    // 3. WIPE THE DATABASE (Action phase)
+                    db.clearAllTables()
+
+                    // 4. Set the "Wipe Occurred" flag (Finalize phase)
+                    readOnlyModeManager.setWipeOccurred()
+
+                    // 5. Clear the remediation flag (completion)
+                    readOnlyModeManager.setRemediationInProgress(false)
+
+                    Log.i(TAG, "STRUCTURED_LOG: REMEDIATION_COMPLETE - System restored to fresh state.")
+                    return@withLock InconsistencyStatus.Remedied
+                }
+
+                InconsistencyStatus.Clean
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Error during inconsistency remediation", e)
+                InconsistencyStatus.Failed(e)
             }
-
-            InconsistencyStatus.Clean
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.e(TAG, "Error during inconsistency remediation", e)
-            InconsistencyStatus.Failed(e)
         }
     }
 

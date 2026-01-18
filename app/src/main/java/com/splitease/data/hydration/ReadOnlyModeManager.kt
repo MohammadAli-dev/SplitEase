@@ -63,6 +63,12 @@ interface ReadOnlyModeManager {
      */
     suspend fun checkAndClearWipeFlag(): Boolean
     suspend fun setWipeOccurred()
+    /**
+     * Track if remediation (database wipe) is currently in progress.
+     * This flag protects against crashes during the multi-step cleanup process.
+     */
+    suspend fun isRemediationInProgress(): Boolean
+    suspend fun setRemediationInProgress(inProgress: Boolean)
 }
 
 // Extension property for Context-scoped DataStore
@@ -79,6 +85,7 @@ class ReadOnlyModeManagerImpl @Inject constructor(
         private val KEY_IS_READ_ONLY = booleanPreferencesKey("is_read_only")
         private val KEY_HYDRATION_ATTEMPTED = booleanPreferencesKey("hydration_attempted")
         private val KEY_WIPE_OCCURRED = booleanPreferencesKey("wipe_occurred")
+        private val KEY_REMEDIATION_IN_PROGRESS = booleanPreferencesKey("remediation_in_progress")
     }
 
     override val readOnlyModeFlow: Flow<Boolean> = context.dataStore.data
@@ -122,6 +129,18 @@ class ReadOnlyModeManagerImpl @Inject constructor(
     override suspend fun setWipeOccurred() {
         context.dataStore.edit { preferences ->
             preferences[KEY_WIPE_OCCURRED] = true
+        }
+    }
+
+    override suspend fun isRemediationInProgress(): Boolean {
+        return context.dataStore.data.map { preferences ->
+            preferences[KEY_REMEDIATION_IN_PROGRESS] ?: false
+        }.first()
+    }
+
+    override suspend fun setRemediationInProgress(inProgress: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_REMEDIATION_IN_PROGRESS] = inProgress
         }
     }
 }
