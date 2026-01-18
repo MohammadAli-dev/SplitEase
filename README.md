@@ -105,7 +105,7 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 | **Sync Health Telemetry** | ✅ Complete | PAUSED state detection for stuck operations |
 | **Conflict Detection** | ✅ Complete | Explicit, deterministic detection of multi-device mutations |
 | **Conflict Identity** | ✅ Complete | SHA-256 stable fingerprints for audit-safe history |
-| **Read-Only Visibility**| ✅ Complete | Surfacing conflicts in UI without resolution (Sprint 20 scope) |
+| **Read-Only Visibility** | ✅ Complete | Surfacing conflicts in UI without resolution (Sprint 20 scope) |
 
 
 ### 🎯 Sync Status Indicators
@@ -168,7 +168,7 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                            UI LAYER (Compose)                           │
 │  ┌──────────────┐        ┌───────────────┐        ┌──────────────────┐  │
-│  │   Screens    │◀───────│   ViewModel   │◀───────│ StateFlow<Ui>    │  │
+│  │   Screens    │◀───────│   ViewModel   │◀───────│StateFlow<UiState>│  │
 │  └──────────────┘        └───────┬───────┘        └──────────────────┘  │
 └──────────────────────────────────┼──────────────────────────────────────┘
                                    │ User Action (Write) / Observation (Read)
