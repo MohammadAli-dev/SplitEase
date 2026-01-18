@@ -32,10 +32,10 @@ class LedgerSyncScheduler @Inject constructor(
      * device role) without blocking the calling thread. It is part of the async
      * persistence chain and should be called from an IO-safe coroutine context.
      *
-     * **Sprint 19**: Skips scheduling if device cannot write (e.g. PROMOTED or IN_PROGRESS).
+     * **Sprint 19**: Skips scheduling if device cannot write (e.g. REPLICA or IN_PROGRESS).
      */
     suspend fun schedulePush() {
-        // Sprint 19: Skip scheduling if device cannot write (hydrated/uninitialized/in-progress must not push)
+        // Sprint 19: Skip scheduling if device cannot write (REPLICA/IN_PROGRESS must not push)
         if (!deviceRoleManager.canWrite()) {
             Log.d(TAG, "Skipping ledger push: device role ${deviceRoleManager.getDeviceRole()} cannot write")
             return
