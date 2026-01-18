@@ -47,11 +47,13 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 - **JWT Authorization**: Fixed a critical security vulnerability in `LedgerPullService`. Switched from the Supabase public "anon" key to the user's real JWT access token retrieved via `TokenManager`. This ensures that Row Level Security (RLS) is correctly enforced and users only pull their own data.
 - **Zombie Session Protection**: Implemented a guard that fails hydration if the user is logically authenticated but the access token is missing from secure storage.
 
-### 3. Resilience & Determinism (CodeRabbit Refinements)
-- **Deterministic Sentinels**: Resolved non-determinism in timestamps. Both `createdAt` (in `LedgerPullService`) and `joinedAt` (in `ReplayEngine`) now use a `0L` (Epoch) sentinel as a deterministic fallback for null server values. This ensures all devices in the fleet arrive at the exact same state even with "dirty" historical records.
-- **Loud Data Quality Visibility**: Added `Log.w` alerts for sentinel usage to surface upstream data-quality bugs without breaking app availability.
+### 3. Strict Hydration Enforcement (CodeRabbit Refinements)
+- **Fail-Fast for Malformed Data**: Replaced deterministic sentinels (`0L`) with strict invariant enforcement. `LedgerPullService` now throws `HydrationInvariantException` if `createdAt` is missing. `ReplayEngine` throws if `joinedAt` is missing during member creation.
+- **No Partial State**: Hydration fails atomically if ANY invariant is violated. No partial ledger or member state is committed.
+- **Observable Failures**: Introduced `HydrationFailureReport` (with type-safe enums for `HydrationInvariant`, `HydrationInvariantCategory`, and `HydrationFailureLocation`) to capture the "what," "where," and "why" of failures for observability and future UX.
+- **Structured Logging**: Added production-ready structured logging at the `HydrationCoordinator` boundary for all invariant violations.
 - **Ledger Integrity Protection**: Updated `persistLedgerOperation` to distinguish between benign `SQLiteConstraintException` (idempotency during resumption) and fatal system failures (e.g., Disk Full), which are now logged and rethrown to trigger clean hydration failure.
-- **Global Error Boundaries**: Hardened `HydrationCoordinator` by wrapping both `hydrate()` and `remediateInconsistency()` in global try-catch blocks. This ensures that unexpected IO or DataStore failures result in a descriptive `Failed` result rather than an application crash, fulfilling the role of an orchestration layer as an error boundary.
+- **Global Error Boundaries**: Hardened `HydrationCoordinator` by wrapping both `hydrate()` and `remediateInconsistency()` in global try-catch blocks. This ensures that unexpected IO or DataStore failures result in a descriptive `Failed` result rather than an application crash.
 - **Enhanced Inconsistency Tracking**: Expanded the `InconsistencyStatus` sealed interface to include a `Failed` case, enabling robust error reporting during critical app startup remediation cycles.
 
 ### 4. Read-Only Mode Enforcement

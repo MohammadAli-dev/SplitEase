@@ -162,6 +162,12 @@ class HydrationCoordinatorImpl @Inject constructor(
             readOnlyModeManager.setHydrationAttempted(false)
             Log.d(TAG, "Entered read-only mode, hydration complete")
             HydrationResult.Success
+        } catch (e: HydrationInvariantException) {
+            // Structured logging for hydration invariant violations
+            Log.e(TAG, "HYDRATION_INVARIANT_VIOLATION: invariant=${e.report.invariant}, " +
+                    "category=${e.report.invariant.category}, location=${e.report.location}, " +
+                    "operationId=${e.report.operationId}, details=${e.report.details}", e)
+            HydrationResult.Failed(e)
         } catch (e: Exception) {
             // Ensure coroutine cancellation still works
             if (e is kotlinx.coroutines.CancellationException) throw e

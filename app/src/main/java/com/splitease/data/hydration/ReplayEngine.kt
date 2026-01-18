@@ -336,15 +336,20 @@ class ReplayEngineImpl @Inject constructor(
             }
             OP_CREATE -> {
                 // Member CREATE = add member to group
-                if (snapshot.joinedAt == null) {
-                    Log.w(TAG, "Data Quality Violation: joinedAt is NULL for groupId=${snapshot.groupId}, userId=${snapshot.userId}. Using sentinel 0L.")
-                }
+                val resolvedJoinedAt = snapshot.joinedAt ?: throw HydrationInvariantException(
+                    HydrationFailureReport(
+                        invariant = HydrationInvariant.MEMBER_JOINED_AT_PRESENT,
+                        location = HydrationFailureLocation.REPLAY_ENGINE,
+                        operationId = op.operationId,
+                        details = "groupId=${snapshot.groupId}, userId=${snapshot.userId}"
+                    )
+                )
 
                 db.groupDao().insertMember(
                     GroupMember(
                         groupId = snapshot.groupId,
                         userId = snapshot.userId,
-                        joinedAt = Date(snapshot.joinedAt ?: 0L)
+                        joinedAt = Date(resolvedJoinedAt)
                     )
                 )
                 Log.d(TAG, "Applied MEMBER CREATE: ${snapshot.groupId}:${snapshot.userId}")

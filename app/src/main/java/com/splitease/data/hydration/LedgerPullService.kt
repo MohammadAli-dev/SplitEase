@@ -113,15 +113,20 @@ class LedgerPullServiceImpl @Inject constructor(
     /**
      * Maps remote DTO to domain entity.
      *
-     * **Invariant**: Strict 1:1 mapping.
-     * **Deterministic Fallback**: If createdAt is missing from the server, we use 0L.
-     * This ensures fleet-wide consistency (everyone sees the same history) and surfaces
-     * upstream data-quality bugs as visible "Jan 1, 1970" timestamps.
+     * **Strict Invariant**: createdAt MUST be present. If missing, this throws a
+     * [HydrationInvariantException] to fail the hydration atomically.
+     *
+     * @throws HydrationInvariantException if createdAt is null.
      */
     private fun RemoteLedgerOperation.toDomain(): LedgerOperation {
-        if (this.createdAt == null) {
-            Log.w(TAG, "Data Quality Violation: createdAt is NULL for opId=$operationId, deviceId=$deviceId. Using sentinel 0L.")
-        }
+        val resolvedCreatedAt = this.createdAt ?: throw HydrationInvariantException(
+            HydrationFailureReport(
+                invariant = HydrationInvariant.LEDGER_CREATED_AT_PRESENT,
+                location = HydrationFailureLocation.LEDGER_PULL_SERVICE,
+                operationId = this.operationId,
+                details = "deviceId=${this.deviceId}, logicalClock=${this.logicalClock}"
+            )
+        )
 
         return LedgerOperation(
             operationId = this.operationId,
@@ -132,7 +137,7 @@ class LedgerPullServiceImpl @Inject constructor(
             authorLocalUserId = this.authorLocalUserId,
             deviceId = this.deviceId,
             logicalClock = this.logicalClock,
-            createdAt = this.createdAt ?: 0L
+            createdAt = resolvedCreatedAt
         )
     }
 }
