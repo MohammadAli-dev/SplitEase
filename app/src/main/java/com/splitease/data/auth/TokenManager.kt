@@ -140,11 +140,22 @@ class TokenManagerImpl @Inject constructor(
     /**
      * Save the cloud user ID from Supabase response.
      * Called by AuthManager after successful login.
+     *
+     * **Identity Invariant**: Profile fields are cached strictly for the currently 
+     * active cloudUserId. Any change to cloudUserId invalidates all cached profile data.
      */
     override fun saveCloudUserId(cloudUserId: String) {
-        encryptedPrefs.edit()
+        val currentId = getCloudUserId()
+        val edit = encryptedPrefs.edit()
             .putString(KEY_CLOUD_USER_ID, cloudUserId)
-            .apply()
+
+        if (currentId != null && currentId != cloudUserId) {
+            // Identity change detected: atomically invalidate stale profile data
+            edit.remove(KEY_USER_NAME)
+                .remove(KEY_USER_EMAIL)
+        }
+        
+        edit.apply()
     }
 
     /**
@@ -163,6 +174,14 @@ class TokenManagerImpl @Inject constructor(
     }
 
     override fun saveUserProfile(profile: UserProfile) {
+        val currentId = getCloudUserId()
+        if (profile.cloudUserId != currentId) {
+            // SECURITY GUARD: Prevent persisting profile data for a mismatched identity
+            android.util.Log.w("TokenManager", "Blocked saveUserProfile: profile ID " +
+                    "(${profile.cloudUserId}) does not match current session ($currentId)")
+            return
+        }
+
         encryptedPrefs.edit()
             .putString(KEY_USER_NAME, profile.name)
             .putString(KEY_USER_EMAIL, profile.email)
