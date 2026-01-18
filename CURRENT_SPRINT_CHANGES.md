@@ -29,6 +29,8 @@ This sprint implements a Supabase-backed, append-only mirror of the local `Ledge
 - **Tests**: Standard unit tests passed. Verification walkthrough provided for manual Supabase population testing.
 - **Architectural Adherence**: Room remains the single source of truth; no reads from Supabase were implemented.
 
+---
+
 # Sprint 18: Read-Only Pull & Deterministic Hydration
 
 ## Overview
@@ -37,26 +39,36 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 ## Key Changes
 
 ### 1. Hydration Infrastructure
-- **LedgerPullService**: Implemented a service for fetching ledger operations from Supabase via `SplitEaseApi.getLedgerOperations`. It enforces **authoritative local sorting** by `(deviceId, logicalClock)` to ensure deterministic replay, treating Supabase's ordering as a bandwidth hint only.
-- **ReplayEngine**: Developed a **convergence-based** replay algorithm that retries operations with missing dependencies (e.g., an update waiting for a create) until all operations are applied or no further progress is made.
-- **HydrationCoordinator**: Orchestrates the hydration flow including a **fresh-install guard** (aborts if any financial data exists locally), operation pull, deterministic replay, and final read-only lock.
+- **LedgerPullService**: Fetches ledger operations from Supabase. It enforces **authoritative local sorting** by `(deviceId, logicalClock)` to ensure deterministic replay, treating Supabase's ordering as a bandwidth hint only.
+- **ReplayEngine**: Developed a **convergence-based** replay algorithm that retries operations with missing dependencies until all operations are applied or no further progress is made.
+- **HydrationCoordinator**: Orchestrates the hydration flow including a **fresh-install guard**, operation pull, and final read-only lock. It uses a **Fast-Fail Admission** strategy (Mutex) to prevent concurrent hydration attempts.
 
-### 2. Read-Only Mode Enforcement
-- **ReadOnlyModeManager**: Created a persistent DataStore-backed flag to track if a device is in read-only mode. Once hydration completes, the device enters a permanent read-only state.
-- **ReadOnlyViolationException**: Introduced a custom domain exception thrown whenever a mutation is attempted in read-only mode.
-- **Repository Guards**: Instrumented `ExpenseRepository`, `GroupRepository`, and `SettlementRepository` to throw `ReadOnlyViolationException` for all mutation methods (`add`, `update`, `delete`, `removeMember`).
-- **LedgerSyncScheduler**: Modified the scheduler to silently skip push synchronization requests if the device is in read-only mode, preventing hydrated devices from attempting to modify the cloud ledger.
+### 2. Security & Token Management
+- **JWT Authorization**: Fixed a critical security vulnerability in `LedgerPullService`. Switched from the Supabase public "anon" key to the user's real JWT access token retrieved via `TokenManager`. This ensures that Row Level Security (RLS) is correctly enforced and users only pull their own data.
+- **Zombie Session Protection**: Implemented a guard that fails hydration if the user is logically authenticated but the access token is missing from secure storage.
 
-### 3. Data Layer Enhancements
-- **API Extension**: Added the `RemoteLedgerOperation` DTO and the `GET /ledger_operations` endpoint to `SplitEaseApi`.
-- **DAO Count Methods**: Extended `ExpenseDao`, `GroupDao`, `SettlementDao`, and `LedgerDao` with synchronous count methods used by the `HydrationCoordinator` for the fresh-install validation.
-- **Deterministic Replay Support**: All entity types (Expense, Group, Settlement, Member) are now supported for deterministic reconstruction from ledger snippets via the `ReplayEngine`.
+### 3. Resilience & Determinism (CodeRabbit Refinements)
+- **Deterministic Sentinels**: Resolved non-determinism in timestamps. Both `createdAt` (in `LedgerPullService`) and `joinedAt` (in `ReplayEngine`) now use a `0L` (Epoch) sentinel as a deterministic fallback for null server values. This ensures all devices in the fleet arrive at the exact same state even with "dirty" historical records.
+- **Loud Data Quality Visibility**: Added `Log.w` alerts for sentinel usage to surface upstream data-quality bugs without breaking app availability.
+- **Ledger Integrity Protection**: Updated `persistLedgerOperation` to distinguish between benign `SQLiteConstraintException` (idempotency during resumption) and fatal system failures (e.g., Disk Full), which are now logged and rethrown to trigger clean hydration failure.
+- **Global Error Boundaries**: Hardened `HydrationCoordinator` by wrapping both `hydrate()` and `remediateInconsistency()` in global try-catch blocks. This ensures that unexpected IO or DataStore failures result in a descriptive `Failed` result rather than an application crash, fulfilling the role of an orchestration layer as an error boundary.
+- **Enhanced Inconsistency Tracking**: Expanded the `InconsistencyStatus` sealed interface to include a `Failed` case, enabling robust error reporting during critical app startup remediation cycles.
 
-### 4. Architectural Guardrails
-- **Fail-Fast Hydration**: Hydration is designed as a single-pass, all-or-nothing process. If any ledger operation cannot be replayed after convergence, hydration fails explicitly to prevent silent state divergence.
-- **Crash Safety by Idempotency**: Removed the need for complex checkpointing; on crash, hydration restarts from zero, relying on the idempotent nature of the `ReplayEngine` (using Room's `REPLACE` strategy) for safety.
+### 4. Read-Only Mode Enforcement
+- **ReadOnlyModeManager**: Created a persistent DataStore-backed flag. Once a device hydrates, it enters a permanent read-only state.
+- **Mutation Guards**: Instrumented all repositories (`Expense`, `Group`, `Settlement`) to throw `ReadOnlyViolationException` for all mutation methods when in read-only mode.
+
+### 5. Architectural Guardrails
+- **Inconsistency Management**: Introduced `InconsistencyStatus` as a sealed interface to provide a single canonical representation of hydration failure states.
+- **Dispatcher Injection**: Standardized the use of injected `@IoDispatcher` across all hydration components to ensure testability and correct threading.
 
 ## Verification Results
-- **Build**: Successfully passed Kotlin compilation and Hilt dependency injection processing.
-- **Integrity**: Verified that all mutation paths in repositories are correctly guarded by the `ReadOnlyModeManager`.
-- **Infrastructure**: All hydration components (PullService, ReplayEngine, Coordinator) are integrated into the Dagger-Hilt graph via `HydrationModule`.
+- **Build**: Successfully passed Kotlin compilation and Hilt/KSP processing.
+- **Tests**:
+    - **`HydrationCoordinatorTest`**: Verified fast-fail admission (Mutex) and single-flight hydration logic.
+    - **`ReplayEngineTest`**: Verified that ledger insertion correctly handles idempotency (resumption safety) and fatal storage errors.
+- **Integrity**: Verified that all mutation paths in repositories are correctly guarded and that hydration pulls are SECURE via user-specific JWTs.
+
+---
+
+*Nothing here blocks or weakens Sprint 18.*

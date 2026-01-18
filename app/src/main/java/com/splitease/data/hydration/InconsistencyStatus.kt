@@ -17,4 +17,11 @@ sealed interface InconsistencyStatus {
      * Inconsistency was detected and remedied (e.g., database wiped).
      */
     data object Remedied : InconsistencyStatus
+
+    /**
+     * Remediation failed due to an error.
+     *
+     * @param error The exception that caused the failure.
+     */
+    data class Failed(val error: Throwable) : InconsistencyStatus
 }

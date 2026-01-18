@@ -158,50 +158,57 @@ class HydrationCoordinatorImpl @Inject constructor(
             }
 
             // === STEP 5: Enter read-only mode ===
-            try {
-                readOnlyModeManager.enterReadOnlyMode()
-                readOnlyModeManager.setHydrationAttempted(false)
-                Log.d(TAG, "Entered read-only mode, hydration complete")
-                HydrationResult.Success
-            } catch (e: Exception) {
-                Log.e(TAG, "CRITICAL: Failed to enter read-only mode after successful replay!", e)
-                HydrationResult.Failed(e)
-            }
+            readOnlyModeManager.enterReadOnlyMode()
+            readOnlyModeManager.setHydrationAttempted(false)
+            Log.d(TAG, "Entered read-only mode, hydration complete")
+            HydrationResult.Success
+        } catch (e: Exception) {
+            // Ensure coroutine cancellation still works
+            if (e is kotlinx.coroutines.CancellationException) throw e
+
+            Log.e(TAG, "Unexpected error during hydration flow", e)
+            HydrationResult.Failed(e)
         } finally {
             actionMutex.unlock()
         }
     }
 
     override suspend fun remediateInconsistency(): InconsistencyStatus = withContext(ioDispatcher) {
-        val isEmpty = isDatabaseEmpty()
-        val isReadOnly = readOnlyModeManager.isReadOnlyMode()
-        val isAttempted = readOnlyModeManager.isHydrationAttempted()
+        try {
+            val isEmpty = isDatabaseEmpty()
+            val isReadOnly = readOnlyModeManager.isReadOnlyMode()
+            val isAttempted = readOnlyModeManager.isHydrationAttempted()
 
-        Log.d(TAG, "Checking invariants: empty=$isEmpty, readOnly=$isReadOnly, attempted=$isAttempted")
+            Log.d(TAG, "Checking invariants: empty=$isEmpty, readOnly=$isReadOnly, attempted=$isAttempted")
 
-        // === "DIRTY" State Detection ===
-        // Condition: DB is NOT empty AND device is NOT locked AND hydration WAS attempted.
-        // This implies the process crashed/died after replay but before the lock was set.
-        if (!isEmpty && !isReadOnly && isAttempted) {
-            val expenseCount = db.expenseDao().getExpenseCountSync()
-            val groupCount = db.groupDao().getGroupCountSync()
-            
-            Log.e(TAG, "CRITICAL: Inconsistent state detected! (Dirty Hydration). " +
-                    "Wiping ${expenseCount} expenses, ${groupCount} groups to ensure safety.")
+            // === "DIRTY" State Detection ===
+            // Condition: DB is NOT empty AND device is NOT locked AND hydration WAS attempted.
+            // This implies the process crashed/died after replay but before the lock was set.
+            if (!isEmpty && !isReadOnly && isAttempted) {
+                val expenseCount = db.expenseDao().getExpenseCountSync()
+                val groupCount = db.groupDao().getGroupCountSync()
+                
+                Log.e(TAG, "CRITICAL: Inconsistent state detected! (Dirty Hydration). " +
+                        "Wiping ${expenseCount} expenses, ${groupCount} groups to ensure safety.")
 
-            // 1. WIPE THE DATABASE
-            db.clearAllTables()
-            
-            // 2. Clear the attempted flag (we are back to fresh)
-            readOnlyModeManager.setHydrationAttempted(false)
-            
-            // 3. Set the "Wipe Occurred" flag for UI notification
-            readOnlyModeManager.setWipeOccurred()
-            
-            return@withContext InconsistencyStatus.Remedied
+                // 1. WIPE THE DATABASE
+                db.clearAllTables()
+                
+                // 2. Clear the attempted flag (we are back to fresh)
+                readOnlyModeManager.setHydrationAttempted(false)
+                
+                // 3. Set the "Wipe Occurred" flag for UI notification
+                readOnlyModeManager.setWipeOccurred()
+                
+                return@withContext InconsistencyStatus.Remedied
+            }
+
+            InconsistencyStatus.Clean
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "Error during inconsistency remediation", e)
+            InconsistencyStatus.Failed(e)
         }
-
-        return@withContext InconsistencyStatus.Clean
     }
 
     /**
