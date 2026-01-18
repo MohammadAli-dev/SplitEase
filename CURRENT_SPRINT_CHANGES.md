@@ -176,3 +176,31 @@ Following an architectural audit, the conflict system was hardened against edge-
 
 **Sprint 20 Status: Core Detection Integrated & Verified.**
 
+---
+
+# Appendix: Development Status Summary (as of 2026-01-18)
+
+## 1. High-Level Architecture Audit
+The system has successfully evolved from a simple mock-synced local DB to a sophisticated **Supabase-backed ledger system**.
+
+| Layer | Status | Key Components |
+|-------|--------|----------------|
+| **Ledger Mirror** | ✅ Stable | Append-only Supabase `ledger_operations`. |
+| **Hydration** | ✅ Stable | Convergence-based `ReplayEngine`. |
+| **Serialization** | ✅ Stable | Mutex-gated `LedgerWriteGate`. |
+| **Promotion** | ✅ Stable | Crash-safe `PromotionCoordinator`. |
+| **Conflict Detection** | ✅ Integrated | O(N) `ConflictDetector` (Tier 2). |
+
+## 2. Core Features (Stable)
+| Area | Features |
+|------|----------|
+| **Authentication** | Real Supabase Auth (JWT), Token Refresh, Interceptors. |
+| **Expense Management** | CRUD, Splits (Equal/Exact/%), Settlement recording. |
+| **Group Operations** | Creation, Member Management, Permission Guards. |
+| **UI/UX** | M3 Scaffold, Dashboard, Groups, Activity, Sync Status. |
+
+## 3. Notable Resolutions (Hardening Phase)
+- **Dual-Write Recovery**: `recoverPromotionIfNeeded` repairs partial commits after crashes.
+- **Identity Restoration**: Fixed "Unknown" display during cold start via local profile caching.
+- **Fail-Closed Security**: `DeviceRoleManager` defaults to `REPLICA` upon data corruption.
+
