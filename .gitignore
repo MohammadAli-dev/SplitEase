@@ -80,5 +80,5 @@ specs*.md*
 .vscode/
 
 #contextdump
-*ContextDump.*
-*StatusReport.*
+# *ContextDump.*
+# *StatusReport.*

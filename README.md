@@ -79,11 +79,11 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **Authentication** | ✅ Mocked | Login/Signup screens with mock backend |
+| **Authentication** | ✅ Real (Supabase) | JWT-based auth with secure token management and auto-refresh |
 | **Groups** | ✅ Complete | Create, view, and manage expense groups |
 | **Group Creation** | ✅ Complete | Create new groups with name, type, and member selection |
 | **Expenses** | ✅ Complete | Add expenses with title, amount, payer, date |
-| **Expense Editing** | ✅ Complete | Edit existing expenses |
+| **Expense Editing** | ✅ Complete | Edit existing expenses (authoritative devices only) |
 | **Expense Deletion** | ✅ Complete | Delete expenses with sync support |
 | **Equal Splits** | ✅ Complete | Automatically split expenses equally |
 | **Percentage Splits** | ✅ Complete | Split by custom percentages |
@@ -96,13 +96,12 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 | **Balance Calculation** | ✅ Complete | Real-time "who owes whom" calculations |
 | **Expense Date Support** | ✅ Complete | Custom date picker for expenses |
 | **Trip Date Range** | ✅ Complete | Groups support start/end dates |
-| **Offline Mode** | ✅ Complete | Full functionality without internet |
-| **Background Sync** | ✅ Complete | WorkManager-based reliable sync |
-| **Sync Failure Handling** | ✅ Complete | Categorized failures (VALIDATION, AUTH, NETWORK, UNKNOWN) |
-| **Sync Issues Screen** | ✅ Complete | View, retry, and manage failed sync operations |
+| **Offline Mode** | ✅ Complete | Full functionality without internet using local Room SSOT |
+| **Supabase Sync** | ✅ Complete | Push-based ledger mirroring to Supabase with idempotent inserts |
+| **Deterministic Hydration** | ✅ Complete | Background pull & replay of ledger operations for read-only sync |
+| **Multi-Device Support** | ✅ Complete | Explicit REPLICA vs PROMOTED roles with crash-safe promotion |
+| **Write Serialization** | ✅ Complete | Mutex-backed `LedgerWriteGate` for strict per-device ordering |
 | **Sync Status Visibility** | ✅ Complete | Global and group-scoped sync indicators |
-| **Manual Sync Control** | ✅ Complete | "Sync Now" button with debounce protection |
-| **Sync Health Telemetry** | ✅ Complete | PAUSED state detection for stuck operations |
 
 ### 🎯 Sync Status Indicators
 
@@ -113,20 +112,12 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 | SYNCING | ⏳ | Syncing changes... |
 | IDLE | — | Everything synced |
 
-### ⚠️ Intentionally Mocked
-
-| Component | Why |
-|-----------|-----|
-| **Authentication Backend** | Focus is on architecture, not auth infrastructure |
-| **Remote API** | Uses OkHttp interceptor to simulate responses |
-| **User Data Fetch** | Local database is manually seeded |
-
 ### 🚧 Future Features (Not Implemented)
 
-- Real authentication (OAuth, JWT)
 - Push notifications for expense updates
-- Currency conversion
-- Receipt image attachments
+- Real-time presence indicators
+- Currency conversion service
+- Receipt image attachments (Supabase Storage integration)
 - Export to CSV/PDF
 
 ---
@@ -139,7 +130,11 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 
 1. **Offline-First**: The local database (Room) is the single source of truth. The UI never observes network responses directly.
 
-2. **Unidirectional Data Flow**: Data flows in one direction:
+2. **Ledger-Based Sync**: The app uses an append-only ledger of operations (`ledger_operations`). This ensures deterministic state reconstruction across devices and robust conflict avoidance.
+
+3. **Multi-Device Safety**: Devices are either `PRIMARY`/`PROMOTED` (Writers) or `REPLICA` (Read-only). Promotion requires a deterministic ledger set comparison to ensure no data is lost.
+
+4. **Unidirectional Data Flow**: Data flows in one direction:
    ```
    User Action → ViewModel → Repository → Room → Flow → UI
    ```

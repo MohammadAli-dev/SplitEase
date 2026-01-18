@@ -1,38 +1,34 @@
 # PROJECT_REPORT2.md
 
-## 1️⃣ Sync Architecture (Current)
-- **Push Flow**: Local writes (CREATE/UPDATE/DELETE) in Repositories (e.g., `ExpenseRepository`) generate a `SyncOperation` entity.
-- **Persistence**: `AppDatabase` uses `@Transaction` blocks to atomically persist entity data (e.g., `Expense` + `ExpenseSplit`) alongside the `SyncOperation` record.
-- **Execution**: FIFO processing via `PushSyncService` (managed by WorkManager).
-- **Pull Flow**: Manual trigger via `PullSyncService.performPullSync()`. Fetches entities in specific order: `Groups` → `Expenses` (with `Splits`) → `Settlements`.
-- **Conflict Detection**: Timestamp-based logic using server-generated `updatedAt` (epoch millis) for remote items versus local `updatedAt`.
-- **Dirty State Protection**: `isLocalDirty` check (via `SyncDao.hasPendingOperationForEntity`) prevents fetching remote data over local changes that are yet to be pushed.
-- **Transactions**: Atomic transactions exist per-entity (e.g., `insertExpenseWithSync` includes splits and the sync op).
+## 1️⃣ Ledger-Based Sync Architecture (Current)
+- **Push Flow**: Local writes in Repositories (e.g., `ExpenseRepository`) are serialized via `LedgerWriteGate`. They generate a `LedgerOperation`.
+- **Persistence**: `AppDatabase` atomically persists entity data (e.g., `Expense`) alongside the `LedgerOperation` record.
+- **Clock Allocation**: Monotonic logical clocks are allocated using an atomic SQL subquery during insertion.
+- **Mirroring**: `LedgerPushWorker` (managed by WorkManager) mirrors pending local operations to the Supabase `ledger_operations` table.
+- **Pull Flow**: `LedgerPullService` fetches operations from Supabase for all devices.
+- **Hydration**: `ReplayEngine` performs convergence-based deterministic replay of global operations to reconstruct the local Room database on secondary devices.
 
-## 2️⃣ Identity Model (Current)
+## 2️⃣ Device Role & Permission Model
+- **Device Roles**: `PRIMARY` (initial writer), `PROMOTED` (writer), `REPLICA` (read-only).
+- **Promotion Flow**: Explicit recovery-aware state machine (`PromotionCoordinator`) transitions a device from `REPLICA` to `PROMOTED` after validating local/remote ledger equality.
+- **Write Serialization**: Exclusive lock acquisition via `LedgerWriteGate` ensures no two operations on the same device receive the same clock.
+- **Guards**: Repositories throw `WritePermissionDeniedException` if a non-writer device attempts a mutation.
+
+## 3️⃣ Identity Model
 - **User Table**: `users(id String, name, email?, profileUrl?)`.
-- **Phantom Representation**: Represented as a standard `users` row. Business logic differentiates phantoms via ID prefixing (`phantom_...`).
-- **Auth Identity**: The logged-in user's identity is provided by `UserContext`.
-- **FK Reassignment**: Existing implementation in `AppDatabase.mergePhantomToReal` handles merging a phantom user into a real cloud user by updating foreign keys across expenses, splits, settlements, and group members.
+- **Bootstrap Identity**: `AuthManager` caches and restores the user's profile on startup to eliminate "Unknown" user flickering during cold boot.
+- **JWT Authorization**: All Supabase calls are secured with the user's real JWT access token.
 
-## 3️⃣ Balance Engine (Current)
-- **Location**: `BalanceSummaryRepository` aggregates data into `DashboardSummary`.
-- **Inputs**: `ExpenseDao`, `SettlementDao`, `UserContext`.
-- **Logic**: Iteratively processes all splits and settlements where the current user is a party, computing a net balance per `userId`.
-- **Identity Resolution**: Calculating balances is purely ID-based; name resolution for UI occurs in the ViewModel using a lookup map pre-fetched from `UserDao`.
+## 4️⃣ Sync Failure & Hardening
+- **Semantic Errors**: `LedgerSetComparison.Error` distinguishes between transient network failures and genuine ledger set mismatches.
+- **Fail-Closed Mapping**: `DeviceRoleManager` defaults invalid persisted roles to `REPLICA` for safety.
+- **Mutex Integrity**: `HydrationCoordinator` uses explicit lock-state tracking for safe mutex release.
 
-## 4️⃣ Sync Failure Handling (Current)
-- **Failure States**: `SyncStatus` (PENDING, SYNCED, FAILED).
-- **Persistence**: `SyncOperation` stores `failureReason` (string) and `failureType` (enum).
-- **Retries**: Standard WorkManager exponential backoff; no custom classification of permanent vs. transient failures yet.
-
-## 5️⃣ What Is Already Implemented from 13G / 13C
-- **Pull Fetch**: `PullSyncService` successfully fetches paged updates from Supabase.
-- **Reconciliation**: Logic for merging remote updates with local data (with conflict rules) is implemented.
-- **Invite Acceptance**: `ClaimManager` handles the backend call to claim an invite and upsert the inviter.
-- **Phantom Merge**: `AppDatabase.mergePhantomToReal` provides the atomic transaction for identity linking.
+## 5️⃣ Sprint Progress (17 - 19)
+- **Sprint 17**: Implemented Supabase Ledger Mirroring (Push only).
+- **Sprint 18**: Implemented Deterministic Hydration (Pull/Replay) and Read-Only enforcement.
+- **Sprint 19**: Implemented Write Promotion, Serialized Mutations, and Audit Hardening.
 
 ## 6️⃣ Explicit Non-Goals
 - Do not modify Database schema unless explicitly instructed.
-- Do not change existing UI navigation flows.
-- Do not add new screens.
+- Do not add new UI screens unless requested (Focus on architecture).
