@@ -1,9 +1,9 @@
 package com.splitease.data.ledger
 
 import com.google.gson.Gson
+import com.splitease.data.device.DeviceRoleManager
 import com.splitease.data.device.InstallationIdProvider
-import com.splitease.data.hydration.ReadOnlyModeManager
-import com.splitease.data.hydration.ReadOnlyViolationException
+import com.splitease.data.device.WritePermissionDeniedException
 import com.splitease.data.ledger.model.ExpenseSnapshot
 import com.splitease.data.ledger.model.ExpenseSplitSnapshot
 import com.splitease.data.ledger.model.GroupMemberSnapshot
@@ -152,7 +152,7 @@ interface LedgerOperationFactory {
 class LedgerOperationFactoryImpl @Inject constructor(
     private val gson: Gson,
     private val installationIdProvider: InstallationIdProvider,
-    private val readOnlyModeManager: ReadOnlyModeManager
+    private val deviceRoleManager: DeviceRoleManager
 ) : LedgerOperationFactory {
 
     /**
@@ -180,8 +180,8 @@ class LedgerOperationFactoryImpl @Inject constructor(
      * Guard to enforce read-only mode at the factory level.
      */
     private suspend fun ensureNotReadOnly() {
-        if (readOnlyModeManager.isReadOnlyMode()) {
-            throw ReadOnlyViolationException("Cannot create ledger operations in read-only mode")
+        if (!deviceRoleManager.canWrite()) {
+            throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
         }
     }
 

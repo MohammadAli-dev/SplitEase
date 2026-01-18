@@ -3,6 +3,7 @@ package com.splitease.di
 import com.splitease.data.identity.IdentityBootstrapper
 import com.splitease.data.auth.AuthManager
 import com.splitease.data.hydration.HydrationCoordinator
+import com.splitease.data.device.PromotionCoordinator
 import android.util.Log
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,12 +16,14 @@ import javax.inject.Singleton
 class AppStartupInitializer @Inject constructor(
     private val identityBootstrapper: IdentityBootstrapper,
     private val authManager: AuthManager,
-    private val hydrationCoordinator: HydrationCoordinator
+    private val hydrationCoordinator: HydrationCoordinator,
+    private val promotionCoordinator: PromotionCoordinator
 ) {
     /**
      * Perform critical startup initialization.
      *
      * - Checks for hydration inconsistency ("Zombie Mode") and wipes DB if needed.
+     * - Fixes interrupted promotions (IN_PROGRESS -> PROMOTED).
      * - Ensures local user identity exists.
      * - Initializes auth state.
      */
@@ -28,10 +31,14 @@ class AppStartupInitializer @Inject constructor(
         // 1. Critical Safety Check: Remediate any hydration inconsistencies BEFORE anything else.
         hydrationCoordinator.remediateInconsistency()
 
-        // 2. Auth Initialization: Restore session and refresh tokens before identity registration
+        // 2. Promotion Recovery: Ensure we transition from IN_PROGRESS to PROMOTED if we crashed during promotion.
+        // This must run before any writes or identity registration.
+        promotionCoordinator.recoverPromotionIfNeeded()
+
+        // 3. Auth Initialization: Restore session and refresh tokens before identity registration
         authManager.initialize()
 
-        // 3. Ensure local identity exists
+        // 4. Ensure local identity exists
         try {
             identityBootstrapper.ensureLocalUserRegistered()
         } catch (e: Exception) {

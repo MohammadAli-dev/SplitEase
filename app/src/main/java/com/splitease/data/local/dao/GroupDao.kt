@@ -22,7 +22,7 @@ interface GroupDao {
     suspend fun insertMembers(members: List<GroupMember>)
 
     @Query("""
-        SELECT * FROM expense_groups 
+        SELECT expense_groups.* FROM expense_groups 
         INNER JOIN group_members ON expense_groups.id = group_members.groupId 
         WHERE group_members.userId = :userId
     """)

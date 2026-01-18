@@ -111,7 +111,8 @@ class GroupRepositoryImpl @Inject constructor(
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
-    private val deviceRoleManager: DeviceRoleManager
+    private val deviceRoleManager: DeviceRoleManager,
+    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate
 ) : GroupRepository {
 
     companion object {
@@ -141,6 +142,7 @@ class GroupRepositoryImpl @Inject constructor(
         tripEndDate: Long?,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
+        ledgerWriteGate.withWriteLock {
             if (!deviceRoleManager.canWrite()) {
                 throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
             }
@@ -174,6 +176,7 @@ class GroupRepositoryImpl @Inject constructor(
             appDatabase.insertGroupWithMembersAndLedger(group, members, syncOp, ledgerOp)
             ledgerSyncScheduler.schedulePush()
         }
+    }
 
     /**
      * Attempts to remove the specified user from the specified group while enforcing domain rules.
@@ -189,64 +192,66 @@ class GroupRepositoryImpl @Inject constructor(
      * `LeaveGroupResult.Error(message)` for unexpected failures with a diagnostic message.
      */
     override suspend fun leaveGroup(groupId: String, userId: String): LeaveGroupResult = withContext(Dispatchers.IO) {
-        try {
-            // 1. Fetch current members (single source of truth for this operation)
-            val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
-            val memberCount = currentMembers.size
-            val isMember = currentMembers.any { it.userId == userId }
+        ledgerWriteGate.withWriteLock {
+            try {
+                // 1. Fetch current members (single source of truth for this operation)
+                val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
+                val memberCount = currentMembers.size
+                val isMember = currentMembers.any { it.userId == userId }
 
-            // 2. Check if user is still a member (idempotency)
-            if (!isMember) {
-                Log.d(TAG, "leaveGroup: AlreadyRemoved [groupId=$groupId, userId=$userId]")
-                return@withContext LeaveGroupResult.AlreadyRemoved
-            }
-
-            // 3. Structural invariant: Cannot remove the last member (group would be orphaned)
-            // This is checked early to avoid expensive balance computation for impossible operations
-            if (memberCount <= 1) {
-                Log.w(TAG, "leaveGroup: BlockedAsLastMember [groupId=$groupId, userId=$userId, memberCount=$memberCount]")
-                return@withContext LeaveGroupResult.BlockedAsLastMember
-            }
-
-            // 4. Calculate balances for validation
-            val expenses = appDatabase.expenseDao().getExpensesForGroup(groupId).first()
-            val splits = appDatabase.expenseDao().getAllExpenseSplitsForGroup(groupId).first()
-            val settlements = appDatabase.settlementDao().getSettlementsForGroup(groupId).first()
-            val balances = BalanceCalculator.calculate(expenses, splits, settlements)
-
-            // 5. Run domain validation
-            val eligibility = GroupExitValidator.checkLeaveEligibility(
-                userId = userId,
-                balances = balances,
-                memberCount = memberCount
-            )
-
-            when (eligibility) {
-                is GroupExitValidator.LeaveGroupResult.BlockedByBalance -> {
-                    val userBalance = balances[userId]
-                    Log.w(TAG, "leaveGroup: BlockedByBalance [groupId=$groupId, userId=$userId, balance=$userBalance]")
-                    return@withContext LeaveGroupResult.BlockedByBalance
+                // 2. Check if user is still a member (idempotency)
+                if (!isMember) {
+                    Log.d(TAG, "leaveGroup: AlreadyRemoved [groupId=$groupId, userId=$userId]")
+                    return@withWriteLock LeaveGroupResult.AlreadyRemoved
                 }
-                is GroupExitValidator.LeaveGroupResult.BlockedAsLastMember -> {
-                    Log.w(TAG, "leaveGroup: BlockedAsLastMember [groupId=$groupId, userId=$userId]")
-                    return@withContext LeaveGroupResult.BlockedAsLastMember
+
+                // 3. Structural invariant: Cannot remove the last member (group would be orphaned)
+                // This is checked early to avoid expensive balance computation for impossible operations
+                if (memberCount <= 1) {
+                    Log.w(TAG, "leaveGroup: BlockedAsLastMember [groupId=$groupId, userId=$userId, memberCount=$memberCount]")
+                    return@withWriteLock LeaveGroupResult.BlockedAsLastMember
                 }
-                is GroupExitValidator.LeaveGroupResult.Allowed -> {
-                    // Proceed with removal
+
+                // 4. Calculate balances for validation
+                val expenses = appDatabase.expenseDao().getExpensesForGroup(groupId).first()
+                val splits = appDatabase.expenseDao().getAllExpenseSplitsForGroup(groupId).first()
+                val settlements = appDatabase.settlementDao().getSettlementsForGroup(groupId).first()
+                val balances = BalanceCalculator.calculate(expenses, splits, settlements)
+
+                // 5. Run domain validation
+                val eligibility = GroupExitValidator.checkLeaveEligibility(
+                    userId = userId,
+                    balances = balances,
+                    memberCount = memberCount
+                )
+
+                when (eligibility) {
+                    is GroupExitValidator.LeaveGroupResult.BlockedByBalance -> {
+                        val userBalance = balances[userId]
+                        Log.w(TAG, "leaveGroup: BlockedByBalance [groupId=$groupId, userId=$userId, balance=$userBalance]")
+                        return@withWriteLock LeaveGroupResult.BlockedByBalance
+                    }
+                    is GroupExitValidator.LeaveGroupResult.BlockedAsLastMember -> {
+                        Log.w(TAG, "leaveGroup: BlockedAsLastMember [groupId=$groupId, userId=$userId]")
+                        return@withWriteLock LeaveGroupResult.BlockedAsLastMember
+                    }
+                    is GroupExitValidator.LeaveGroupResult.Allowed -> {
+                        // Proceed with removal
+                    }
                 }
+
+                // 6. Create sync and ledger operations and execute transaction
+                val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, userId)
+                val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, userId, userId)
+                appDatabase.removeMemberWithLedger(groupId, userId, syncOp, ledgerOp)
+                ledgerSyncScheduler.schedulePush()
+
+                Log.d(TAG, "leaveGroup: Success [groupId=$groupId, userId=$userId, syncOpId=${syncOp.id}]")
+                LeaveGroupResult.Success
+            } catch (e: Exception) {
+                Log.e(TAG, "leaveGroup: Error [groupId=$groupId, userId=$userId, error=${e.message}]", e)
+                LeaveGroupResult.Error(e.message ?: "Unknown error")
             }
-
-            // 6. Create sync and ledger operations and execute transaction
-            val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, userId)
-            val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, userId, userId)
-            appDatabase.removeMemberWithLedger(groupId, userId, syncOp, ledgerOp)
-            ledgerSyncScheduler.schedulePush()
-
-            Log.d(TAG, "leaveGroup: Success [groupId=$groupId, userId=$userId, syncOpId=${syncOp.id}]")
-            LeaveGroupResult.Success
-        } catch (e: Exception) {
-            Log.e(TAG, "leaveGroup: Error [groupId=$groupId, userId=$userId, error=${e.message}]", e)
-            LeaveGroupResult.Error(e.message ?: "Unknown error")
         }
     }
 
@@ -259,69 +264,71 @@ class GroupRepositoryImpl @Inject constructor(
      * @return `RemoveMemberResult` indicating the outcome: `Success` on successful removal; `BlockedByBalance` if the target has a non-zero balance; `BlockedAsLastMember` if the target is the last remaining member; `TargetAlreadyRemoved` if the target is not a current member; `Error(message)` for unexpected failures.
      */
     override suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult = withContext(Dispatchers.IO) {
-        try {
-            if (!deviceRoleManager.canWrite()) {
-                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
-            }
-
-            // 1. Fetch current members (single source of truth for this operation)
-            val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
-            val memberCount = currentMembers.size
-            val isMember = currentMembers.any { it.userId == targetUserId }
-
-            // 2. Check if user is still a member (idempotency)
-            if (!isMember) {
-                Log.d(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=TargetAlreadyRemoved")
-                return@withContext RemoveMemberResult.TargetAlreadyRemoved
-            }
-
-            // 3. Structural invariant: Cannot remove the last member (group would be orphaned)
-            if (memberCount <= 1) {
-                Log.w(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=BlockedAsLastMember memberCount=$memberCount")
-                return@withContext RemoveMemberResult.BlockedAsLastMember
-            }
-
-            // 4. Calculate balances for validation
-            val expenses = appDatabase.expenseDao().getExpensesForGroup(groupId).first()
-            val splits = appDatabase.expenseDao().getAllExpenseSplitsForGroup(groupId).first()
-            val settlements = appDatabase.settlementDao().getSettlementsForGroup(groupId).first()
-            val balances = BalanceCalculator.calculate(expenses, splits, settlements)
-
-            // 5. Run domain validation for TARGET user
-            val eligibility = GroupExitValidator.checkLeaveEligibility(
-                userId = targetUserId,
-                balances = balances,
-                memberCount = memberCount
-            )
-
-            when (eligibility) {
-                is GroupExitValidator.LeaveGroupResult.BlockedByBalance -> {
-                    val userBalance = balances[targetUserId]
-                    Log.w(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=BlockedByBalance balance=$userBalance")
-                    return@withContext RemoveMemberResult.BlockedByBalance
+        ledgerWriteGate.withWriteLock {
+            try {
+                if (!deviceRoleManager.canWrite()) {
+                    throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
                 }
-                is GroupExitValidator.LeaveGroupResult.BlockedAsLastMember -> {
-                    // Should be caught by step 3, but defensive double-check
-                    Log.w(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=BlockedAsLastMember")
-                    return@withContext RemoveMemberResult.BlockedAsLastMember
+
+                // 1. Fetch current members (single source of truth for this operation)
+                val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
+                val memberCount = currentMembers.size
+                val isMember = currentMembers.any { it.userId == targetUserId }
+
+                // 2. Check if user is still a member (idempotency)
+                if (!isMember) {
+                    Log.d(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=TargetAlreadyRemoved")
+                    return@withWriteLock RemoveMemberResult.TargetAlreadyRemoved
                 }
-                is GroupExitValidator.LeaveGroupResult.Allowed -> {
-                    // Proceed with removal
+
+                // 3. Structural invariant: Cannot remove the last member (group would be orphaned)
+                if (memberCount <= 1) {
+                    Log.w(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=BlockedAsLastMember memberCount=$memberCount")
+                    return@withWriteLock RemoveMemberResult.BlockedAsLastMember
                 }
+
+                // 4. Calculate balances for validation
+                val expenses = appDatabase.expenseDao().getExpensesForGroup(groupId).first()
+                val splits = appDatabase.expenseDao().getAllExpenseSplitsForGroup(groupId).first()
+                val settlements = appDatabase.settlementDao().getSettlementsForGroup(groupId).first()
+                val balances = BalanceCalculator.calculate(expenses, splits, settlements)
+
+                // 5. Run domain validation for TARGET user
+                val eligibility = GroupExitValidator.checkLeaveEligibility(
+                    userId = targetUserId,
+                    balances = balances,
+                    memberCount = memberCount
+                )
+
+                when (eligibility) {
+                    is GroupExitValidator.LeaveGroupResult.BlockedByBalance -> {
+                        val userBalance = balances[targetUserId]
+                        Log.w(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=BlockedByBalance balance=$userBalance")
+                        return@withWriteLock RemoveMemberResult.BlockedByBalance
+                    }
+                    is GroupExitValidator.LeaveGroupResult.BlockedAsLastMember -> {
+                        // Should be caught by step 3, but defensive double-check
+                        Log.w(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=BlockedAsLastMember")
+                        return@withWriteLock RemoveMemberResult.BlockedAsLastMember
+                    }
+                    is GroupExitValidator.LeaveGroupResult.Allowed -> {
+                        // Proceed with removal
+                    }
+                }
+
+                // 6. Create sync and ledger operations and execute transaction
+                // Reusing existing sync op type as "leaving" == "being removed" in backend terms
+                val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, targetUserId)
+                val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, targetUserId, actorUserId)
+                appDatabase.removeMemberWithLedger(groupId, targetUserId, syncOp, ledgerOp)
+                ledgerSyncScheduler.schedulePush()
+
+                Log.d(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=Success syncOpId=${syncOp.id}")
+                RemoveMemberResult.Success
+            } catch (e: Exception) {
+                Log.e(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=Error error=${e.message}", e)
+                RemoveMemberResult.Error(e.message ?: "Unknown error")
             }
-
-            // 6. Create sync and ledger operations and execute transaction
-            // Reusing existing sync op type as "leaving" == "being removed" in backend terms
-            val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, targetUserId)
-            val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, targetUserId, actorUserId)
-            appDatabase.removeMemberWithLedger(groupId, targetUserId, syncOp, ledgerOp)
-            ledgerSyncScheduler.schedulePush()
-
-            Log.d(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=Success syncOpId=${syncOp.id}")
-            RemoveMemberResult.Success
-        } catch (e: Exception) {
-            Log.e(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=Error error=${e.message}", e)
-            RemoveMemberResult.Error(e.message ?: "Unknown error")
         }
     }
 }

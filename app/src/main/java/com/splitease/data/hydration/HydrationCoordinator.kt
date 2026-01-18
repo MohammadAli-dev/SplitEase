@@ -87,7 +87,6 @@ class HydrationCoordinatorImpl @Inject constructor(
     private val db: AppDatabase,
     private val ledgerPullService: LedgerPullService,
     private val replayEngine: ReplayEngine,
-    private val readOnlyModeManager: ReadOnlyModeManager,
     private val deviceRoleManager: DeviceRoleManager,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : HydrationCoordinator {
@@ -111,10 +110,17 @@ class HydrationCoordinatorImpl @Inject constructor(
         try {
             Log.d(TAG, "Starting hydration flow (Lock Acquired)")
 
-            // === CHECK 1: Already in read-only mode? ===
-            if (readOnlyModeManager.isReadOnlyMode()) {
-                Log.d(TAG, "Device already in read-only mode, hydration already complete")
-                return@withContext HydrationResult.Aborted("Already hydrated (read-only mode)")
+            // === CHECK 0: Already PROMOTED? ===
+            // Sprint 19 Guard: Promoted devices MUST NOT hydrate (they already have unique data).
+            if (deviceRoleManager.getDeviceRole() == DeviceRole.PROMOTED) {
+                Log.d(TAG, "Device is PROMOTED, hydration prohibited")
+                return@withContext HydrationResult.Aborted("Device already promoted")
+            }
+
+            // === CHECK 1: Already in REPLICA mode? ===
+            if (deviceRoleManager.getDeviceRole() == DeviceRole.REPLICA) {
+                Log.d(TAG, "Device already a REPLICA, hydration already complete")
+                return@withContext HydrationResult.Aborted("Already hydrated (REPLICA mode)")
             }
 
             // === CHECK 2: Fresh install guard ===
@@ -127,7 +133,7 @@ class HydrationCoordinatorImpl @Inject constructor(
             Log.d(TAG, "Fresh install confirmed, proceeding with hydration")
 
             // === STEP 1: Set Hydration Attempted Flag ===
-            readOnlyModeManager.setHydrationAttempted(true)
+            deviceRoleManager.setHydrationAttempted(true)
 
             // === STEP 2: Pull ledger operations from Supabase ===
             val pullResult = ledgerPullService.fetchAllOperations()
@@ -143,7 +149,7 @@ class HydrationCoordinatorImpl @Inject constructor(
             // === STEP 3: Check if there's anything to hydrate ===
             if (operations.isEmpty()) {
                 Log.d(TAG, "No ledger operations found, aborting hydration (nothing to hydrate)")
-                readOnlyModeManager.setHydrationAttempted(false)
+                deviceRoleManager.setHydrationAttempted(false)
                 return@withContext HydrationResult.Aborted("No ledger operations found on server")
             }
 
@@ -161,11 +167,10 @@ class HydrationCoordinatorImpl @Inject constructor(
                 }
             }
 
-            // === STEP 5: Enter read-only mode and set role to REPLICA ===
-            readOnlyModeManager.enterReadOnlyMode()
+            // === STEP 5: Set role to REPLICA (implies read-only) ===
             deviceRoleManager.setDeviceRole(DeviceRole.REPLICA)
-            readOnlyModeManager.setHydrationAttempted(false)
-            Log.d(TAG, "Entered read-only mode (REPLICA), hydration complete")
+            deviceRoleManager.setHydrationAttempted(false)
+            Log.d(TAG, "Entered REPLICA role, hydration complete")
             HydrationResult.Success
 
         } catch (e: HydrationInvariantException) {
@@ -200,9 +205,10 @@ class HydrationCoordinatorImpl @Inject constructor(
         actionMutex.withLock {
             try {
                 val isEmpty = isDatabaseEmpty()
-                val isReadOnly = readOnlyModeManager.isReadOnlyMode()
-                val isAttempted = readOnlyModeManager.isHydrationAttempted()
-                val isResuming = readOnlyModeManager.isRemediationInProgress()
+                val role = deviceRoleManager.getDeviceRole()
+                val isReadOnly = role == DeviceRole.REPLICA
+                val isAttempted = deviceRoleManager.isHydrationAttempted()
+                val isResuming = deviceRoleManager.isRemediationInProgress()
 
                 // === "DIRTY" State Detection ===
                 // Condition:
@@ -220,19 +226,19 @@ class HydrationCoordinatorImpl @Inject constructor(
                     }
 
                     // 1. Set the remediation flag (Intent phase)
-                    readOnlyModeManager.setRemediationInProgress(true)
+                    deviceRoleManager.setRemediationInProgress(true)
 
                     // 2. Clear the attempted flag (Target state)
-                    readOnlyModeManager.setHydrationAttempted(false)
+                    deviceRoleManager.setHydrationAttempted(false)
 
                     // 3. WIPE THE DATABASE (Action phase)
                     db.clearAllTables()
 
                     // 4. Set the "Wipe Occurred" flag (Finalize phase)
-                    readOnlyModeManager.setWipeOccurred()
+                    deviceRoleManager.setWipeOccurred()
 
                     // 5. Clear the remediation flag (completion)
-                    readOnlyModeManager.setRemediationInProgress(false)
+                    deviceRoleManager.setRemediationInProgress(false)
 
                     Log.i(TAG, "STRUCTURED_LOG: REMEDIATION_COMPLETE - System restored to fresh state.")
                     return@withLock InconsistencyStatus.Remedied

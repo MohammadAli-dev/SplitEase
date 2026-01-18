@@ -8,8 +8,6 @@ import com.splitease.data.hydration.HydrationCoordinator
 import com.splitease.data.hydration.HydrationCoordinatorImpl
 import com.splitease.data.hydration.LedgerPullService
 import com.splitease.data.hydration.LedgerPullServiceImpl
-import com.splitease.data.hydration.ReadOnlyModeManager
-import com.splitease.data.hydration.ReadOnlyModeManagerImpl
 import com.splitease.data.hydration.ReplayEngine
 import com.splitease.data.hydration.ReplayEngineImpl
 import com.splitease.data.local.AppDatabase
@@ -32,14 +30,6 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object HydrationModule {
-
-    @Provides
-    @Singleton
-    fun provideReadOnlyModeManager(
-        @ApplicationContext context: Context
-    ): ReadOnlyModeManager {
-        return ReadOnlyModeManagerImpl(context)
-    }
 
     @Provides
     @Singleton
@@ -67,11 +57,9 @@ object HydrationModule {
         db: AppDatabase,
         ledgerPullService: LedgerPullService,
         replayEngine: ReplayEngine,
-        readOnlyModeManager: ReadOnlyModeManager,
         deviceRoleManager: com.splitease.data.device.DeviceRoleManager,
         @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): HydrationCoordinator {
-        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, readOnlyModeManager, deviceRoleManager, ioDispatcher)
+        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, deviceRoleManager, ioDispatcher)
     }
-
 }

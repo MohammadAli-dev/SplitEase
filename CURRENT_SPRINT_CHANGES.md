@@ -60,8 +60,7 @@ Following a comprehensive architectural audit, the hydration and auth systems we
 
 ### 4. Identity Integrity & Leakage Protection
 To prevent cross-user data contamination and stale identity visibility:
-- **Atomic Identity Invalidation**: Updated `TokenManager` to detects `cloudUserId` changes. Upon a user swap, cached `UserProfile` data (name/email) is atomically wiped.
-- **Persistence Boundary Guard**: `saveUserProfile` now validates that the incoming profile's ID matches the active session, blocking mismatched identity persistence.
+- **Atomic Identity Invalidation**: Updated `TokenManager` to detect `cloudUserId` changes. Upon a user swap, cached `UserProfile` data (name/email) is atomically wiped.- **Persistence Boundary Guard**: `saveUserProfile` now validates that the incoming profile's ID matches the active session, blocking mismatched identity persistence.
 - **Atomic Logout Reset**: Verified that `logout()` performs a destructive identity reset, clearing all tokens and the persisted profile cache simultaneously.
 
 ### 5. Read-Only Mode Enforcement
@@ -81,4 +80,34 @@ To prevent cross-user data contamination and stale identity visibility:
 
 ---
 
-*Nothing here blocks or weakens Sprint 18.*
+# Sprint 19: Multi-Device Write Promotion & Write Serialization
+
+## Overview
+This sprint implements explicit, crash-safe device role promotion and enforces strict per-device write serialization. This allows read-only replicas to become authoritative authors while preserving ledger integrity and preventing cross-device ordering conflicts.
+
+## Key Changes
+
+### 1. Promotion Infrastructure & Lifecycle
+- **PromotionCoordinator**: Implemented a crash-safe state machine for transitioning devices from `REPLICA` to `PROMOTED`.
+- **Startup Recovery**: Integrated `recoverPromotionIfNeeded()` into the startup flow to automatically resume interrupted promotions after a crash.
+- **Safety Guards**: Implemented strict precondition checks (ledger set equality) and a final guard in `HydrationCoordinator` to prevent promoted authors from accidentally wiping their data via hydration.
+
+### 2. Write Serialization & Hardening
+- **LedgerWriteGate**: Introduced a canonical mutex-backed gate for all ledger mutations. This ensures that clock allocation, database insertion, and sync scheduling are strictly serialized per device.
+- **Repository Enforcement**: Instrumented `ExpenseRepository`, `GroupRepository`, and `SettlementRepository` to hold the write lock during the entire mutation lifecycle.
+- **Database Constraints**: Hardened the local schema with a composite unique index on `(deviceId, logicalClock)` to provide a final hardware-level safety net against ordering corruption.
+
+### 3. Foundation Migration
+- **DeviceRoleManager**: Retired the legacy `ReadOnlyModeManager` and migrated all permission logic to the unified `DeviceRoleManager`.
+- **System-Wide Alignment**: Updated `LedgerOperationFactory`, `LedgerSyncScheduler`, and the Hydration system to observe the new role-based permission model.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation and KSP processing.
+- **Tests**:
+    - **`HydrationCoordinatorTest`**: Updated to verify `PROMOTED` guard and new dependency injection.
+    - **Sync Verification**: Verified that `LedgerSyncScheduler` correctly skips pushes on non-writable devices.
+- **Integrity**: Confirmed that all mutation-capable repositories now hold the `LedgerWriteGate` and that the database enforces operation uniqueness.
+
+---
+
+*Verified: Sprint 19 Core Integrated.*

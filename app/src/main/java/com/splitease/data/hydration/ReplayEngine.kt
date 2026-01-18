@@ -372,17 +372,8 @@ class ReplayEngineImpl @Inject constructor(
      */
     private suspend fun persistLedgerOperation(op: LedgerOperation) {
         try {
-            // Insert directly - the hydrated ledger is a replica
-            db.ledgerDao().insertWithAtomicClock(
-                operationId = op.operationId,
-                entityType = op.entityType,
-                entityId = op.entityId,
-                operationType = op.operationType,
-                payload = op.payload,
-                authorLocalUserId = op.authorLocalUserId,
-                deviceId = op.deviceId,
-                createdAt = op.createdAt
-            )
+            // Insert directly - the hydrated ledger is a replica, preserve original clocks
+            db.ledgerDao().insert(op)
         } catch (e: SQLiteConstraintException) {
             // Benign: Op already exists (idempotency during resumed hydration)
             Log.d(TAG, "Ledger operation already exists: ${op.operationId}")

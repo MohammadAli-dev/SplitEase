@@ -60,6 +60,15 @@ interface LedgerDao {
     )
 
     /**
+     * Insert a raw ledger operation.
+     *
+     * Used by [ReplayEngine] to persist remote operations with their original
+     * (deviceId, logicalClock) pairs.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(operation: LedgerOperation)
+
+    /**
      * Stream all ledger operations ordered by deviceId then logicalClock.
      *
      * Intended for verification, testing, and sync engines; not for UI observation.

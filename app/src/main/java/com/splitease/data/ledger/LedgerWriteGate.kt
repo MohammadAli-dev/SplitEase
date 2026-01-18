@@ -54,7 +54,7 @@ class LedgerWriteMutex @Inject constructor() {
  * duration to ensure no concurrent local writes during validation.
  */
 @Singleton
-class LedgerWriteGate @Inject constructor(
+open class LedgerWriteGate @Inject constructor(
     private val writeMutex: LedgerWriteMutex
 ) {
     /**
@@ -63,7 +63,7 @@ class LedgerWriteGate @Inject constructor(
      * @param block The write operation to execute atomically.
      * @return The result of the block.
      */
-    suspend fun <T> withWriteLock(block: suspend () -> T): T {
+    open suspend fun <T> withWriteLock(block: suspend () -> T): T {
         return writeMutex.mutex.withLock {
             block()
         }

@@ -32,7 +32,8 @@ class ExpenseRepositoryImpl @Inject constructor(
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
-    private val deviceRoleManager: DeviceRoleManager
+    private val deviceRoleManager: DeviceRoleManager,
+    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate
 ) : ExpenseRepository {
 
     /**
@@ -44,13 +45,15 @@ class ExpenseRepositoryImpl @Inject constructor(
          */
     override suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>) = 
         withContext(Dispatchers.IO) {
-            if (!deviceRoleManager.canWrite()) {
-                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+            ledgerWriteGate.withWriteLock {
+                if (!deviceRoleManager.canWrite()) {
+                    throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+                }
+                val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
+                val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(expense, splits, expense.createdByUserId)
+                appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+                ledgerSyncScheduler.schedulePush()
             }
-            val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
-            val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(expense, splits, expense.createdByUserId)
-            appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
-            ledgerSyncScheduler.schedulePush()
         }
 
     /**
@@ -62,13 +65,15 @@ class ExpenseRepositoryImpl @Inject constructor(
          */
         override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
-            if (!deviceRoleManager.canWrite()) {
-                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+            ledgerWriteGate.withWriteLock {
+                if (!deviceRoleManager.canWrite()) {
+                    throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+                }
+                val syncOp = syncWriteService.createUpdateExpenseSyncOp(expense, splits)
+                val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(expense, splits, expense.lastModifiedByUserId)
+                appDatabase.updateExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+                ledgerSyncScheduler.schedulePush()
             }
-            val syncOp = syncWriteService.createUpdateExpenseSyncOp(expense, splits)
-            val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(expense, splits, expense.lastModifiedByUserId)
-            appDatabase.updateExpenseWithLedger(expense, splits, syncOp, ledgerOp)
-            ledgerSyncScheduler.schedulePush()
         }
 
     /**
@@ -82,18 +87,20 @@ class ExpenseRepositoryImpl @Inject constructor(
          */
         override suspend fun deleteExpense(expenseId: String) =
         withContext(Dispatchers.IO) {
-            if (!deviceRoleManager.canWrite()) {
-                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+            ledgerWriteGate.withWriteLock {
+                if (!deviceRoleManager.canWrite()) {
+                    throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+                }
+                // Fetch expense and splits for complete snapshot before deletion
+                val expense = expenseDao.getExpense(expenseId).first() 
+                    ?: return@withWriteLock // Already deleted, no-op
+                val splits = expenseDao.getSplits(expenseId).first()
+                
+                val syncOp = syncWriteService.createDeleteExpenseSyncOp(expenseId)
+                val ledgerOp = ledgerOperationFactory.createExpenseDeleteOp(expense, splits, expense.lastModifiedByUserId)
+                appDatabase.deleteExpenseWithLedger(expenseId, syncOp, ledgerOp)
+                ledgerSyncScheduler.schedulePush()
             }
-            // Fetch expense and splits for complete snapshot before deletion
-            val expense = expenseDao.getExpense(expenseId).first() 
-                ?: return@withContext // Already deleted, no-op
-            val splits = expenseDao.getSplits(expenseId).first()
-            
-            val syncOp = syncWriteService.createDeleteExpenseSyncOp(expenseId)
-            val ledgerOp = ledgerOperationFactory.createExpenseDeleteOp(expense, splits, expense.lastModifiedByUserId)
-            appDatabase.deleteExpenseWithLedger(expenseId, syncOp, ledgerOp)
-            ledgerSyncScheduler.schedulePush()
         }
 
     /**
