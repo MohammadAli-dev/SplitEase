@@ -12,6 +12,7 @@ import com.splitease.data.local.entities.LedgerConflictEntity
 object ConflictMapper {
     private val gson = Gson()
     private val opRefsType = object : TypeToken<List<LedgerOpRef>>() {}.type
+    private const val TAG = "ConflictMapper"
 
     /**
      * Converts a domain [LedgerConflict] to a persistence entity.
@@ -28,18 +29,23 @@ object ConflictMapper {
 
     /**
      * Converts a persistence entity to a domain [LedgerConflict].
-     * Returns null if the entity type is unknown.
+     * Returns null if the entity type or conflict type is unknown.
      *
      * **Sprint 20 Fail-Open Invariant:**
      * Persisted conflict data is diagnostic and non-authoritative. Deserialization failures
-     * (e.g. corrupted JSON) must not crash the app. Failures are logged and degraded
-     * gracefully to an empty [opRefs] list.
+     * (e.g. corrupted JSON or unknown enum values) must not crash the app. Failures are
+     * logged and the row is either dropped (if keys are missing) or degraded gracefully.
      */
     fun fromEntity(entity: LedgerConflictEntity): LedgerConflict? {
-        val entityType = EntityType.fromString(entity.entityType) ?: return null
+        val entityType = EntityType.fromString(entity.entityType) ?: run {
+            android.util.Log.w(TAG, "Unknown entityType '${entity.entityType}' for conflictId=${entity.conflictId}. Skipping row.")
+            return null
+        }
+
         val conflictType = try {
             ConflictType.valueOf(entity.conflictType)
         } catch (e: IllegalArgumentException) {
+            android.util.Log.w(TAG, "Unknown conflictType '${entity.conflictType}' for conflictId=${entity.conflictId}. Skipping row.")
             return null
         }
 
@@ -50,11 +56,7 @@ object ConflictMapper {
                 ?: emptyList()
         } catch (e: Exception) {
             // SPRINT 20: Diagnostic data must not be fatal. Log and fail open.
-            android.util.Log.w(
-                "ConflictMapper",
-                "Corrupted opRefs for conflictId=${entity.conflictId}. Defaulting to empty list.",
-                e
-            )
+            android.util.Log.w(TAG, "Corrupted opRefs for conflictId=${entity.conflictId}. Defaulting to empty list.", e)
             emptyList()
         }
 
