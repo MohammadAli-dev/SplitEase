@@ -56,6 +56,7 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 - **Ledger Integrity Protection**: Updated `persistLedgerOperation` to distinguish between benign `SQLiteConstraintException` (idempotency during resumption) and fatal system failures (e.g., Disk Full), which are now logged and rethrown to trigger clean hydration failure.
 - **Global Error Boundaries**: Hardened `HydrationCoordinator` by wrapping both `hydrate()` and `remediateInconsistency()` in global try-catch blocks. This ensures that unexpected IO or DataStore failures result in a descriptive `Failed` result rather than an application crash.
 - **Enhanced Inconsistency Tracking**: Expanded the `InconsistencyStatus` sealed interface to include a `Failed` case, enabling robust error reporting during critical app startup remediation cycles.
+- **Fail-Safe Remediation Sequencing**: Hardened `remediateInconsistency` by reordering operations (Flag Reset -> DB Wipe -> Status Update). This ensures that a crash during the cleanup process leaves the system in a safe retry state rather than a stale "hydration attempted" state.
 
 ### 4. Read-Only Mode Enforcement
 - **ReadOnlyModeManager**: Created a persistent DataStore-backed flag. Once a device hydrates, it enters a permanent read-only state.

@@ -197,13 +197,14 @@ class HydrationCoordinatorImpl @Inject constructor(
                 Log.e(TAG, "CRITICAL: Inconsistent state detected! (Dirty Hydration). " +
                         "Wiping ${expenseCount} expenses, ${groupCount} groups to ensure safety.")
 
-                // 1. WIPE THE DATABASE
+                // 1. Clear the attempted flag FIRST (Intent phase)
+                // If we crash during the wipe, the next boot sees a fresh state attempt.
+                readOnlyModeManager.setHydrationAttempted(false)
+
+                // 2. WIPE THE DATABASE (Action phase)
                 db.clearAllTables()
                 
-                // 2. Clear the attempted flag (we are back to fresh)
-                readOnlyModeManager.setHydrationAttempted(false)
-                
-                // 3. Set the "Wipe Occurred" flag for UI notification
+                // 3. Set the "Wipe Occurred" flag (Finalize phase)
                 readOnlyModeManager.setWipeOccurred()
                 
                 return@withContext InconsistencyStatus.Remedied
