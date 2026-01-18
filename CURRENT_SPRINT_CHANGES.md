@@ -160,7 +160,9 @@ This sprint introduces explicit, deterministic conflict detection for the multi-
 Following an architectural audit, the conflict system was hardened against edge-case failures and logical collisions:
 - **Collision-Resistant Fingerprinting**: Refactored `conflictId` generation in `ConflictDetector` to use **Length-Prefixing** (`len:value`) for all string components. This provides a mathematical guarantee against delimiter collisions (e.g., if an ID or device name contains `|` or `:`).
 - **Graceful Deserialization Fail-Open**: Hardened `ConflictMapper.fromEntity` to treat persisted JSON as untrusted input. Implemented a `try-catch` boundary around `gson.fromJson` and added explicit recovery to an empty `opRefs` list. This ensures that corrupted diagnostic rows never crash the application or block repository flows.
-- **Fail-Open Logging**: Standardized internal error reporting via `Log.w` for non-authoritative diagnostic failures, adhering to the sprint's "non-blocking visibility" mantra.
+- **Exhaustive Diagnostic Visibility**: Added explicit `Log.w` warnings to `ConflictMapper` for unknown `entityType` or `conflictType` strings. Previously swallowed silently, these failures are now logged with the `conflictId` to ensure visibility of cross-version ledger mismatches.
+- **Fail-Open Logging**: Standardized all internal error reporting via `Log.w` for non-authoritative diagnostic failures, adhering to the sprint's "non-blocking visibility" mantra.
+- **Architectural Alignment**: Resolved documentation-implementation contradictions regarding Supabase branding vs. Mock implementation status in the `README.md` diagrams and terminology.
 
 ## Verification Results
 - **Comprehensive Unit Tests**:
