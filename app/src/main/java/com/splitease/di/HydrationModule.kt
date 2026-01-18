@@ -68,8 +68,10 @@ object HydrationModule {
         ledgerPullService: LedgerPullService,
         replayEngine: ReplayEngine,
         readOnlyModeManager: ReadOnlyModeManager,
+        deviceRoleManager: com.splitease.data.device.DeviceRoleManager,
         @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): HydrationCoordinator {
-        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, readOnlyModeManager, ioDispatcher)
+        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, readOnlyModeManager, deviceRoleManager, ioDispatcher)
     }
+
 }

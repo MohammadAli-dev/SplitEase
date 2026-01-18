@@ -2,6 +2,8 @@ package com.splitease.data.hydration
 
 import android.util.Log
 import com.splitease.data.local.AppDatabase
+import com.splitease.data.device.DeviceRole
+import com.splitease.data.device.DeviceRoleManager
 import com.splitease.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +88,7 @@ class HydrationCoordinatorImpl @Inject constructor(
     private val ledgerPullService: LedgerPullService,
     private val replayEngine: ReplayEngine,
     private val readOnlyModeManager: ReadOnlyModeManager,
+    private val deviceRoleManager: DeviceRoleManager,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : HydrationCoordinator {
 
@@ -158,11 +161,13 @@ class HydrationCoordinatorImpl @Inject constructor(
                 }
             }
 
-            // === STEP 5: Enter read-only mode ===
+            // === STEP 5: Enter read-only mode and set role to REPLICA ===
             readOnlyModeManager.enterReadOnlyMode()
+            deviceRoleManager.setDeviceRole(DeviceRole.REPLICA)
             readOnlyModeManager.setHydrationAttempted(false)
-            Log.d(TAG, "Entered read-only mode, hydration complete")
+            Log.d(TAG, "Entered read-only mode (REPLICA), hydration complete")
             HydrationResult.Success
+
         } catch (e: HydrationInvariantException) {
             // Structured logging for hydration invariant violations
             Log.e(TAG, "HYDRATION_INVARIANT_VIOLATION: invariant=${e.report.invariant}, " +
