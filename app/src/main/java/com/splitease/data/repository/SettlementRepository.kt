@@ -2,8 +2,8 @@ package com.splitease.data.repository
 
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Settlement
-import com.splitease.data.hydration.ReadOnlyModeManager
-import com.splitease.data.hydration.ReadOnlyViolationException
+import com.splitease.data.device.DeviceRoleManager
+import com.splitease.data.device.WritePermissionDeniedException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
@@ -75,7 +75,8 @@ class SettlementRepositoryImpl @Inject constructor(
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
-    private val readOnlyModeManager: ReadOnlyModeManager
+    private val deviceRoleManager: DeviceRoleManager,
+    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate
 ) : SettlementRepository {
 
     /**
@@ -135,37 +136,39 @@ class SettlementRepositoryImpl @Inject constructor(
         currency: String,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
-        // Read-only guard
-        if (readOnlyModeManager.isReadOnlyMode()) {
-            throw ReadOnlyViolationException("Cannot create settlement in read-only mode")
-        }
-        
-        // Domain Guard: No self-settlement
-        require(fromUserId != toUserId) {
-            "Settlement cannot be self-directed"
-        }
-        
-        // Domain Guard: Amount must be positive
-        require(amount.signum() > 0) {
-            "Settlement amount must be positive"
-        }
+        ledgerWriteGate.withWriteLock {
+            // Write permission guard
+            if (!deviceRoleManager.canWrite()) {
+                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+            }
 
-        val settlement = Settlement(
-            id = UUID.randomUUID().toString(),
-            groupId = groupId,
-            fromUserId = fromUserId,
-            toUserId = toUserId,
-            amount = amount.setScale(2, RoundingMode.HALF_UP),
-            currency = currency,
-            date = Date(),
-            createdByUserId = creatorUserId,
-            lastModifiedByUserId = creatorUserId
-        )
+            // Domain Guard: No self-settlement
+            require(fromUserId != toUserId) {
+                "Settlement cannot be self-directed"
+            }
+            
+            // Domain Guard: Amount must be positive
+            require(amount.signum() > 0) {
+                "Settlement amount must be positive"
+            }
 
-        val syncOp = syncWriteService.createSettlementCreateSyncOp(settlement)
-        val ledgerOp = ledgerOperationFactory.createSettlementCreateOp(settlement, creatorUserId)
+            val settlement = Settlement(
+                id = UUID.randomUUID().toString(),
+                groupId = groupId,
+                fromUserId = fromUserId,
+                toUserId = toUserId,
+                amount = amount.setScale(2, RoundingMode.HALF_UP),
+                currency = currency,
+                date = Date(),
+                createdByUserId = creatorUserId,
+                lastModifiedByUserId = creatorUserId
+            )
 
-        appDatabase.insertSettlementWithLedger(settlement, syncOp, ledgerOp)
-        ledgerSyncScheduler.schedulePush()
+            val syncOp = syncWriteService.createSettlementCreateSyncOp(settlement)
+            val ledgerOp = ledgerOperationFactory.createSettlementCreateOp(settlement, creatorUserId)
+
+            appDatabase.insertSettlementWithLedger(settlement, syncOp, ledgerOp)
+            ledgerSyncScheduler.schedulePush()
+        }
     }
 }

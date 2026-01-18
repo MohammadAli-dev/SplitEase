@@ -49,23 +49,25 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 - **Bootstrapped Identity Restoration**: `AuthManager` now persists and restores the `UserProfile` from secure storage during cold start. This ensures the UI has immediate access to identity data before the authoritative network refresh completes.
 - **Deterministic Auth Initialization**: Refactored `AuthManager` to remove non-deterministic background initialization. Introduced an explicit `suspend fun initialize()` called by `AppStartupInitializer` to ensure session recovery is complete before sync or identity flows begin.
 
-### 3. Strict Hydration Enforcement (CodeRabbit Refinements)
-- **Fail-Fast for Malformed Data**: Replaced deterministic sentinels (`0L`) with strict invariant enforcement. `LedgerPullService` now throws `HydrationInvariantException` if `createdAt` is missing. `ReplayEngine` throws if `joinedAt` is missing during member creation.
-- **No Partial State**: Hydration fails atomically if ANY invariant is violated. No partial ledger or member state is committed.
-- **Observable Failures**: Introduced `HydrationFailureReport` (with type-safe enums for `HydrationInvariant`, `HydrationInvariantCategory`, and `HydrationFailureLocation`) to capture the "what," "where," and "why" of failures for observability and future UX.
-- **Structured Logging**: Added production-ready structured logging at the `HydrationCoordinator` boundary for all invariant violations.
-- **Ledger Integrity Protection**: Updated `persistLedgerOperation` to distinguish between benign `SQLiteConstraintException` (idempotency during resumption) and fatal system failures (e.g., Disk Full), which are now logged and rethrown to trigger clean hydration failure.
-- **Global Error Boundaries**: Hardened `HydrationCoordinator` by wrapping both `hydrate()` and `remediateInconsistency()` in global try-catch blocks. This ensures that unexpected IO or DataStore failures result in a descriptive `Failed` result rather than an application crash.
-- **Enhanced Inconsistency Tracking**: Expanded the `InconsistencyStatus` sealed interface to include a `Failed` case, enabling robust error reporting during critical app startup remediation cycles.
-- **Serialized Remediation**: `HydrationCoordinator.remediateInconsistency` is now protected by the global `actionMutex`, preventing destructive DB wipes from racing with active hydration/replay tasks.
-- **Crash-Safe Remediation Progress**: Introduced a transient `remediationInProgress` flag. In the event of a crash during the remediation phase (Flag Reset -> DB Wipe), the next boot treats the progress flag as authoritative and forces a fresh cleanup.
-- **Structured Remediation Lifecycle**: Added structured logging for `START`, `RESUMED`, and `COMPLETE` phases of the remediation process for better production observability.
+### 3. Verification & Hardening (CodeRabbit/ChatGPT Audit)
+Following a comprehensive architectural audit, the hydration and auth systems were hardened against subtle race conditions and state inconsistencies:
+- **Identity Restoration Invariant**: Flagged that `Authenticated` state must imply identity-complete. Implemented `UserProfile` persistence and restoration during bootstrap.
+- **Fail-Fast for Malformed Data**: Replaced deterministic sentinels (`0L`) with strict invariant enforcement (`HydrationInvariantException`).
+- **Idempotent Storage Protection**: Updated `persistLedgerOperation` to distinguish between benign constraint violations (during retry) and fatal system failures.
+- **Serialized Remediation**: `HydrationCoordinator.remediateInconsistency` is now protected by the global `actionMutex` to prevent racing with active replays.
+- **Crash-Resumable Remediation**: Introduced a transient `remediationInProgress` flag to protect the multi-step DB wipe sequence, ensuring any crash during cleanup triggers a forced retry on next boot.
+- **Structured Observability**: Added structured logging for the full remediation lifecycle and typed failure reports.
 
-### 4. Read-Only Mode Enforcement
+### 4. Identity Integrity & Leakage Protection
+To prevent cross-user data contamination and stale identity visibility:
+- **Atomic Identity Invalidation**: Updated `TokenManager` to detect `cloudUserId` changes. Upon a user swap, cached `UserProfile` data (name/email) is atomically wiped.
+- **Persistence Boundary Guard**: `saveUserProfile` now validates that the incoming profile's ID matches the active session, blocking mismatched identity persistence.- **Atomic Logout Reset**: Verified that `logout()` performs a destructive identity reset, clearing all tokens and the persisted profile cache simultaneously.
+
+### 5. Read-Only Mode Enforcement
 - **ReadOnlyModeManager**: Created a persistent DataStore-backed flag. Once a device hydrates, it enters a permanent read-only state.
 - **Mutation Guards**: Instrumented all repositories (`Expense`, `Group`, `Settlement`) to throw `ReadOnlyViolationException` for all mutation methods when in read-only mode.
 
-### 5. Architectural Guardrails
+### 6. Architectural Guardrails
 - **Inconsistency Management**: Introduced `InconsistencyStatus` as a sealed interface to provide a single canonical representation of hydration failure states.
 - **Dispatcher Injection**: Standardized the use of injected `@IoDispatcher` across all hydration components to ensure testability and correct threading.
 
@@ -78,4 +80,46 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 
 ---
 
-*Nothing here blocks or weakens Sprint 18.*
+# Sprint 19: Multi-Device Write Promotion & Write Serialization
+
+## Overview
+This sprint implements explicit, crash-safe device role promotion and enforces strict per-device write serialization. This allows read-only replicas to become authoritative authors while preserving ledger integrity and preventing cross-device ordering conflicts.
+
+## Key Changes
+
+### 1. Promotion Infrastructure & Lifecycle
+- **PromotionCoordinator**: Implemented a crash-safe state machine for transitioning devices from `REPLICA` to `PROMOTED`.
+- **Startup Recovery**: Integrated `recoverPromotionIfNeeded()` into the startup flow to automatically resume interrupted promotions after a crash.
+- **Safety Guards**: Implemented strict precondition checks (ledger set equality) and a final guard in `HydrationCoordinator` to prevent promoted authors from accidentally wiping their data via hydration.
+
+### 2. Write Serialization & Hardening
+- **LedgerWriteGate**: Introduced a canonical mutex-backed gate for all ledger mutations. This ensures that clock allocation, database insertion, and sync scheduling are strictly serialized per device.
+- **Repository Enforcement**: Instrumented `ExpenseRepository`, `GroupRepository`, and `SettlementRepository` to hold the write lock during the entire mutation lifecycle.
+- **Database Constraints**: Hardened the local schema with a composite unique index on `(deviceId, logicalClock)` to provide a final hardware-level safety net against ordering corruption.
+
+### 3. Foundation Migration
+- **DeviceRoleManager**: Retired the legacy `ReadOnlyModeManager` and migrated all permission logic to the unified `DeviceRoleManager`.
+- **System-Wide Alignment**: Updated `LedgerOperationFactory`, `LedgerSyncScheduler`, and the Hydration system to observe the new role-based permission model.
+
+### 4. CodeRabbit/ChatGPT Safety Audit & Crash-Hardening
+Following a comprehensive architectural audit, the promotion and hydration subsystems were further hardened against failure-path inconsistencies and crash windows:
+- **Semantic Error Differentiation**: Enhanced `LedgerSetComparator` with a distinct `Error` state to distinguish between transient failures (network/deserialization) and genuine ledger mismatches.
+- **Transient-Safe Promotion**: Instrumented `PromotionCoordinator` to treat comparison errors as retryable, preventing transient network glitches from incorrectly triggering terminal `FAILED_PERMANENTLY` transitions.
+- **Atomic-Commit Gap Recovery**: Hardened `recoverPromotionIfNeeded` to detect and repair the "zombie" state `(PromotionState.COMPLETED + DeviceRole.REPLICA)` by re-driving the promotion through `promoteToWriter`. This closes the crash window between the two persistent writes.
+- **Mutex Lifecycle Protection**: Replaced implicit lock-release logic in `HydrationCoordinator.hydrate()` with explicit lock-state tracking (`val locked = tryLock()`) to prevent `IllegalStateException` during cleanup.
+- **Repository Invariant Alignment**: Enforced `canWrite()` guards in `GroupRepository.leaveGroup()` to ensure membership mutations are consistently gated by device role, matching the existing security model for group creation and user removal.
+- **Test Integrity**: Renamed test cases in `PromotionCoordinatorTest` to accurately reflect their assertions, ensuring the executable documentation correctly describes the promotion state machine's invariants.
+- **Fail-Closed Default Role**: Updated `DeviceRoleManager` to map invalid or corrupted role strings to `REPLICA` instead of `PRIMARY`. This ensures the system fails-closed upon data corruption, preventing unintended privilege escalation.
+- **Permission Flow Integrity**: Refactored `GroupRepository` to move write-permission guards outside of broad `try/catch` blocks. This prevents `WritePermissionDeniedException` from being swallowed and misclassified as generic operational errors.
+- **Permission Model Documentation**: Corrected misleading comments in `LedgerSyncScheduler` to accurately reflect that `PROMOTED` is a writable role, while only `REPLICA` and `IN_PROGRESS` are blocked from pushing.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation and KSP processing.
+- **Tests**:
+    - **`HydrationCoordinatorTest`**: Updated to verify `PROMOTED` guard and new dependency injection.
+    - **Sync Verification**: Verified that `LedgerSyncScheduler` correctly skips pushes on non-writable devices.
+- **Integrity**: Confirmed that all mutation-capable repositories now hold the `LedgerWriteGate` and that the database enforces operation uniqueness.
+
+---
+
+*Verified: Sprint 19 Core Integrated.*

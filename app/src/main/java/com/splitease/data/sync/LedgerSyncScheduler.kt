@@ -7,28 +7,16 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import com.splitease.data.hydration.ReadOnlyModeManager
+import com.splitease.data.device.DeviceRoleManager
 import com.splitease.worker.LedgerPushWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Helper to schedule ledger synchronization.
- *
- * **Sprint 17 Contract**:
- * - Enqueues [LedgerPushWorker] with [ExistingWorkPolicy.KEEP].
- * - Ensures correct network constraints (Connected).
- * - Safe to call frequently (idempotent enqueue).
- *
- * **Sprint 18 Contract**:
- * - Skips scheduling if device is in read-only mode.
- * - Hydrated devices MUST NOT push to Supabase.
- */
 @Singleton
 class LedgerSyncScheduler @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val readOnlyModeManager: ReadOnlyModeManager
+    private val deviceRoleManager: DeviceRoleManager
 ) {
     companion object {
         private const val TAG = "LedgerSyncScheduler"
@@ -41,16 +29,15 @@ class LedgerSyncScheduler @Inject constructor(
      * `ExistingWorkPolicy.KEEP`, ensuring existing scheduled work is preserved.
      *
      * **Concurrency**: This is a suspend function that correctly awaits IO checks (like
-     * read-only mode) without blocking the calling thread. It is part of the async
+     * device role) without blocking the calling thread. It is part of the async
      * persistence chain and should be called from an IO-safe coroutine context.
      *
-     * **Sprint 18**: Skips scheduling if device is in read-only mode (hydrated device).
+     * **Sprint 19**: Skips scheduling if device cannot write (e.g. REPLICA or IN_PROGRESS).
      */
     suspend fun schedulePush() {
-        // Sprint 18: Skip scheduling in read-only mode (hydrated devices must not push)
-        val isReadOnly = readOnlyModeManager.isReadOnlyMode()
-        if (isReadOnly) {
-            Log.d(TAG, "Skipping ledger push: device in read-only mode")
+        // Sprint 19: Skip scheduling if device cannot write (REPLICA/IN_PROGRESS must not push)
+        if (!deviceRoleManager.canWrite()) {
+            Log.d(TAG, "Skipping ledger push: device role ${deviceRoleManager.getDeviceRole()} cannot write")
             return
         }
 

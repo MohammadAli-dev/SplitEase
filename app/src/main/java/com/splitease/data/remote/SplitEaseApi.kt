@@ -184,6 +184,17 @@ data class RemoteLedgerOperation(
     val createdAt: Long? = null
 )
 
+/**
+ * Lightweight DTO for ledger keys (deviceId + logicalClock).
+ */
+data class RemoteLedgerKey(
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("logical_clock")
+    val logicalClock: Long
+)
+
 interface SplitEaseApi {
     /**
      * Authenticate a user and obtain authentication details.
@@ -254,6 +265,19 @@ interface SplitEaseApi {
         @Query("order") order: String = "device_id.asc,logical_clock.asc",
         @Header("Range") rangeHeader: String? = null
     ): Response<List<RemoteLedgerOperation>>
+
+    /**
+     * Fetch only device_id and logical_clock for all ledger operations.
+     * Used by [com.splitease.data.device.LedgerSetComparator] for strict equality check.
+     */
+    @GET("ledger_operations")
+    suspend fun getLedgerKeys(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("select") select: String = "device_id,logical_clock",
+        @Query("order") order: String = "device_id.asc,logical_clock.asc"
+    ): Response<List<RemoteLedgerKey>>
+
 
     // --- Pull Sync Endpoints (Supabase PostgREST) ---
     // Note: These use Supabase table names and query syntax

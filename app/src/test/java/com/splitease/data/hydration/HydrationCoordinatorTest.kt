@@ -23,7 +23,7 @@ class HydrationCoordinatorTest {
     private val ledgerDao: com.splitease.data.local.dao.LedgerDao = mockk(relaxed = true)
     private val ledgerPullService: LedgerPullService = mockk(relaxed = true)
     private val replayEngine: ReplayEngine = mockk(relaxed = true)
-    private val readOnlyModeManager: ReadOnlyModeManager = mockk(relaxed = true)
+    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager = mockk(relaxed = true)
 
     private val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
     private lateinit var coordinator: HydrationCoordinatorImpl
@@ -34,7 +34,7 @@ class HydrationCoordinatorTest {
             appDatabase,
             ledgerPullService,
             replayEngine,
-            readOnlyModeManager,
+            deviceRoleManager,
             testDispatcher
         )
         mockkStatic(android.util.Log::class)
@@ -57,14 +57,14 @@ class HydrationCoordinatorTest {
         coEvery { groupDao.getGroupCountSync() } returns 0
         coEvery { settlementDao.getSettlementCountSync() } returns 0
         
-        // AND: Device is NOT in read-only mode (failed to lock)
-        coEvery { readOnlyModeManager.isReadOnlyMode() } returns false
+        // AND: Device is NOT in read-only role
+        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.PRIMARY
         
         // AND: Hydration attempted flag is TRUE (crashed during hydration)
-        coEvery { readOnlyModeManager.isHydrationAttempted() } returns true
+        coEvery { deviceRoleManager.isHydrationAttempted() } returns true
         
         // AND: Remediation in progress flag is FALSE (fresh start)
-        coEvery { readOnlyModeManager.isRemediationInProgress() } returns false
+        coEvery { deviceRoleManager.isRemediationInProgress() } returns false
 
         // WHEN
         val result = coordinator.remediateInconsistency()
@@ -72,11 +72,11 @@ class HydrationCoordinatorTest {
         // THEN
         // 1. Remediation flag should be set to true then false
         coVerifyOrder {
-            readOnlyModeManager.setRemediationInProgress(true)
-            readOnlyModeManager.setHydrationAttempted(false)
+            deviceRoleManager.setRemediationInProgress(true)
+            deviceRoleManager.setHydrationAttempted(false)
             appDatabase.clearAllTables()
-            readOnlyModeManager.setWipeOccurred()
-            readOnlyModeManager.setRemediationInProgress(false)
+            deviceRoleManager.setWipeOccurred()
+            deviceRoleManager.setRemediationInProgress(false)
         }
 
         // 2. Result should be Remedied
@@ -91,7 +91,7 @@ class HydrationCoordinatorTest {
         coEvery { settlementDao.getSettlementCountSync() } returns 0
 
         // AND: Hydration attempted is false
-        coEvery { readOnlyModeManager.isHydrationAttempted() } returns false
+        coEvery { deviceRoleManager.isHydrationAttempted() } returns false
 
         // WHEN
         val result = coordinator.remediateInconsistency()
@@ -106,8 +106,8 @@ class HydrationCoordinatorTest {
         // GIVEN: Database is NOT empty
         coEvery { expenseDao.getExpenseCountSync() } returns 10
 
-        // BUT: Device is in read-only mode (Locked)
-        coEvery { readOnlyModeManager.isReadOnlyMode() } returns true
+        // BUT: Device is in REPLICA role
+        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.REPLICA
 
         // WHEN
         val result = coordinator.remediateInconsistency()
@@ -122,11 +122,11 @@ class HydrationCoordinatorTest {
         // GIVEN: Database is NOT empty
         coEvery { expenseDao.getExpenseCountSync() } returns 5
 
-        // AND: Not read-only
-        coEvery { readOnlyModeManager.isReadOnlyMode() } returns false
+        // AND: Not REPLICA
+        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.PRIMARY
 
         // BUT: Hydration attempted is FALSE (this is just normal local usage)
-        coEvery { readOnlyModeManager.isHydrationAttempted() } returns false
+        coEvery { deviceRoleManager.isHydrationAttempted() } returns false
 
         // WHEN
         val result = coordinator.remediateInconsistency()
@@ -143,7 +143,7 @@ class HydrationCoordinatorTest {
         coEvery { groupDao.getGroupCountSync() } returns 0
         coEvery { settlementDao.getSettlementCountSync() } returns 0
         coEvery { ledgerDao.getOperationCountSync() } returns 0
-        coEvery { readOnlyModeManager.isReadOnlyMode() } returns false
+        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.PRIMARY
 
         // AND: fetchAllOperations is slow
         coEvery { ledgerPullService.fetchAllOperations() } coAnswers {
@@ -174,7 +174,6 @@ class HydrationCoordinatorTest {
         assertEquals("Hydration already in progress", (result2 as HydrationResult.Aborted).reason)
         
         // AND: Only one attempt to set hydration attempted should have happened during this window
-        // (Wait, the first one will eventually set it to false if it finishes successfully)
-        coVerify(atMost = 1) { readOnlyModeManager.setHydrationAttempted(true) }
+        coVerify(atMost = 1) { deviceRoleManager.setHydrationAttempted(true) }
     }
 }

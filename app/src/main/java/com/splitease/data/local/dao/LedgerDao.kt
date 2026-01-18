@@ -13,9 +13,16 @@ import kotlinx.coroutines.flow.Flow
  * **Access Control**: This DAO is for internal ledger persistence and verification only.
  * The UI must NEVER observe the ledger directly; UI observes Room Entities.
  *
- * **Transaction Contract**: [getNextLogicalClock] MUST be called within the same
- * database transaction as [insert] to ensure atomicity and monotonicity.
- */
+/**
+ * Data Access Object for [LedgerOperation].
+ *
+ * **Access Control**: This DAO is for internal ledger persistence and verification only.
+ * The UI must NEVER observe the ledger directly; UI observes Room Entities.
+ *
+ * **Transaction Contract**: [insertWithAtomicClock] atomically assigns a monotonic
+ * logical clock. For replaying remote operations, use [insert] which preserves the
+ * original (deviceId, logicalClock) pair.
+ */ */
 @Dao
 interface LedgerDao {
 
@@ -58,6 +65,15 @@ interface LedgerDao {
         deviceId: String,
         createdAt: Long
     )
+
+    /**
+     * Insert a raw ledger operation.
+     *
+     * Used by [ReplayEngine] to persist remote operations with their original
+     * (deviceId, logicalClock) pairs.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(operation: LedgerOperation)
 
     /**
      * Stream all ledger operations ordered by deviceId then logicalClock.
