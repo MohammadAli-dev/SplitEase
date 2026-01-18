@@ -4,8 +4,8 @@ import android.util.Log
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
-import com.splitease.data.hydration.ReadOnlyModeManager
-import com.splitease.data.hydration.ReadOnlyViolationException
+import com.splitease.data.device.DeviceRoleManager
+import com.splitease.data.device.WritePermissionDeniedException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
@@ -111,7 +111,7 @@ class GroupRepositoryImpl @Inject constructor(
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
-    private val readOnlyModeManager: ReadOnlyModeManager
+    private val deviceRoleManager: DeviceRoleManager
 ) : GroupRepository {
 
     companion object {
@@ -130,7 +130,7 @@ class GroupRepositoryImpl @Inject constructor(
          * @param tripStartDate Trip start timestamp in milliseconds since the Unix epoch, or `null` if not set.
          * @param tripEndDate Trip end timestamp in milliseconds since the Unix epoch, or `null` if not set.
          * @param creatorUserId The user ID recorded as the group's creator and last modifier.
-         * @throws ReadOnlyViolationException if device is in read-only mode.
+         * @throws WritePermissionDeniedException if device cannot write.
          */
         override suspend fun createGroup(
         name: String,
@@ -141,8 +141,8 @@ class GroupRepositoryImpl @Inject constructor(
         tripEndDate: Long?,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
-            if (readOnlyModeManager.isReadOnlyMode()) {
-                throw ReadOnlyViolationException("Cannot create group in read-only mode")
+            if (!deviceRoleManager.canWrite()) {
+                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
             }
             val groupId = UUID.randomUUID().toString()
             val now = Date()
@@ -260,9 +260,10 @@ class GroupRepositoryImpl @Inject constructor(
      */
     override suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult = withContext(Dispatchers.IO) {
         try {
-            if (readOnlyModeManager.isReadOnlyMode()) {
-                throw ReadOnlyViolationException("Cannot remove member in read-only mode")
+            if (!deviceRoleManager.canWrite()) {
+                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
             }
+
             // 1. Fetch current members (single source of truth for this operation)
             val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
             val memberCount = currentMembers.size

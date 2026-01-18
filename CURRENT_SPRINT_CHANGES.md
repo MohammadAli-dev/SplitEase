@@ -49,23 +49,26 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 - **Bootstrapped Identity Restoration**: `AuthManager` now persists and restores the `UserProfile` from secure storage during cold start. This ensures the UI has immediate access to identity data before the authoritative network refresh completes.
 - **Deterministic Auth Initialization**: Refactored `AuthManager` to remove non-deterministic background initialization. Introduced an explicit `suspend fun initialize()` called by `AppStartupInitializer` to ensure session recovery is complete before sync or identity flows begin.
 
-### 3. Strict Hydration Enforcement (CodeRabbit Refinements)
-- **Fail-Fast for Malformed Data**: Replaced deterministic sentinels (`0L`) with strict invariant enforcement. `LedgerPullService` now throws `HydrationInvariantException` if `createdAt` is missing. `ReplayEngine` throws if `joinedAt` is missing during member creation.
-- **No Partial State**: Hydration fails atomically if ANY invariant is violated. No partial ledger or member state is committed.
-- **Observable Failures**: Introduced `HydrationFailureReport` (with type-safe enums for `HydrationInvariant`, `HydrationInvariantCategory`, and `HydrationFailureLocation`) to capture the "what," "where," and "why" of failures for observability and future UX.
-- **Structured Logging**: Added production-ready structured logging at the `HydrationCoordinator` boundary for all invariant violations.
-- **Ledger Integrity Protection**: Updated `persistLedgerOperation` to distinguish between benign `SQLiteConstraintException` (idempotency during resumption) and fatal system failures (e.g., Disk Full), which are now logged and rethrown to trigger clean hydration failure.
-- **Global Error Boundaries**: Hardened `HydrationCoordinator` by wrapping both `hydrate()` and `remediateInconsistency()` in global try-catch blocks. This ensures that unexpected IO or DataStore failures result in a descriptive `Failed` result rather than an application crash.
-- **Enhanced Inconsistency Tracking**: Expanded the `InconsistencyStatus` sealed interface to include a `Failed` case, enabling robust error reporting during critical app startup remediation cycles.
-- **Serialized Remediation**: `HydrationCoordinator.remediateInconsistency` is now protected by the global `actionMutex`, preventing destructive DB wipes from racing with active hydration/replay tasks.
-- **Crash-Safe Remediation Progress**: Introduced a transient `remediationInProgress` flag. In the event of a crash during the remediation phase (Flag Reset -> DB Wipe), the next boot treats the progress flag as authoritative and forces a fresh cleanup.
-- **Structured Remediation Lifecycle**: Added structured logging for `START`, `RESUMED`, and `COMPLETE` phases of the remediation process for better production observability.
+### 3. Verification & Hardening (CodeRabbit/ChatGPT Audit)
+Following a comprehensive architectural audit, the hydration and auth systems were hardened against subtle race conditions and state inconsistencies:
+- **Identity Restoration Invariant**: Flagged that `Authenticated` state must imply identity-complete. Implemented `UserProfile` persistence and restoration during bootstrap.
+- **Fail-Fast for Malformed Data**: Replaced deterministic sentinels (`0L`) with strict invariant enforcement (`HydrationInvariantException`).
+- **Idempotent Storage Protection**: Updated `persistLedgerOperation` to distinguish between benign constraint violations (during retry) and fatal system failures.
+- **Serialized Remediation**: `HydrationCoordinator.remediateInconsistency` is now protected by the global `actionMutex` to prevent racing with active replays.
+- **Crash-Resumable Remediation**: Introduced a transient `remediationInProgress` flag to protect the multi-step DB wipe sequence, ensuring any crash during cleanup triggers a forced retry on next boot.
+- **Structured Observability**: Added structured logging for the full remediation lifecycle and typed failure reports.
 
-### 4. Read-Only Mode Enforcement
+### 4. Identity Integrity & Leakage Protection
+To prevent cross-user data contamination and stale identity visibility:
+- **Atomic Identity Invalidation**: Updated `TokenManager` to detects `cloudUserId` changes. Upon a user swap, cached `UserProfile` data (name/email) is atomically wiped.
+- **Persistence Boundary Guard**: `saveUserProfile` now validates that the incoming profile's ID matches the active session, blocking mismatched identity persistence.
+- **Atomic Logout Reset**: Verified that `logout()` performs a destructive identity reset, clearing all tokens and the persisted profile cache simultaneously.
+
+### 5. Read-Only Mode Enforcement
 - **ReadOnlyModeManager**: Created a persistent DataStore-backed flag. Once a device hydrates, it enters a permanent read-only state.
 - **Mutation Guards**: Instrumented all repositories (`Expense`, `Group`, `Settlement`) to throw `ReadOnlyViolationException` for all mutation methods when in read-only mode.
 
-### 5. Architectural Guardrails
+### 6. Architectural Guardrails
 - **Inconsistency Management**: Introduced `InconsistencyStatus` as a sealed interface to provide a single canonical representation of hydration failure states.
 - **Dispatcher Injection**: Standardized the use of injected `@IoDispatcher` across all hydration components to ensure testability and correct threading.
 

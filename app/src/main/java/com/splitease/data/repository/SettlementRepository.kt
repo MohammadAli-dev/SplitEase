@@ -2,8 +2,8 @@ package com.splitease.data.repository
 
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.Settlement
-import com.splitease.data.hydration.ReadOnlyModeManager
-import com.splitease.data.hydration.ReadOnlyViolationException
+import com.splitease.data.device.DeviceRoleManager
+import com.splitease.data.device.WritePermissionDeniedException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
@@ -75,7 +75,7 @@ class SettlementRepositoryImpl @Inject constructor(
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
-    private val readOnlyModeManager: ReadOnlyModeManager
+    private val deviceRoleManager: DeviceRoleManager
 ) : SettlementRepository {
 
     /**
@@ -135,11 +135,11 @@ class SettlementRepositoryImpl @Inject constructor(
         currency: String,
         creatorUserId: String
     ) = withContext(Dispatchers.IO) {
-        // Read-only guard
-        if (readOnlyModeManager.isReadOnlyMode()) {
-            throw ReadOnlyViolationException("Cannot create settlement in read-only mode")
+        // Write permission guard
+        if (!deviceRoleManager.canWrite()) {
+            throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
         }
-        
+
         // Domain Guard: No self-settlement
         require(fromUserId != toUserId) {
             "Settlement cannot be self-directed"
