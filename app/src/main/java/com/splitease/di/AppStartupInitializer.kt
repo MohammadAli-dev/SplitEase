@@ -3,6 +3,7 @@ package com.splitease.di
 import com.splitease.data.identity.IdentityBootstrapper
 import com.splitease.data.auth.AuthManager
 import com.splitease.data.hydration.HydrationCoordinator
+import android.util.Log
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,16 +26,17 @@ class AppStartupInitializer @Inject constructor(
      */
     suspend fun init() {
         // 1. Critical Safety Check: Remediate any hydration inconsistencies BEFORE anything else.
-        // If the app crashed during a previous hydration, we must wipe the DB before
-        // IdentityBootstrapper or AuthManager attempt to read/write data.
         hydrationCoordinator.remediateInconsistency()
 
-        // 2. Ensure local identity exists
+        // 2. Auth Initialization: Restore session and refresh tokens before identity registration
+        authManager.initialize()
+
+        // 3. Ensure local identity exists
         try {
             identityBootstrapper.ensureLocalUserRegistered()
         } catch (e: Exception) {
             // Log but don't crash; authManager might handle recovery or UI will show error
-            e.printStackTrace()
+            Log.e("AppStartupInitializer", "Failed to register identity", e)
         }
     }
 }

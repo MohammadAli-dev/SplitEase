@@ -44,8 +44,9 @@ This sprint enables a read-only device to pull ledger operations from Supabase a
 - **HydrationCoordinator**: Orchestrates the hydration flow including a **fresh-install guard**, operation pull, and final read-only lock. It uses a **Fast-Fail Admission** strategy (Mutex) to prevent concurrent hydration attempts.
 
 ### 2. Security & Token Management
-- **JWT Authorization**: Fixed a critical security vulnerability in `LedgerPullService`. Switched from the Supabase public "anon" key to the user's real JWT access token retrieved via `TokenManager`. This ensures that Row Level Security (RLS) is correctly enforced and users only pull their own data.
-- **Zombie Session Protection**: Implemented a guard that fails hydration if the user is logically authenticated but the access token is missing from secure storage.
+- **JWT Authorization**: Fixed a critical security vulnerability in `LedgerPullService`. Switched from the Supabase public "anon" key to the user's real JWT access token retrieved via `TokenManager`.
+- **Identity Integrity Guard**: Implemented a "Zombie Session" guard that fails hydration if the user is logically authenticated but the access token is missing from secure storage.
+- **Deterministic Auth Initialization**: Refactored `AuthManager` to remove non-deterministic background initialization. Introduced an explicit `suspend fun initialize()` which is now called by the `AppStartupInitializer` during bootstrap. This ensures session recovery and token refreshes are completed BEFORE the app's sync or identity flows begin, eliminating race conditions.
 
 ### 3. Strict Hydration Enforcement (CodeRabbit Refinements)
 - **Fail-Fast for Malformed Data**: Replaced deterministic sentinels (`0L`) with strict invariant enforcement. `LedgerPullService` now throws `HydrationInvariantException` if `createdAt` is missing. `ReplayEngine` throws if `joinedAt` is missing during member creation.
