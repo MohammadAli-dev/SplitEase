@@ -115,4 +115,11 @@ interface LedgerDao {
      */
     @Query("SELECT EXISTS(SELECT 1 FROM ledger_operations WHERE deviceId = :deviceId AND logicalClock = :logicalClock)")
     suspend fun exists(deviceId: String, logicalClock: Long): Boolean
+
+    /**
+     * Retrieves the operation type for a specific ledger entry.
+     * Used by Derivation Layer to check if a resolution points to a DELETE or KEEP operation.
+     */
+    @Query("SELECT operationType FROM ledger_operations WHERE deviceId = :deviceId AND logicalClock = :logicalClock")
+    suspend fun getOperationType(deviceId: String, logicalClock: Long): String?
 }

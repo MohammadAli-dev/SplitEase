@@ -180,43 +180,26 @@ Following an architectural audit, the conflict system was hardened against edge-
 
 ---
 
-# Sprint 21: Explicit Conflict Resolution (Suppressed History)
-
-## Overview
-This sprint implements the final layer of the conflict management system: explicit, user-driven resolution. By appending resolution "facts" to the ledger, users can explicitly choose which operations should "win" in the event of multi-device conflicts. The implementation follows a **Suppression-Based** model, where the history remains intact but conflicting operations are suppressed during state derivation (replay).
-
-## Key Changes
-
-### 1. Ledger & Operation Design
-- **RESOLVE_CONFLICT Operation**: Introduced a new ledger operation type containing a `ConflictResolutionPayload`.
-- **ResolutionPayload**: Encapsulates the `conflictId`, `resolutionType` (e.g. `KEEP_OPERATION`), and the specific `chosenOpRef` (deviceId:logicalClock).
-- **Immutability**: Resolution operations are append-only. Once a resolution is accepted by the ledger, it becomes a permanent part of the causal history.
-
-### 2. Write Path & Preconditions
-- **ResolutionUseCase**: A strict service for creating resolution operations. It enforces the following invariants:
-    - **Conflict Existence**: The `conflictId` must refer to a conflict already detected and stored locally.
-    - **Set Membership**: The `chosenOpRef` must be one of the participants in the specified conflict.
-    - **Historical Validity**: The `chosenOpRef` must refer to a ledger operation that has already been successfully replayed/hydrated.
-    - **Write Authority**: Only `PRIMARY` or `PROMOTED` devices can append resolutions.
-    - **Unresolved State**: Prevents duplicate resolution attempts for the same conflict.
-
-### 3. Replay & Derivation (State Reconstruction)
-- **Pre-Flight Filter**: Refactored `ReplayEngine` to perform conflict analysis *before* entering the convergence loop.
-- **Gathering Resolutions**: Computes the set of active resolutions by combining persisted state with new resolution operations found in the incoming ledger stream.
-- **Operation Suppression**: If a resolution exists for a conflict, the `ReplayEngine` suppresses all involved operations *except* the chosen winner. These suppressed operations are never passed to the entity DAOs (Group, Expense, etc.), preventing state corruption.
-- **Deterministic Convergence**: Ensures that regardless of the order in which resolution operations and conflicting data arrive, the final state is identical across all devices.
+### 3. Replay & Derivation (State Projection)
+- **Strict Execution Replay**: Refactored `ReplayEngine` to unconditionally apply all ledger operations. Removed pre-flight filtering to ensure the "Local State" remains a perfect mirror of applied history.
+- **Post-Replay Conflict Detection**: Detection logic specifically transitioned to run *after* history has been fully applied.
+- **Repository-Level Derivation**: Moved operation suppression to the read-path. Repositories (e.g., `ExpenseRepository`) now join conflict and resolution metadata to project the "Effective State".
+- **Zombie Suppression**: Implemented strict rules to hide "Zombie" entities (e.g., updates to a deleted entity) and ensure "lose" operations are invisible to the UI while remaining in the database for audit integrity.
+- **Deterministic Convergence**: Ensures that regardless of the order in which resolution operations and conflicting data arrive, the projected state is identical across all devices.
 
 ### 4. Data Layer & Persistence
 - **Room Schema (v14)**: Introduced the `conflict_resolutions` table.
 - **Derived State Invariant**: The resolution table is strictly derived from the ledger. It is populated ONLY during replay via `INSERT OR IGNORE` (First-Resolution-Wins).
-- **Referential Integrity**: Added `exists` check to `LedgerDao` and `lookupConflict` to `LedgerConflictDao` to support rigorous write-path validation.
+- **Reactive Derivation**: Added `observeAllResolutions()` Flow to `ConflictResolutionDao` to allow the Repository layer to reactively re-project state when resolutions arrive.
+- **Referential Integrity**: Added `getOperationType` to `LedgerDao` to support derivation-time verification of resolution effects (e.g., verifying if a resolution effectively deletes an entity).
 
 ## Verification Results
 - **Unit Tests**:
     - Verified `ResolutionUseCase` precondition logic (Role-gating, Read-only guards).
-    - Verified `ReplayEngine` suppression logic where winner ops are applied and losers are filtered.
-    - Verified **Order Independence**: Resolution logic is effective even if the resolution op arrived before or after the data ops it resolves.
-- **Structural Integrity**: Confirmed that `RESOLVE_CONFLICT` operations are handled as metadata and never result in direct entity table mutations without passing through the suppression filter.
+    - Verified `ReplayEngine` strict execution: conflicting operations are applied and detected post-replay.
+    - Verified `ExpenseRepositoryDerivationTest`: Confirmed that Zombies are hidden and resolved wins are shown correctly.
+    - Verified **Order Independence**: Derivation logic is effective even if the resolution op arrived before or after the data ops it resolves.
+- **Structural Integrity**: Confirmed that `RESOLVE_CONFLICT` operations are handled as metadata and that entity visibility is managed via the Repository layer without corrupting the raw database state.
 
 ---
 

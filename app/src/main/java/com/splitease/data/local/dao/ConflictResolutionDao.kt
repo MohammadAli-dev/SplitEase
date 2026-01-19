@@ -49,4 +49,10 @@ interface ConflictResolutionDao {
      */
     @Query("SELECT * FROM conflict_resolutions")
     suspend fun getAllResolutions(): List<ConflictResolutionEntity>
+
+    /**
+     * Observes all resolutions. Essential for reactive derivation layers.
+     */
+    @Query("SELECT * FROM conflict_resolutions")
+    fun observeAllResolutions(): kotlinx.coroutines.flow.Flow<List<ConflictResolutionEntity>>
 }

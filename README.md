@@ -92,7 +92,8 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Sync Health Telemetry** | ✅ Complete | PAUSED state detection for stuck operations |
 | **Conflict Detection** | ✅ Complete | Explicit, deterministic detection of multi-device mutations |
 | **Conflict Identity** | ✅ Complete | SHA-256 stable fingerprints for audit-safe history |
-| **Explicit Resolution** | ✅ Complete | User-driven resolution operations that suppress "loser" history |
+| **Explicit Resolution** | ✅ Complete | User-driven resolution operations supported by derivation-layer filtering |
+| **Derivation Integrity** | ✅ Complete | "Loser" history remains in DB for audit but is hidden from UI/Effective State |
 | **Order Independence** | ✅ Complete | Results are consistent regardless of whether resolution arrives before or after data |
 
 
@@ -132,9 +133,9 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 1. **Offline-First**: The local database (Room) is the single source of truth. The UI never observes network responses directly.
 
 2. **Three-Tier Convergence Logic**:
-    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively resolves entity state using deterministic ordering.
+    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively executes all ledger history unconditionally to ensure raw state convergence.
     - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
-    - **Tier 3: Explicit Conflict Resolution**: Appends resolution "facts" to the ledger that suppress loser operations during Tier 1 replay.
+    - **Tier 3: Explicit Conflict Resolution (Derivation)**: Repositories join resolution "facts" with raw state to project the Effective State (hiding Zombies/Losers) without corrupting the historical record.
 
 3. **Atomic Identity Linking**:
     - **`ClaimManager`**: Orchestrates secure invite claiming and inviter discovery.

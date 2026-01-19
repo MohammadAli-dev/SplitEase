@@ -353,4 +353,14 @@ object DatabaseModule {
     fun provideLedgerDao(db: AppDatabase): LedgerDao {
         return db.ledgerDao()
     }
+
+    @Provides
+    fun provideLedgerConflictDao(db: AppDatabase): com.splitease.data.local.dao.LedgerConflictDao {
+        return db.ledgerConflictDao()
+    }
+
+    @Provides
+    fun provideConflictResolutionDao(db: AppDatabase): com.splitease.data.local.dao.ConflictResolutionDao {
+        return db.conflictResolutionDao()
+    }
 }
