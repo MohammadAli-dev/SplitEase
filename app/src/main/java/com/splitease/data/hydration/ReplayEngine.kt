@@ -119,10 +119,17 @@ class ReplayEngineImpl @Inject constructor(
                         applied.add(op.operationId)
                         appliedThisPass++
                     } catch (e: SQLiteConstraintException) {
-                        // Benign: Entity already exists (idempotency)
-                        Log.d(TAG, "Operation ${op.operationId} already applied (idempotency): ${e.message}")
-                        applied.add(op.operationId) // Mark as applied even if DB no-op
-                        appliedThisPass++
+                        val msg = e.message.orEmpty()
+                        if (msg.contains("UNIQUE constraint failed", ignoreCase = true) ||
+                            msg.contains("PRIMARY KEY constraint failed", ignoreCase = true)) {
+                            // Benign: Entity already exists (idempotency)
+                            Log.d(TAG, "Operation ${op.operationId} already applied (idempotency): $msg")
+                            applied.add(op.operationId) // Mark as applied even if DB no-op
+                            appliedThisPass++
+                        } else {
+                            Log.e(TAG, "Non-idempotent constraint violation for ${op.operationId}: $msg", e)
+                            throw e
+                        }
                     } catch (e: Exception) {
                         Log.e(TAG, "Fatal error applying operation ${op.operationId}: ${e.message}")
                         return@withContext ReplayResult.Failed("Fatal error applying operation ${op.operationId}: ${e.message}")

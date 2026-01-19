@@ -111,7 +111,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 ### ⚠️ Intentionally Mocked & Partially Integrated
 | Component | Status | Why |
 |-----------|---|-----|
-| **Authentication Backend** | ⚠️ Partially Real | JWT support implemented for Supabase; Mock UI Login remain for Dev speed. |
+| **Authentication Backend** | ⚠️ Partially Real | JWT support implemented for Supabase; Mock UI Login remains for Dev speed. |
 | **Remote API (Entity Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
 | **Ledger Mirror** | ✅ **Real (Supabase)** | **Sprint 21**: Real PostgREST integration for durable ledger mirroring. |
 | **User Data Fetch** | ⚠️ Mocked | Seed data used for local users not yet linked to Supabase profiles. |

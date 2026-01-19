@@ -35,6 +35,7 @@ class ReplayEngineTest {
         mockkStatic(android.util.Log::class)
         every { android.util.Log.d(any(), any()) } returns 0
         every { android.util.Log.e(any(), any()) } returns 0
+        every { android.util.Log.e(any(), any(), any()) } returns 0
         every { android.util.Log.w(any(), any<String>()) } returns 0
         every { android.util.Log.i(any(), any()) } returns 0
         
@@ -47,10 +48,11 @@ class ReplayEngineTest {
     @Test
     fun `replay should succeed when entity insert throws SQLiteConstraintException (Idempotent replay)`() = runTest(testDispatcher) {
         val op = createGroupOp("group-1", 1)
+        val exception = createUniqueConstraintException()
 
         coEvery { 
             groupDao.insertGroup(any()) 
-        } throws SQLiteConstraintException("UNIQUE constraint failed")
+        } throws exception
 
         val result = replayEngine.replay(listOf(op))
 
@@ -78,6 +80,10 @@ class ReplayEngineTest {
         // GIVEN: Two conflicting GROUP CREATE operations (same ID, different device/clock)
         val op1 = createGroupOp("group-collision", 1, "device-A")
         val op2 = createGroupOp("group-collision", 1, "device-B") // Conflict!
+        val exception = createUniqueConstraintException()
+
+        // When inserting, throw unique constraint violation (simulating conflict)
+        coEvery { groupDao.insertGroup(any()) } throws exception
 
         // WHEN: Replaying them
         val result = replayEngine.replay(listOf(op1, op2))
@@ -86,7 +92,7 @@ class ReplayEngineTest {
         assertEquals(ReplayResult.Success, result)
         
         // Use capturing slot or verify count to ensure both touched the DAO
-        coVerify(atLeast = 1) { groupDao.insertGroup(match { it.id == "group-collision" }) }
+        coVerify(exactly = 2) { groupDao.insertGroup(match { it.id == "group-collision" }) }
         
         // AND: Conflicts should be detected and persisted POST-replay
         coVerify(exactly = 1) { conflictDao.upsertConflicts(any()) }
@@ -130,9 +136,15 @@ class ReplayEngineTest {
     }
 
     // Helper
+    private fun createUniqueConstraintException(): SQLiteConstraintException {
+        val e = mockk<SQLiteConstraintException>(relaxed = true)
+        every { e.message } returns "UNIQUE constraint failed"
+        return e
+    }
+
     private fun createGroupOp(id: String, clock: Long, device: String = "device-1"): LedgerOperation {
         return LedgerOperation(
-            operationId = "op-$id-$clock",
+            operationId = "op-$id-$clock-$device",
             entityType = "GROUP",
             entityId = id,
             operationType = "CREATE",

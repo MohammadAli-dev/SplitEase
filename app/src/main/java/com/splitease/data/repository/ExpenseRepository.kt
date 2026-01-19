@@ -182,11 +182,13 @@ class ExpenseRepositoryImpl @Inject constructor(
                     } else {
                         // Resolved -> Check Type
                         val type = opTypeMap[zombie.conflictId]
-                        // If type is DELETE -> Hide. If null (not found?) -> Hide safe?
-                        // If we can't determine, we err on side of caution? Or show?
-                        // If we resolved it, we should trust the resolution.
-                        // If type is null (not found in ledger), that's a data integrity issue.
-                        // We will HIDE if type is DELETE.
+                        
+                        if (type == null) {
+                            android.util.Log.e("ExpenseRepository", "Integrity Warning: effective expense ${expense.id} has resolved zombie conflict ${zombie.conflictId} but opType is missing. Hiding.")
+                            return@filter false
+                        }
+
+                        // If type is DELETE -> Hide.
                         return@filter (type != "DELETE")
                     }
                 }

@@ -20,7 +20,11 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(authInterceptor: AuthInterceptor): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (com.splitease.BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BODY
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
         }
         return OkHttpClient.Builder()
             .addInterceptor(logging)
@@ -31,8 +35,9 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+        val baseUrl = com.splitease.data.auth.AuthConfig.supabaseBaseUrl.trimEnd('/') + "/"
         return Retrofit.Builder()
-            .baseUrl(com.splitease.data.auth.AuthConfig.supabaseBaseUrl + "/") // Ensure trailing slash
+            .baseUrl(baseUrl) // Ensure trailing slash
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

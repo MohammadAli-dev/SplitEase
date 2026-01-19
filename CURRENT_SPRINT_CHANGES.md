@@ -251,3 +251,33 @@ This sprint implements the final layer of the conflict management system: explic
 
 ---
 
+# Post-Sprint 21: Safety Audit & Architectural Hardening
+
+## Overview
+Following a comprehensive safety audit (facilitated by CodeRabbit and architectural review), the system was hardened against data integrity risks and potential configuration errors. These changes ensure "fail-fast" behavior for database inconsistencies and tighten the security posture of the networking layer.
+
+## Key Changes
+
+### 1. ReplayEngine: Strict Exception Handling
+- **Narrowed Idempotency Catch**: Refactored `ReplayEngine` to specifically whitelist `UNIQUE constraint failed` and `PRIMARY KEY constraint failed` messages within `SQLiteConstraintException`.
+- **Integrity Enforcement**: All other constraint violations (e.g., Foreign Key or Not Null violations) are now rethrown as fatal errors. This prevents the engine from silently swallowing genuine data corruption or out-of-order ingestion errors.
+
+### 2. ExpenseRepository: Fail-Closed Integrity Logging
+- **Integrity Alerting**: Introduced explicit `Log.e` (Error) logging for cases where a resolved conflict has a `null opType` (missing winning operation).
+- **Fail-Closed Projection**: Maintained the "hide-by-default" behavior for such cases but added high-severity logging to ensure visibility of potential ledger-local state mismatches.
+
+### 3. Network Layer Security & Robustness
+- **Environment-Aware Logging**: Updated `HttpLoggingInterceptor` in `NetworkModule` to use `Level.BODY` only in `DEBUG` builds. Production/Release builds now use `Level.NONE` to prevent sensitive data leakage (tokens, PII) into system logs.
+- **Base URL Normalization**: Instrumented strict trailing-slash normalization for `AuthConfig.supabaseBaseUrl`, preventing double-slash (`//`) malformations in Retrofit requests.
+
+### 4. Test Rigor
+- **Strengthened Replay Assertions**: Updated `ReplayEngineTest` to verify that conflicting operations are *both* attempted using `exactly = 2` assertions.
+- **Mock Safety**: Fixed test helpers to generate unique `operationId`s for conflicting operations, ensuring the `ReplayEngine` idempotency check doesn't skip legitimate execution attempts in unit tests.
+
+## Verification Results
+- **Build**: Successful build with `assembleDebug`.
+- **Tests**: `ReplayEngineTest` and `ExpenseRepositoryDerivationTest` passed with 100% success.
+- **Security**: Verified logging levels are correctly gated by `BuildConfig.DEBUG`.
+
+---
+
