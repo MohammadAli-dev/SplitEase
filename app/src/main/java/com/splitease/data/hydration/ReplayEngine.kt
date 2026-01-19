@@ -409,7 +409,6 @@ class ReplayEngineImpl @Inject constructor(
 
     private suspend fun applyResolutionOperation(op: LedgerOperation) {
         // Parse payload
-        // Parse payload
         val payload = try {
             gson.fromJson(op.payload, ConflictResolutionPayload::class.java)
         } catch (e: com.google.gson.JsonSyntaxException) {

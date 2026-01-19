@@ -163,28 +163,31 @@ class ExpenseRepositoryImpl @Inject constructor(
             }
 
             // 2. Lookup OpTypes (Batch Query Optimization)
-            val zombieKeys = zombiesToResolve.mapNotNull { conflictId ->
+            // Use Typed Keys (Pair) to avoid string collision/parsing risks locally
+            val zombiePairs = zombiesToResolve.mapNotNull { conflictId ->
                 val res = resolutionMap[conflictId]
-                if (res != null) "${res.chosenDeviceId}:${res.chosenLogicalClock}" else null
+                if (res != null) res.chosenDeviceId to res.chosenLogicalClock else null
             }
 
             // Perform single batch query
-            val opTypeResults = if (zombieKeys.isNotEmpty()) {
-                ledgerDao.getOperationTypesBatch(zombieKeys)
+            val opTypeResults = if (zombiePairs.isNotEmpty()) {
+                // Map to composite keys strictly for the SQL IN clause
+                val compositeKeys = zombiePairs.map { "${it.first}:${it.second}" }
+                ledgerDao.getOperationTypesBatch(compositeKeys)
             } else {
                 emptyList()
             }
 
-            // Map keys back to operation types for O(1) lookup
-            // Key format: "deviceId:logicalClock"
-            val loadedOpTypes = opTypeResults.associate { "${it.deviceId}:${it.logicalClock}" to it.operationType }
+            // Map keys back to operation types using Typed Keys for O(1) lookup
+            // Return type from DAO is already structured (OpTypeResult)
+            val loadedOpTypes = opTypeResults.associate { (it.deviceId to it.logicalClock) to it.operationType }
 
             // Populate the map needed for filtering
             val opTypeMap = mutableMapOf<String, String>() // conflictId -> opType
 
             for (conflictId in zombiesToResolve) {
                 val res = resolutionMap[conflictId] ?: continue
-                val key = "${res.chosenDeviceId}:${res.chosenLogicalClock}"
+                val key = res.chosenDeviceId to res.chosenLogicalClock
                 val type = loadedOpTypes[key]
                 if (type != null) {
                     opTypeMap[conflictId] = type
