@@ -232,7 +232,7 @@ interface SplitEaseApi {
      * @param operations List of ledger operations to upload.
      * @return HTTP response; successful requests have an empty response body.
      */
-    @POST("ledger_operations")
+    @POST("rest/v1/ledger_operations")
     suspend fun insertLedgerOperations(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -258,7 +258,7 @@ interface SplitEaseApi {
      * @param rangeHeader Pagination: "0-999" for first 1000 rows.
      * @return List of ledger operations; caller must sort locally.
      */
-    @GET("ledger_operations")
+    @GET("rest/v1/ledger_operations")
     suspend fun getLedgerOperations(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -270,7 +270,7 @@ interface SplitEaseApi {
      * Fetch only device_id and logical_clock for all ledger operations.
      * Used by [com.splitease.data.device.LedgerSetComparator] for strict equality check.
      */
-    @GET("ledger_operations")
+    @GET("rest/v1/ledger_operations")
     suspend fun getLedgerKeys(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -289,7 +289,7 @@ interface SplitEaseApi {
      * @param order Result ordering: "updated_at.asc"
      * @param rangeHeader Pagination: "0-999" for first 1000 rows
      */
-    @GET("expenses")
+    @GET("rest/v1/expenses")
     suspend fun getExpenseUpdates(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -301,7 +301,7 @@ interface SplitEaseApi {
     /**
      * Fetch groups updated after the given timestamp.
      */
-    @GET("expense_groups")
+    @GET("rest/v1/expense_groups")
     suspend fun getGroupUpdates(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -313,7 +313,7 @@ interface SplitEaseApi {
     /**
      * Fetch settlements updated after the given timestamp.
      */
-    @GET("settlements")
+    @GET("rest/v1/settlements")
     suspend fun getSettlementUpdates(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -332,7 +332,7 @@ interface SplitEaseApi {
      * @param order Result ordering: deterministic for paging (default: expense_id.asc,user_id.asc)
      * @param rangeHeader Pagination: "0-999"
      */
-    @GET("expense_splits")
+    @GET("rest/v1/expense_splits")
     suspend fun getExpenseSplits(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -349,7 +349,7 @@ interface SplitEaseApi {
      * @param idFilter PostgREST filter: "eq.{uuid}"
      * @param select Column projection: "updated_at" (minimal payload)
      */
-    @GET("expenses")
+    @GET("rest/v1/expenses")
     suspend fun getExpenseTimestamp(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -360,7 +360,7 @@ interface SplitEaseApi {
     /**
      * Fetch only the updated_at timestamp for a group (metadata-only).
      */
-    @GET("expense_groups")
+    @GET("rest/v1/expense_groups")
     suspend fun getGroupTimestamp(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
@@ -371,7 +371,7 @@ interface SplitEaseApi {
     /**
      * Fetch only the updated_at timestamp for a settlement (metadata-only).
      */
-    @GET("settlements")
+    @GET("rest/v1/settlements")
     suspend fun getSettlementTimestamp(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,

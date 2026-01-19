@@ -32,7 +32,7 @@ object NetworkModule {
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl("https://api.splitease.com/") // Fake URL
+            .baseUrl(com.splitease.data.auth.AuthConfig.supabaseBaseUrl + "/") // Ensure trailing slash
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
