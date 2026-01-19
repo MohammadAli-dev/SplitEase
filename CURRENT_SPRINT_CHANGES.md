@@ -180,10 +180,10 @@ Following an architectural audit, the conflict system was hardened against edge-
 
 ---
 
-# Sprint 21: Explicit Conflict Resolution (Suppressed History)
+# Sprint 21: Explicit Conflict Resolution (Suppressed History) & Cloud Mirroring
 
 ## Overview
-This sprint implements the final layer of the conflict management system: explicit, user-driven resolution. By appending resolution "facts" to the ledger, users can explicitly choose which operations should "win" in the event of multi-device conflicts. The implementation follows a **Suppression-Based** model, where the history remains intact but conflicting operations are suppressed during state derivation (Repositories).
+This sprint implements the final layer of the conflict management system: explicit, user-driven resolution, followed by the initial deployment of the Supabase Ledger Mirror. The system now supports appending resolution "facts" to suppress conflicting operations during state derivation, ensuring deterministic convergence across devices. Additionally, a post-sprint grounding audit was performed to solidify the "Dumb Courier" architecture before enabling the Supabase push pipeline.
 
 ## Key Changes
 
@@ -215,15 +215,39 @@ This sprint implements the final layer of the conflict management system: explic
 - **Referential Integrity**: Added `getOperationType` to `LedgerDao` to support derivation-time verification of resolution effects.
 - **DI Provisioning**: Updated `DatabaseModule` to provide `LedgerConflictDao` and `ConflictResolutionDao`, resolving dependency graph errors.
 
+### 5. Grounding Audit & System Verification
+- **System Check Conducted**: Completed a comprehensive post-Sprint-21 audit to formalize "Ground Truth" before Supabase integration.
+- **Invariant Freeze**: Hardened and verified the following invariants:
+    - **Room as SSOT**: UI never observes network directly; always derives from local Room ledger.
+    - **Ledger as Append-Only**: Immutable history of facts.
+    - **Replay as Truth**: Unconditional, deterministic replay logic.
+    - **Dumb Courier Principle**: Supabase holds facts but never meaning or authority.
+
+### 6. Supabase Ledger Mirror (Phase 1: Push)
+- **Schema Deployment**: Implemented the `ledger_operations` table in Supabase.
+    - **Cloud Parity**: Matches local schema byte-for-byte; uses `TEXT` for `operation_id` and `entity_id` to ensure opaque format safety.
+    - **Explicit Indexing**: Added `idx_ledger_operations_replay_order` on `(device_id, logical_clock)` for performant sync.
+- **Access Control (RLS)**: Enforced strict append-only security:
+    - Authenticated users can `INSERT` and `SELECT`.
+    - `UPDATE`, `DELETE`, and `TRUNCATE` are explicitly revoked.
+- **Client Infrastructure Polish**:
+    - **Hilt/WorkManager Fix**: Resolved `NoSuchMethodException` crash by disabling default WorkManager initialization in `AndroidManifest.xml`, enabling customized `HiltWorkerFactory` injection.
+    - **Network Alignment**: Corrected `NetworkModule` to use production Supabase Base URLs and updated `SplitEaseApi` to use `/rest/v1/` prefixes for PostgREST compatibility.
+    - **Detailed Diagnostics**: Enhanced `NetworkResultMapper` to log full stack traces for `IOException`, accelerating network debugging.
+- **End-to-End Verification**: Confirmed that local writes (Expenses/Groups) are successfully mirrored to the cloud `ledger_operations` table.
+
 ## Verification Results
+- **Build**: Successfully passed Kotlin compilation and KSP processing.
 - **Unit Tests**:
     - Verified `ResolutionUseCase` precondition logic (Role-gating, Read-only guards).
     - Verified `ReplayEngine` strict execution: conflicting operations are applied and detected post-replay.
     - Verified `ExpenseRepositoryDerivationTest`: Confirmed that Zombies are hidden and resolved wins are shown correctly.
-    - Verified **Order Independence**: Derivation logic is effective even if the resolution op arrived before or after the data ops it resolves.
-- **Structural Integrity**: Confirmed that `RESOLVE_CONFLICT` operations are handled as metadata and that entity visibility is managed via the Repository layer without corrupting the raw database state.
+- **Manual Verification**: Verified live row ingestion in Supabase Table Editor.
+- **Operational Safety**: Confirmed that `LedgerPushWorker` handles network failures gracefully using exponential backoff.
 
 ---
 
-**Sprint 21 Status: Explicit Resolution Integrated & Verified.**
+**Sprint 21 Status: Grounding, Resolution, and Cloud Mirror (Push) Complete.**
+
+---
 

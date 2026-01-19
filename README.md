@@ -95,6 +95,8 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Explicit Resolution** | ✅ Complete | User-driven resolution operations supported by derivation-layer filtering |
 | **Derivation Integrity** | ✅ Complete | "Loser" history remains in DB for audit but is hidden from UI/Effective State |
 | **Order Independence** | ✅ Complete | Results are consistent regardless of whether resolution arrives before or after data |
+| **Supabase Mirror (Push)** | ✅ Complete | Append-only mirroring of local ledger to Supabase `ledger_operations` |
+| **Dumb Courier Architecture** | ✅ Design | Supabase serves as durable exchange layer; local app maintains logic/authority |
 
 
 ### 🎯 Sync Status Indicators
@@ -106,13 +108,13 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | SYNCING | ⏳ | Syncing changes... |
 | IDLE | — | Everything synced |
 
-### ⚠️ Intentionally Mocked
-
-| Component | Why |
-|-----------|-----|
-| **Authentication Backend** | Focus is on architecture, not auth infrastructure |
-| **Remote API** | Uses OkHttp interceptor to simulate responses |
-| **User Data Fetch** | Local database is manually seeded |
+### ⚠️ Intentionally Mocked & Partially Integrated
+| Component | Status | Why |
+|-----------|---|-----|
+| **Authentication Backend** | ⚠️ Partially Real | JWT support implemented for Supabase; Mock UI Login remain for Dev speed. |
+| **Remote API (Entity Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
+| **Ledger Mirror** | ✅ **Real (Supabase)** | **Sprint 21**: Real PostgREST integration for durable ledger mirroring. |
+| **User Data Fetch** | ⚠️ Mocked | Seed data used for local users not yet linked to Supabase profiles. |
 
 ### 🚧 Future Features (Not Implemented)
 
