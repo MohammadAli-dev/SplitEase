@@ -130,6 +130,8 @@ class ReplayEngineImpl @Inject constructor(
                             Log.e(TAG, "Non-idempotent constraint violation for ${op.operationId}: $msg", e)
                             throw e
                         }
+                    } catch (e: HydrationInvariantException) {
+                        throw e
                     } catch (e: Exception) {
                         Log.e(TAG, "Fatal error applying operation ${op.operationId}: ${e.message}")
                         return@withContext ReplayResult.Failed("Fatal error applying operation ${op.operationId}: ${e.message}")
@@ -407,11 +409,27 @@ class ReplayEngineImpl @Inject constructor(
 
     private suspend fun applyResolutionOperation(op: LedgerOperation) {
         // Parse payload
+        // Parse payload
         val payload = try {
             gson.fromJson(op.payload, ConflictResolutionPayload::class.java)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse resolution payload", e)
-            return
+        } catch (e: com.google.gson.JsonSyntaxException) {
+            val report = HydrationFailureReport(
+                invariant = HydrationInvariant.RESOLUTION_PAYLOAD_VALID,
+                location = HydrationFailureLocation.REPLAY_ENGINE,
+                operationId = op.operationId,
+                details = "JsonSyntaxException: ${e.message}"
+            )
+            Log.e(TAG, "Invariant violated: $report", e)
+            throw HydrationInvariantException(report)
+        } catch (e: com.google.gson.JsonParseException) {
+            val report = HydrationFailureReport(
+                invariant = HydrationInvariant.RESOLUTION_PAYLOAD_VALID,
+                location = HydrationFailureLocation.REPLAY_ENGINE,
+                operationId = op.operationId,
+                details = "JsonParseException: ${e.message}"
+            )
+            Log.e(TAG, "Invariant violated: $report", e)
+            throw HydrationInvariantException(report)
         }
 
         // Apply to conflict_resolutions table

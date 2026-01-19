@@ -29,8 +29,13 @@ create table public.ledger_operations (
   -- Replay semantics rely only on parsed content.
   payload jsonb not null,
   
-  -- Authorship
+  -- Authorship (Local)
   author_local_user_id text not null,
+
+  -- Ownership (Cloud) - SHADOW COLUMN FOR RLS
+  -- Automatically populated by Supabase Auth on Insert.
+  -- This ensures strictly authenticated access without client modification.
+  owner_user_id uuid not null default auth.uid(),
   
   -- Diagnostics (Server-side timestamp)
   -- WARNING: Strictly for debugging / arrival inspection only.
@@ -56,24 +61,38 @@ on public.ledger_operations (device_id, logical_clock);
 create index idx_ledger_operations_created_at
 on public.ledger_operations (created_at);
 
+-- Ownership Index (RLS Performance)
+create index idx_ledger_operations_owner_user_id
+on public.ledger_operations (owner_user_id);
+
 -- 3. Row Level Security (RLS) & Permissions
 
 -- Enable RLS
 alter table public.ledger_operations enable row level security;
 
 -- ALLOW INSERT for authenticated users
+-- Enforce that specific user owns the row they are creating
 create policy "Enable insert for authenticated users only"
 on public.ledger_operations
 for insert
 to authenticated
-with check (true);
+with check (
+    -- The user can only insert rows where `owner_user_id` matches their own UID.
+    -- Since the default is `auth.uid()`, this effectively allows inserts
+    -- as long as the client doesn't try to forge a different owner.
+    owner_user_id = auth.uid()
+);
 
 -- ALLOW SELECT for authenticated users
+-- STRICT ISOLATION: Users can ONLY see their own rows.
+-- (This implies "Single Player" mode until Groups are implemented server-side).
 create policy "Enable select for authenticated users only"
 on public.ledger_operations
 for select
 to authenticated
-using (true);
+using (
+    owner_user_id = auth.uid()
+);
 
 -- EXPLICITLY REVOKE MUTATION CAPABILITIES
 -- The ledger is immutable history.

@@ -13,9 +13,12 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.splitease.data.hydration.HydrationInvariantException
+import com.splitease.data.hydration.HydrationInvariant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReplayEngineTest {
@@ -132,6 +135,33 @@ class ReplayEngineTest {
                 it.chosenDeviceId == "device-A" &&
                 it.resolvedByDeviceId == "device-C"
             }) 
+        }
+    }
+
+    @Test
+    fun `replay should THROW InvariantException when resolution payload is malformed`() = runTest(testDispatcher) {
+        // GIVEN: A RESOLVE_CONFLICT operation with malformed JSON
+        val malformedPayload = "{ \"conflictId\": \"conflict-123\", \"resolutionType\": INVALID_JSON..."
+
+        val op = LedgerOperation(
+            operationId = "res-corrupt",
+            entityType = "RESOLVE_CONFLICT",
+            entityId = "conflict-123",
+            operationType = "RESOLVE_CONFLICT",
+            payload = malformedPayload,
+            authorLocalUserId = "user-1",
+            deviceId = "device-X",
+            logicalClock = 99,
+            createdAt = 3000L
+        )
+
+        // WHEN/THEN: Replaying should throw HydrationInvariantException
+        try {
+            replayEngine.replay(listOf(op))
+            fail("Expected HydrationInvariantException was not thrown")
+        } catch (e: HydrationInvariantException) {
+            // AND: Exception should identify the correct invariant
+            assertEquals(HydrationInvariant.RESOLUTION_PAYLOAD_VALID, e.report.invariant)
         }
     }
 

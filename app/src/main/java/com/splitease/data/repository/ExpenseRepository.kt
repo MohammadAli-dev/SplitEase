@@ -114,6 +114,12 @@ class ExpenseRepositoryImpl @Inject constructor(
                 } else {
                      // RESOLVED ZOMBIE -> Check chosen op
                      val opType = ledgerDao.getOperationType(resolution.chosenDeviceId, resolution.chosenLogicalClock)
+                     
+                     if (opType == null) {
+                        android.util.Log.e("ExpenseRepository", "Integrity Warning: getExpense ${expenseValue.id} has resolved zombie conflict ${zombieConflict.conflictId} but opType is missing. Hiding.")
+                        return@mapLatest null
+                     }
+
                      if (opType == "DELETE") {
                          return@mapLatest null
                      }
@@ -156,15 +162,33 @@ class ExpenseRepositoryImpl @Inject constructor(
                  }
             }
 
-            // 2. Lookup OpTypes (Iterative, assuming low volume of resolved zombies)
+            // 2. Lookup OpTypes (Batch Query Optimization)
+            val zombieKeys = zombiesToResolve.mapNotNull { conflictId ->
+                val res = resolutionMap[conflictId]
+                if (res != null) "${res.chosenDeviceId}:${res.chosenLogicalClock}" else null
+            }
+
+            // Perform single batch query
+            val opTypeResults = if (zombieKeys.isNotEmpty()) {
+                ledgerDao.getOperationTypesBatch(zombieKeys)
+            } else {
+                emptyList()
+            }
+
+            // Map keys back to operation types for O(1) lookup
+            // Key format: "deviceId:logicalClock"
+            val loadedOpTypes = opTypeResults.associate { "${it.deviceId}:${it.logicalClock}" to it.operationType }
+
+            // Populate the map needed for filtering
             val opTypeMap = mutableMapOf<String, String>() // conflictId -> opType
-            
+
             for (conflictId in zombiesToResolve) {
-                 val res = resolutionMap[conflictId] ?: continue
-                 val type = ledgerDao.getOperationType(res.chosenDeviceId, res.chosenLogicalClock)
-                 if (type != null) {
-                     opTypeMap[conflictId] = type
-                 }
+                val res = resolutionMap[conflictId] ?: continue
+                val key = "${res.chosenDeviceId}:${res.chosenLogicalClock}"
+                val type = loadedOpTypes[key]
+                if (type != null) {
+                    opTypeMap[conflictId] = type
+                }
             }
 
             // 3. Filter the list

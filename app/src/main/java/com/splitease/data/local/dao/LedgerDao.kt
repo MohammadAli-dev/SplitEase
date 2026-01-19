@@ -122,4 +122,22 @@ interface LedgerDao {
      */
     @Query("SELECT operationType FROM ledger_operations WHERE deviceId = :deviceId AND logicalClock = :logicalClock")
     suspend fun getOperationType(deviceId: String, logicalClock: Long): String?
+
+    /**
+     * Batch retrieve operation types for a set of composite keys.
+     * 
+     * @param compositeKeys List of strings in format "deviceId:logicalClock".
+     * @return List of results containing the type for each found key.
+     */
+    @Query("SELECT deviceId, logicalClock, operationType FROM ledger_operations WHERE deviceId || ':' || logicalClock IN (:compositeKeys)")
+    suspend fun getOperationTypesBatch(compositeKeys: List<String>): List<OpTypeResult>
 }
+
+/**
+ * Partial projection for batch lookups.
+ */
+data class OpTypeResult(
+    val deviceId: String,
+    val logicalClock: Long,
+    val operationType: String
+)
