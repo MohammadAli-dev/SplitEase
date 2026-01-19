@@ -43,30 +43,7 @@ class ResolutionUseCase @Inject constructor(
         chosenOpRef: LedgerOpRef,
         authorUserId: String
     ) {
-        // 1. Validate Preconditions (Fail-Fast)
-        
-        // Timing Constraint: Assumes conflict detection is complete. Do not trigger detection.
-        val conflictEntity = db.ledgerConflictDao().lookupConflict(conflictId)
-            ?: throw IllegalStateException("Conflict $conflictId does not exist in local storage.")
-
-        // Use ConflictMapper to parse ops strictly
-        val conflict = com.splitease.data.conflict.ConflictMapper.fromEntity(conflictEntity)
-            ?: throw IllegalStateException("Conflict $conflictId could not be deserialized. EntityType=${conflictEntity.entityType}")
-
-        // Precondition: chosenOpRef is one of the conflicting ops
-        if (conflict.opRefs.none { it == chosenOpRef }) {
-             throw IllegalArgumentException("Chosen op $chosenOpRef is not part of conflict $conflictId")
-        }
-
-        // Precondition: chosenOpRef must reference a historical ledger operation
-        if (!db.ledgerDao().exists(chosenOpRef.deviceId, chosenOpRef.logicalClock)) {
-            throw IllegalStateException("Chosen op $chosenOpRef refers to a non-existent ledger operation.")
-        }
-
-        // Precondition: No prior resolution exists
-        if (db.conflictResolutionDao().getResolution(conflictId) != null) {
-            throw IllegalStateException("Conflict $conflictId is already resolved.")
-        }
+        // 1. Validate Preconditions (Fail-Fast Checks)
 
         // Precondition: Device must NOT be READ_ONLY
         val role = deviceRoleManager.getDeviceRole()
@@ -81,17 +58,36 @@ class ResolutionUseCase @Inject constructor(
 
         // 2. Serialization & Execution
         ledgerWriteGate.withWriteLock {
-             // Double-check resolution existence inside lock to prevent races
+             // 2.1 Validate State within Lock (Prevent TOCTOU)
+             
+             // Timing Constraint: Assumes conflict detection is complete. Do not trigger detection.
+             val conflictEntity = db.ledgerConflictDao().lookupConflict(conflictId)
+                 ?: throw IllegalStateException("Conflict $conflictId does not exist in local storage.")
+     
+             // Use ConflictMapper to parse ops strictly
+             val conflict = com.splitease.data.conflict.ConflictMapper.fromEntity(conflictEntity)
+                 ?: throw IllegalStateException("Conflict $conflictId could not be deserialized. EntityType=${conflictEntity.entityType}")
+     
+             // Precondition: chosenOpRef is one of the conflicting ops
+             if (conflict.opRefs.none { it == chosenOpRef }) {
+                  throw IllegalArgumentException("Chosen op $chosenOpRef is not part of conflict $conflictId")
+             }
+     
+             // Precondition: chosenOpRef must reference a historical ledger operation
+             if (!db.ledgerDao().exists(chosenOpRef.deviceId, chosenOpRef.logicalClock)) {
+                 throw IllegalStateException("Chosen op $chosenOpRef refers to a non-existent ledger operation.")
+             }
+     
+             // Precondition: No prior resolution exists (Double-check inside lock is now the ONLY check)
              if (db.conflictResolutionDao().getResolution(conflictId) != null) {
-                Log.w("ResolutionUseCase", "Analysis race: Conflict $conflictId was resolved concurrently.")
                 throw IllegalStateException("Conflict $conflictId is already resolved.")
              }
              
-             // Alloc Clock & Append
+             // 3. Alloc Clock & Append
              val op = ledgerOperationFactory.createResolutionOp(conflictId, resolutionType, chosenOpRef, authorUserId)
              
-             // Strict Constraint: Only append to ledger. 
-             // Do NOT write to conflict_resolutions here. Replay will handle it.
+             // Strict Constraint: Only apply resolution by appending to ledger. 
+             // Ledger persistence triggers sync, and ReplayEngine will eventually populate conflict_resolutions table.
              db.commitLedgerOp(op)
              
              Log.i("ResolutionUseCase", "[RESOLUTION] Appended resolution for conflict $conflictId choosing $chosenOpRef")

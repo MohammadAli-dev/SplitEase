@@ -422,7 +422,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
         )
         return LedgerOperation(
             operationId = generateOperationId(),
-            entityType = "CONFLICT_RESOLUTION", // Or N/A - payload has conflict info
+            entityType = OP_RESOLVE_CONFLICT,
             entityId = conflictId,
             operationType = OP_RESOLVE_CONFLICT,
             payload = gson.toJson(payload),

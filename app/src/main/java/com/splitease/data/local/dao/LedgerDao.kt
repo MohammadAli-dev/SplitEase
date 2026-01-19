@@ -76,6 +76,13 @@ interface LedgerDao {
     suspend fun insert(operation: LedgerOperation)
 
     /**
+     * Batch insert ledger operations.
+     * Uses IGNORE strategy for idempotency.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(operations: List<LedgerOperation>)
+
+    /**
      * Stream all ledger operations ordered by deviceId then logicalClock.
      *
      * Intended for verification, testing, and sync engines; not for UI observation.

@@ -91,37 +91,13 @@ class ReplayEngineImpl @Inject constructor(
         val sortedOps = operations.sortedWith(compareBy({ it.deviceId }, { it.logicalClock }))
         Log.d(TAG, "Starting replay of ${sortedOps.size} operations")
 
-        // SPRINT 21: Pre-Flight Conflict Analysis & filtering
-        // We must know conflicts and resolutions BEFORE applying ops to suppress losers.
-        val (conflicts, effectiveResolutions) = analyzeConflictsAndResolutions(sortedOps)
-        
-        // Build suppression map: OpRef -> ShouldSuppress
-        val opToConflictId = conflicts.flatMap { conflict -> 
-            conflict.opRefs.map { opRef -> opRef to conflict.conflictId } 
-        }.toMap()
-
-        val filteredOps = sortedOps.filter { op ->
-            val opRef = LedgerOpRef(op.deviceId, op.logicalClock)
-            val conflictId = opToConflictId[opRef]
-            
-            if (conflictId != null) {
-                val chosen = effectiveResolutions[conflictId]
-                // If resolved, Keep ONLY chosen. Suppress others.
-                if (chosen != null && chosen != opRef) {
-                     // Log.d(TAG, "Suppressing loser op: $opRef for conflict $conflictId") // Verbose logging
-                     false 
-                } else {
-                     true
-                }
-            } else {
-                true
-            }
-        }
-        
-        Log.d(TAG, "Filtered ${sortedOps.size - filteredOps.size} suppressed operations. Proceeding with ${filteredOps.size} ops.")
+        // SPRINT 21: Strict Execution Contract
+        // ReplayEngine applies ALL operations unconditionally.
+        // It does not filter, suppress, or judge.
+        // Suppression is the responsibility of the Derivation Layer (Repositories/UI).
 
         val applied = mutableSetOf<String>() // operationIds that have been applied
-        var deferred = filteredOps.toMutableList()
+        var deferred = sortedOps.toMutableList()
 
         // Convergence loop: keep retrying until no progress is made
         var pass = 0
@@ -142,9 +118,14 @@ class ReplayEngineImpl @Inject constructor(
                         applyOperation(op)
                         applied.add(op.operationId)
                         appliedThisPass++
+                    } catch (e: SQLiteConstraintException) {
+                        // Benign: Entity already exists (idempotency)
+                        Log.d(TAG, "Operation ${op.operationId} already applied (idempotency): ${e.message}")
+                        applied.add(op.operationId) // Mark as applied even if DB no-op
+                        appliedThisPass++
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to apply operation ${op.operationId}: ${e.message}")
-                        nextDeferred.add(op)
+                        Log.e(TAG, "Fatal error applying operation ${op.operationId}: ${e.message}")
+                        return@withContext ReplayResult.Failed("Fatal error applying operation ${op.operationId}: ${e.message}")
                     }
                 } else {
                     nextDeferred.add(op)
@@ -167,53 +148,24 @@ class ReplayEngineImpl @Inject constructor(
 
         Log.d(TAG, "Replay complete: ${applied.size} operations applied in $pass passes")
 
-        // Persist Findings (Conflicts were detected pre-flight, persist them now)
+        // SPRINT 20: Post-Replay Conflict Detection
+        // Run detection ONLY on the successfully replayed ledger prefix.
+        // We filter the original sorted list to ensure we only detect on what was applied
+        // (though in success case, this is everything).
+        val replayedHistory = sortedOps.filter { applied.contains(it.operationId) }
+        
+        val prefix = LedgerPrefix.fromConvergedReplay(replayedHistory)
+        val detector = ConflictDetector()
+        val conflicts = detector.detect(prefix)
+        
         if (conflicts.isNotEmpty()) {
              val entities = conflicts.map { ConflictMapper.toEntity(it) }
              db.ledgerConflictDao().upsertConflicts(entities)
-             Log.d(TAG, "Persisted ${conflicts.size} conflicts")
+             Log.d(TAG, "Persisted ${conflicts.size} conflicts from replayed history")
         }
 
         ReplayResult.Success
     }
-
-    /**
-     * Analyzes operations to find conflicts and resolutions.
-     * Returns detected conflicts and a map of active resolutions.
-     */
-    private suspend fun analyzeConflictsAndResolutions(ops: List<LedgerOperation>): 
-        Pair<List<com.splitease.data.conflict.LedgerConflict>, Map<String, LedgerOpRef>> {
-        
-        // 1. Detect Conflicts
-        // We exclude RESOLVE_CONFLICT ops from detection input to avoid confusing the detector,
-        // although ConflictDetector likely ignores unknown types anyway. Safe to pass all.
-        val prefix = com.splitease.data.conflict.LedgerPrefix.fromConvergedReplay(ops)
-        val detector = ConflictDetector()
-        val conflicts = detector.detect(prefix)
-
-        // 2. Gather Resolutions
-        // Start with existing DB resolutions (they won)
-        val resolutionMap = db.conflictResolutionDao().getAllResolutions()
-            .associate { it.conflictId to LedgerOpRef(it.chosenDeviceId, it.chosenLogicalClock) }
-            .toMutableMap()
-
-        // Process new resolution ops from the stream
-        ops.filter { it.operationType == OP_RESOLVE_CONFLICT }.forEach { op ->
-            try {
-                val payload = gson.fromJson(op.payload, ConflictResolutionPayload::class.java)
-                // "First resolution wins" -> If key exists, ignore this one.
-                if (!resolutionMap.containsKey(payload.conflictId)) {
-                    resolutionMap[payload.conflictId] = payload.chosenOpRef
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse resolution payload for op ${op.operationId}")
-            }
-        }
-        
-        return Pair(conflicts, resolutionMap)
-    }
-
-    // Removed detectAndPersistConflicts (replaced by analyzeConflictsAndResolutions)
 
 
 
@@ -282,7 +234,7 @@ class ReplayEngineImpl @Inject constructor(
                 // Member operations require group to exist
                 db.groupDao().getGroupById(snapshot.groupId) != null
             }
-            "CONFLICT_RESOLUTION" -> true // Metadata, always applicable
+            OP_RESOLVE_CONFLICT -> true // Metadata, always applicable
             else -> {
                 Log.w(TAG, "Unknown entity type: ${op.entityType}")
                 true // Allow unknown types to pass (forward compatibility)
@@ -301,12 +253,8 @@ class ReplayEngineImpl @Inject constructor(
             ENTITY_EXPENSE -> applyExpenseOperation(op)
             ENTITY_SETTLEMENT -> applySettlementOperation(op)
             ENTITY_MEMBER -> applyMemberOperation(op)
-            "CONFLICT_RESOLUTION" -> applyResolutionOperation(op)
-            else -> Log.w(TAG, "Skipping unknown entity type: ${op.entityType}")
+            OP_RESOLVE_CONFLICT -> applyResolutionOperation(op)
         }
-
-        // Also persist the ledger operation itself for local ledger integrity
-        persistLedgerOperation(op)
     }
 
     private suspend fun applyGroupOperation(op: LedgerOperation) {
@@ -469,30 +417,7 @@ class ReplayEngineImpl @Inject constructor(
                 resolvedByDeviceId = op.deviceId
             )
         )
-        // Note: We do NOT filter/suppress here. Filtering happens in the pre-flight check in replay().
-    }
-
-    /**
-     * Persist the ledger operation itself to maintain local ledger integrity.
-     *
-     * Uses direct insert since we're hydrating (not creating new ops locally).
-     *
-     * **Idempotency Note**: [SQLiteConstraintException] is treated as benign here because
-     * the ledger_operations table is append-only and uniquely keyed by operationId.
-     * This allows hydration to safely resume after a crash. If additional constraints
-     * (FKs, CHECKs) are added in the future, this logic must be revisited.
-     */
-    private suspend fun persistLedgerOperation(op: LedgerOperation) {
-        try {
-            // Insert directly - the hydrated ledger is a replica, preserve original clocks
-            db.ledgerDao().insert(op)
-        } catch (e: SQLiteConstraintException) {
-            // Benign: Op already exists (idempotency during resumed hydration)
-            Log.d(TAG, "Ledger operation already exists: ${op.operationId}")
-        } catch (e: Exception) {
-            // Fatal: Disk full, corruption, etc.
-            Log.e(TAG, "Fatal error persisting ledger operation ${op.operationId}: ${e.message}")
-            throw e // Rethrow to let the convergence loop handle/defer the failure
-        }
+        // Note: ReplayEngine purely records the resolution.
+        // Interpretation and suppression happen in the Derivation Layer.
     }
 }

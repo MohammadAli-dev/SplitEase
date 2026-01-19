@@ -18,11 +18,16 @@ import com.splitease.data.local.entities.ConflictResolutionEntity
 interface ConflictResolutionDao {
 
     /**
-     * Inserts a resolution record. If a resolution for this conflictId already exists,
-     * the insert is ignored (primary-key uniqueness + INSERT OR IGNORE semantics).
+     * Inserts a resolution record.
      *
-     * This ensures at most one resolution per conflictId can exist; subsequent
-     * resolution attempts are deterministically ignored.
+     * **Strategy:** [OnConflictStrategy.IGNORE]
+     * This enforces at most one resolution per conflictId.
+     *
+     * **Semantics:**
+     * The effective resolution is derived during replay by folding RESOLVE_CONFLICT operations
+     * in ledger order. If multiple resolutions for the same conflict appear in the ledger,
+     * the replay logic interprets the sequence. This table simply reflects that derived fact.
+     * It does not perform arbitration itself.
      */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertResolution(entity: ConflictResolutionEntity)

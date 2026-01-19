@@ -33,6 +33,7 @@ class ReplayEngineResolutionTest {
         mockkStatic(android.util.Log::class)
         every { android.util.Log.d(any(), any()) } returns 0
         every { android.util.Log.e(any(), any()) } returns 0
+        every { android.util.Log.e(any(), any(), any()) } returns 0
         every { android.util.Log.w(any(), any<String>()) } returns 0
         every { android.util.Log.i(any(), any()) } returns 0
 
@@ -79,7 +80,13 @@ class ReplayEngineResolutionTest {
             entityType = "GROUP",
             entityId = "group-1",
             operationType = "CREATE",
-            payload = """{"id":"group-1","name":"$name","members":[],"updatedAt":1000}""",
+            payload = """
+                {
+                    "id": "group-1", "name": "$name", "type": "TRIP", "createdBy": "User A", 
+                    "hasTripDates": false, "createdByUserId": "u1", 
+                    "lastModifiedByUserId": "u1", "updatedAt": 1000, "members": []
+                }
+            """.trimIndent(),
             authorLocalUserId = "u1",
             deviceId = deviceId,
             logicalClock = clock,
@@ -95,7 +102,7 @@ class ReplayEngineResolutionTest {
         )
         return LedgerOperation(
             operationId = "res-1",
-            entityType = "CONFLICT_RESOLUTION",
+            entityType = OP_RESOLVE_CONFLICT,
             entityId = conflictId,
             operationType = OP_RESOLVE_CONFLICT,
             payload = gson.toJson(payload),

@@ -21,6 +21,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import org.junit.After
 
 class ResolutionUseCaseTest {
 
@@ -35,6 +36,11 @@ class ResolutionUseCaseTest {
     private val resolutionDao = mockk<ConflictResolutionDao>(relaxed = true)
 
     private lateinit var useCase: ResolutionUseCase
+
+    @After
+    fun tearDown() {
+        unmockkAll()
+    }
 
     @Before
     fun setup() {
@@ -63,7 +69,6 @@ class ResolutionUseCaseTest {
         coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.PRIMARY
         coEvery { deviceRoleManager.canWrite() } returns true
     }
-
     @Test
     fun `fails when conflict does not exist`() {
         runBlocking {

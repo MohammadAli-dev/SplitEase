@@ -23,6 +23,7 @@ SplitEase is a modern Android application for managing shared expenses among gro
 13. [How to Extend the App Safely](#13-how-to-extend-the-app-safely)
 14. [Non-Goals & Intentional Omissions](#14-non-goals--intentional-omissions)
 15. [Project Philosophy](#15-project-philosophy)
+16. [Consistency & Reliability](#16-consistency--reliability)
 
 ---
 
@@ -39,28 +40,14 @@ SplitEase is a mobile app for Android that helps groups of people track and spli
 - **Couples** managing household expenses together
 - **Anyone** who shares costs and wants to avoid awkward "you owe me" conversations
 
-### What problem does it solve?
+### Problem Statement
 
-When multiple people share expenses, tracking becomes messy:
-- "I paid for dinner last night"
-- "You paid for the groceries, but I paid for the cab"
-- "How much do I actually owe you at the end of the month?"
+Managing shared group finances is inherently difficult due to three primary challenges:
+1. **Concurrency**: Multiple users adding or editing expenses simultaneously leads to state drift.
+2. **Offline Periods**: Users need to record expenses in remote locations without internet, requiring robust later-stage synchronization.
+3. **Auditability**: Financial systems require a clear history of "why" a balance changed, not just the final total.
 
-SplitEase automates this. You log expenses as they happen, and the app calculates who owes whom.
-
-### Example Real-World Scenario
-
-**Situation:** Three friends go on a weekend trip.
-- Alice pays ₹3,000 for the hotel
-- Bob pays ₹600 for dinner
-- Charlie pays ₹900 for activities
-
-**Without SplitEase:** Confusion, mental math, arguments.
-
-**With SplitEase:**
-1. Create a "Weekend Trip" group
-2. Each person logs their expenses
-3. App shows: "Charlie owes Alice ₹800" and "Bob owes Alice ₹700"
+Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement sync, which leads to data loss and "ghost" mutations. SplitEase solves this by treating the application state as a **derived function of an immutable ledger**, ensuring every device converges to the exact same state deterministically.
 
 ### Key Guarantees
 
@@ -105,7 +92,8 @@ SplitEase automates this. You log expenses as they happen, and the app calculate
 | **Sync Health Telemetry** | ✅ Complete | PAUSED state detection for stuck operations |
 | **Conflict Detection** | ✅ Complete | Explicit, deterministic detection of multi-device mutations |
 | **Conflict Identity** | ✅ Complete | SHA-256 stable fingerprints for audit-safe history |
-| **Read-Only Visibility** | ✅ Complete | Surfacing conflicts in UI without resolution (Sprint 20 scope) |
+| **Explicit Resolution** | ✅ Complete | User-driven resolution operations that suppress "loser" history |
+| **Order Independence** | ✅ Complete | Results are consistent regardless of whether resolution arrives before or after data |
 
 
 ### 🎯 Sync Status Indicators
@@ -143,9 +131,10 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 
 1. **Offline-First**: The local database (Room) is the single source of truth. The UI never observes network responses directly.
 
-2. **Tiered Reconciliation**:
-    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively resolves entity state using deterministic ordering (REPLACE semantics) to ensure local consistency across all devices.
-    - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only diagnostic metadata after Tier 1 convergence.
+2. **Three-Tier Convergence Logic**:
+    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively resolves entity state using deterministic ordering.
+    - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
+    - **Tier 3: Explicit Conflict Resolution**: Appends resolution "facts" to the ledger that suppress loser operations during Tier 1 replay.
 
 3. **Atomic Identity Linking**:
     - **`ClaimManager`**: Orchestrates secure invite claiming and inviter discovery.
@@ -282,6 +271,26 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 
 ## 5. Database Design (Room)
 
+### DB Schema Diagram
+
+```mermaid
+erDiagram
+    users ||--o{ group_members : "belongs to"
+    users ||--o{ expenses : "payer"
+    users ||--o{ expense_splits : "share"
+    users ||--o{ settlements : "debtor/creditor"
+    
+    expense_groups ||--o{ group_members : "has"
+    expense_groups ||--o{ expenses : "contains"
+    expense_groups ||--o{ settlements : "clears"
+    
+    expenses ||--o{ expense_splits : "divided into"
+    
+    ledger_operations }|--|| users : "authored by"
+    ledger_conflicts }|--|{ ledger_operations : "groups"
+    conflict_resolutions ||--|| ledger_conflicts : "resolves"
+```
+
 ### Why Room is Central
 
 Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displays comes from Room, not from network responses. This guarantees:
@@ -371,6 +380,14 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `conflictId` | TEXT (PK) | Deterministic SHA-256 fingerprint |
 | `entityId` | TEXT | ID of the conflicted entity |
 | `opRefs` | TEXT | JSON list of involved (deviceId:clock) pairs |
+
+#### `conflict_resolutions` Table (Derived State)
+| Column | Type | Description |
+|--------|------|-------------|
+| `conflictId` | TEXT (PK) | The conflict being resolved |
+| `resolutionType` | TEXT | `KEEP_OPERATION` or `MANUAL_MERGE` |
+| `chosenOpRef` | TEXT | The winning (deviceId:clock) pair |
+| `appliedAt` | INTEGER | Logical context timestamp |
 
 ### How Write-Ahead Sync Works
 
@@ -482,7 +499,7 @@ POST /sync → {"success": true}
 
 #### `POST /sync`
 ```json
-// Request
+// Request (Push)
 {
   "operationId": "123",
   "entityType": "EXPENSE",
@@ -492,6 +509,32 @@ POST /sync → {"success": true}
 
 // Response
 { "success": true, "message": "" }
+```
+
+#### `GET /ledger/pull`
+```json
+// Request
+// GET /ledger/pull?sinceDeviceId=dev1&sinceClock=10
+
+// Response
+{
+  "operations": [
+    {
+      "operationId": "456",
+      "entityType": "GROUP",
+      "entityId": "g1",
+      "operationType": "UPDATE",
+      "payload": "{...}",
+      "deviceId": "dev2",
+      "logicalClock": 11,
+      "createdAt": 1700000000000
+    }
+  ],
+  "highWaterMarks": {
+    "dev1": 10,
+    "dev2": 11
+  }
+}
 ```
 
 ---
@@ -798,6 +841,25 @@ Even though this is a demo, it uses patterns you'd find in production apps:
 - Room as SSOT
 - Hilt for compile-time safety
 - Sealed classes for exhaustive state handling
+
+---
+
+## 16. Consistency & Reliability
+
+### Consistency Guarantees
+- **Eventual Consistency**: All devices will reach identical state once all ledger operations propagate.
+- **Causal Consistency**: Multi-device operations are ordered by deterministic clocks, preventing "effect before cause" paradoxes.
+- **Monotonic Read/Writes**: Users never see their own data "disappear" then reappear during sync.
+
+### Scaling Strategy
+- **Horizontal Ledger Sharding**: The ledger is partitionable by `groupId`, allowing the backend to scale linearly across clusters.
+- **Delta-Only Pulls**: Clients only fetch the high-water mark delta, minimizing bandwidth.
+- **Checkpointing**: (Planned) Periodic entity snapshots allow truncating the ledger for faster hydration of new devices.
+
+### Tradeoffs
+- **Complexity vs. Simplicity**: Using a ledger (Event Sourcing) is more complex than state-sync but prevents silent data loss.
+- **Storage Overhead**: Storing full operation history increases local DB size. This is mitigated by the low throughput of financial records.
+- **Write Throttling**: The `LedgerWriteGate` ensures atomic clocks at the cost of slight UI write latency (sub-10ms).
 
 ---
 
