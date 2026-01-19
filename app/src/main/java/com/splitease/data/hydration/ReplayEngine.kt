@@ -19,12 +19,16 @@ import com.splitease.data.ledger.model.GroupSnapshot
 import com.splitease.data.ledger.model.MemberSnapshot
 import com.splitease.data.ledger.model.SettlementSnapshot
 import com.splitease.data.local.AppDatabase
+import com.splitease.data.local.entities.ConflictResolutionEntity
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.resolution.ConflictResolutionPayload
+import com.splitease.data.conflict.LedgerOpRef
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_RESOLVE_CONFLICT
 import com.splitease.di.IoDispatcher
 import com.splitease.data.hydration.HydrationFailureLocation
 import com.splitease.data.hydration.HydrationFailureReport
@@ -87,6 +91,11 @@ class ReplayEngineImpl @Inject constructor(
         val sortedOps = operations.sortedWith(compareBy({ it.deviceId }, { it.logicalClock }))
         Log.d(TAG, "Starting replay of ${sortedOps.size} operations")
 
+        // SPRINT 21: Strict Execution Contract
+        // ReplayEngine applies ALL operations unconditionally.
+        // It does not filter, suppress, or judge.
+        // Suppression is the responsibility of the Derivation Layer (Repositories/UI).
+
         val applied = mutableSetOf<String>() // operationIds that have been applied
         var deferred = sortedOps.toMutableList()
 
@@ -109,9 +118,23 @@ class ReplayEngineImpl @Inject constructor(
                         applyOperation(op)
                         applied.add(op.operationId)
                         appliedThisPass++
+                    } catch (e: SQLiteConstraintException) {
+                        val msg = e.message.orEmpty()
+                        if (msg.contains("UNIQUE constraint failed", ignoreCase = true) ||
+                            msg.contains("PRIMARY KEY constraint failed", ignoreCase = true)) {
+                            // Benign: Entity already exists (idempotency)
+                            Log.d(TAG, "Operation ${op.operationId} already applied (idempotency): $msg")
+                            applied.add(op.operationId) // Mark as applied even if DB no-op
+                            appliedThisPass++
+                        } else {
+                            Log.e(TAG, "Non-idempotent constraint violation for ${op.operationId}: $msg", e)
+                            throw e
+                        }
+                    } catch (e: HydrationInvariantException) {
+                        throw e
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to apply operation ${op.operationId}: ${e.message}")
-                        nextDeferred.add(op)
+                        Log.e(TAG, "Fatal error applying operation ${op.operationId}: ${e.message}")
+                        return@withContext ReplayResult.Failed("Fatal error applying operation ${op.operationId}: ${e.message}")
                     }
                 } else {
                     nextDeferred.add(op)
@@ -134,41 +157,25 @@ class ReplayEngineImpl @Inject constructor(
 
         Log.d(TAG, "Replay complete: ${applied.size} operations applied in $pass passes")
 
-        // SPRINT 20: Conflict Detection (Post-Convergence)
-        // Invariant: Runs ONLY after full convergence. Fail-open semantics.
-        runCatching {
-            detectAndPersistConflicts(sortedOps)
-        }.onFailure { e ->
-            Log.w(TAG, "Conflict detection failed (non-blocking): ${e.message}")
+        // SPRINT 20: Post-Replay Conflict Detection
+        // Run detection ONLY on the successfully replayed ledger prefix.
+        // We filter the original sorted list to ensure we only detect on what was applied
+        // (though in success case, this is everything).
+        val replayedHistory = sortedOps.filter { applied.contains(it.operationId) }
+        
+        val prefix = LedgerPrefix.fromConvergedReplay(replayedHistory)
+        val detector = ConflictDetector()
+        val conflicts = detector.detect(prefix)
+        
+        if (conflicts.isNotEmpty()) {
+             val entities = conflicts.map { ConflictMapper.toEntity(it) }
+             db.ledgerConflictDao().upsertConflicts(entities)
+             Log.d(TAG, "Persisted ${conflicts.size} conflicts from replayed history")
         }
 
         ReplayResult.Success
     }
 
-    /**
-     * Detects and persists conflicts after replay convergence.
-     *
-     * **Sprint 20 Invariants:**
-     * - Runs ONLY after full convergence (called from replay()).
-     * - Uses encapsulated LedgerPrefix for structural safety.
-     * - Fail-open: Detection failures must not affect replay outcome.
-     * - Conflicts are strictly device-local and never synced.
-     */
-    private suspend fun detectAndPersistConflicts(operations: List<LedgerOperation>) {
-        val prefix = LedgerPrefix.fromConvergedReplay(operations)
-        val detector = ConflictDetector()
-        val conflicts = detector.detect(prefix)
-
-        if (conflicts.isEmpty()) {
-            Log.d(TAG, "No conflicts detected")
-            return
-        }
-
-        Log.d(TAG, "Detected ${conflicts.size} conflicts, persisting...")
-        val entities = conflicts.map { ConflictMapper.toEntity(it) }
-        db.ledgerConflictDao().upsertConflicts(entities)
-        Log.d(TAG, "Persisted ${conflicts.size} conflicts")
-    }
 
 
     /**
@@ -236,6 +243,7 @@ class ReplayEngineImpl @Inject constructor(
                 // Member operations require group to exist
                 db.groupDao().getGroupById(snapshot.groupId) != null
             }
+            OP_RESOLVE_CONFLICT -> true // Metadata, always applicable
             else -> {
                 Log.w(TAG, "Unknown entity type: ${op.entityType}")
                 true // Allow unknown types to pass (forward compatibility)
@@ -254,11 +262,8 @@ class ReplayEngineImpl @Inject constructor(
             ENTITY_EXPENSE -> applyExpenseOperation(op)
             ENTITY_SETTLEMENT -> applySettlementOperation(op)
             ENTITY_MEMBER -> applyMemberOperation(op)
-            else -> Log.w(TAG, "Skipping unknown entity type: ${op.entityType}")
+            OP_RESOLVE_CONFLICT -> applyResolutionOperation(op)
         }
-
-        // Also persist the ledger operation itself for local ledger integrity
-        persistLedgerOperation(op)
     }
 
     private suspend fun applyGroupOperation(op: LedgerOperation) {
@@ -402,27 +407,41 @@ class ReplayEngineImpl @Inject constructor(
         }
     }
 
-    /**
-     * Persist the ledger operation itself to maintain local ledger integrity.
-     *
-     * Uses direct insert since we're hydrating (not creating new ops locally).
-     *
-     * **Idempotency Note**: [SQLiteConstraintException] is treated as benign here because
-     * the ledger_operations table is append-only and uniquely keyed by operationId.
-     * This allows hydration to safely resume after a crash. If additional constraints
-     * (FKs, CHECKs) are added in the future, this logic must be revisited.
-     */
-    private suspend fun persistLedgerOperation(op: LedgerOperation) {
-        try {
-            // Insert directly - the hydrated ledger is a replica, preserve original clocks
-            db.ledgerDao().insert(op)
-        } catch (e: SQLiteConstraintException) {
-            // Benign: Op already exists (idempotency during resumed hydration)
-            Log.d(TAG, "Ledger operation already exists: ${op.operationId}")
-        } catch (e: Exception) {
-            // Fatal: Disk full, corruption, etc.
-            Log.e(TAG, "Fatal error persisting ledger operation ${op.operationId}: ${e.message}")
-            throw e // Rethrow to let the convergence loop handle/defer the failure
+    private suspend fun applyResolutionOperation(op: LedgerOperation) {
+        // Parse payload
+        val payload = try {
+            gson.fromJson(op.payload, ConflictResolutionPayload::class.java)
+        } catch (e: com.google.gson.JsonSyntaxException) {
+            val report = HydrationFailureReport(
+                invariant = HydrationInvariant.RESOLUTION_PAYLOAD_VALID,
+                location = HydrationFailureLocation.REPLAY_ENGINE,
+                operationId = op.operationId,
+                details = "JsonSyntaxException: ${e.message}"
+            )
+            Log.e(TAG, "Invariant violated: $report", e)
+            throw HydrationInvariantException(report)
+        } catch (e: com.google.gson.JsonParseException) {
+            val report = HydrationFailureReport(
+                invariant = HydrationInvariant.RESOLUTION_PAYLOAD_VALID,
+                location = HydrationFailureLocation.REPLAY_ENGINE,
+                operationId = op.operationId,
+                details = "JsonParseException: ${e.message}"
+            )
+            Log.e(TAG, "Invariant violated: $report", e)
+            throw HydrationInvariantException(report)
         }
+
+        // Apply to conflict_resolutions table
+        // INSERT OR IGNORE semantics provided by DAO
+        db.conflictResolutionDao().insertResolution(
+            ConflictResolutionEntity(
+                conflictId = payload.conflictId,
+                chosenDeviceId = payload.chosenOpRef.deviceId,
+                chosenLogicalClock = payload.chosenOpRef.logicalClock,
+                resolvedByDeviceId = op.deviceId
+            )
+        )
+        // Note: ReplayEngine purely records the resolution.
+        // Interpretation and suppression happen in the Derivation Layer.
     }
 }

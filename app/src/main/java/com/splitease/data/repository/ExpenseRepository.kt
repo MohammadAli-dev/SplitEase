@@ -1,16 +1,23 @@
 package com.splitease.data.repository
 
 import com.splitease.data.local.AppDatabase
+import com.splitease.data.local.dao.ConflictResolutionDao
 import com.splitease.data.local.dao.ExpenseDao
+import com.splitease.data.local.dao.LedgerConflictDao
+import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
+import com.splitease.data.conflict.ConflictType
 import com.splitease.data.device.DeviceRoleManager
 import com.splitease.data.device.WritePermissionDeniedException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,11 +30,16 @@ interface ExpenseRepository {
     suspend fun deleteExpense(expenseId: String)
     fun getExpense(expenseId: String): Flow<Expense?>
     fun getSplits(expenseId: String): Flow<List<ExpenseSplit>>
+    fun getAllEffectiveExpenses(): Flow<List<Expense>>
 }
 
 @Singleton
+@OptIn(ExperimentalCoroutinesApi::class)
 class ExpenseRepositoryImpl @Inject constructor(
     private val expenseDao: ExpenseDao,
+    private val ledgerConflictDao: LedgerConflictDao,
+    private val conflictResolutionDao: ConflictResolutionDao,
+    private val ledgerDao: LedgerDao,
     private val appDatabase: AppDatabase,
     private val syncWriteService: SyncWriteService,
     private val ledgerOperationFactory: LedgerOperationFactory,
@@ -36,13 +48,6 @@ class ExpenseRepositoryImpl @Inject constructor(
     private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate
 ) : ExpenseRepository {
 
-    /**
-         * Persist an expense with its splits, record the corresponding sync and ledger operations, and schedule a ledger push.
-         *
-         * @param expense The expense to persist.
-         * @param splits The list of splits associated with the expense.
-         * @throws WritePermissionDeniedException if device cannot write.
-         */
     override suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>) = 
         withContext(Dispatchers.IO) {
             ledgerWriteGate.withWriteLock {
@@ -56,14 +61,7 @@ class ExpenseRepositoryImpl @Inject constructor(
             }
         }
 
-    /**
-         * Updates an existing expense and its splits, persisting the update together with corresponding sync and ledger operations in a single atomic transaction and scheduling a ledger push.
-         *
-         * @param expense The expense to update.
-         * @param splits The splits that divide the expense.
-         * @throws WritePermissionDeniedException if device cannot write.
-         */
-        override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
+    override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
@@ -76,24 +74,14 @@ class ExpenseRepositoryImpl @Inject constructor(
             }
         }
 
-    /**
-         * Deletes the expense identified by [expenseId] and its associated splits, creating and persisting
-         * a corresponding sync operation and ledger operation as a single atomic change.
-         *
-         * If the expense does not exist, the function is a no-op.
-         *
-         * @param expenseId The ID of the expense to delete.
-         * @throws WritePermissionDeniedException if device cannot write.
-         */
-        override suspend fun deleteExpense(expenseId: String) =
+    override suspend fun deleteExpense(expenseId: String) =
         withContext(Dispatchers.IO) {
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
                     throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
                 }
-                // Fetch expense and splits for complete snapshot before deletion
                 val expense = expenseDao.getExpense(expenseId).first() 
-                    ?: return@withWriteLock // Already deleted, no-op
+                    ?: return@withWriteLock
                 val splits = expenseDao.getSplits(expenseId).first()
                 
                 val syncOp = syncWriteService.createDeleteExpenseSyncOp(expenseId)
@@ -103,13 +91,138 @@ class ExpenseRepositoryImpl @Inject constructor(
             }
         }
 
-    /**
- * Observes an expense by its identifier.
- *
- * @param expenseId The identifier of the expense to observe.
- * @return A Flow that emits the current `Expense` for the given id or `null` if not present; emits new values if the stored expense changes.
- */
-override fun getExpense(expenseId: String) = expenseDao.getExpense(expenseId)
+    override fun getExpense(expenseId: String): Flow<Expense?> {
+        return combine(
+            expenseDao.getExpense(expenseId),
+            ledgerConflictDao.observeConflictsForEntities(listOf(expenseId)),
+            conflictResolutionDao.observeAllResolutions()
+        ) { expenseValue, conflicts, resolutions ->
+            Triple(expenseValue, conflicts, resolutions)
+        }.mapLatest { (expenseValue, conflicts, resolutions) ->
+            if (expenseValue == null) return@mapLatest null
+            
+            // Derivation Check
+            val zombieConflict = conflicts.find { it.conflictType == ConflictType.POST_DELETE_MUTATION.name }
+            
+            if (zombieConflict != null) {
+                // If ID is same (which it is), check resolution
+                val resolution = resolutions.find { it.conflictId == zombieConflict.conflictId }
+                
+                if (resolution == null) {
+                     // UNRESOLVED ZOMBIE -> HIDE
+                     return@mapLatest null
+                } else {
+                     // RESOLVED ZOMBIE -> Check chosen op
+                     val opType = ledgerDao.getOperationType(resolution.chosenDeviceId, resolution.chosenLogicalClock)
+                     
+                     if (opType == null) {
+                        android.util.Log.e("ExpenseRepository", "Integrity Warning: getExpense ${expenseValue.id} has resolved zombie conflict ${zombieConflict.conflictId} but opType is missing. Hiding.")
+                        return@mapLatest null
+                     }
+
+                     if (opType == "DELETE") {
+                         return@mapLatest null
+                     }
+                     // If CREATE or UPDATE, show
+                }
+            }
+            // If MULTIPLE_WRITERS -> Show
+            expenseValue
+        }
+    }
     
     override fun getSplits(expenseId: String) = expenseDao.getSplits(expenseId)
+
+    override fun getAllEffectiveExpenses(): Flow<List<Expense>> {
+        return combine(
+            expenseDao.getAllExpenses(),
+            ledgerConflictDao.observeAllConflicts(),
+            conflictResolutionDao.observeAllResolutions()
+        ) { expenses, conflicts, resolutions ->
+            Triple(expenses, conflicts, resolutions)
+        }.mapLatest { (expenses, conflicts, resolutions) ->
+            if (expenses.isEmpty()) return@mapLatest emptyList<Expense>()
+
+            val conflictMap = conflicts.groupBy { it.entityId }
+            val resolutionMap = resolutions.associateBy { it.conflictId } // conflictId -> Resolution
+
+            // 1. Identify which conflicts need Operation Type lookup
+            //    (Only Resolved Zombies)
+            val zombiesToResolve = mutableListOf<String>() // List of ConflictIds
+            
+            expenses.forEach { expense ->
+                 val entityConflicts = conflictMap[expense.id] ?: return@forEach
+                 val zombie = entityConflicts.find { it.conflictType == ConflictType.POST_DELETE_MUTATION.name }
+                 if (zombie != null) {
+                     val res = resolutionMap[zombie.conflictId]
+                     if (res != null) {
+                         // We need the opType for this resolution
+                         zombiesToResolve.add(zombie.conflictId)
+                     }
+                 }
+            }
+
+            // 2. Lookup OpTypes (Batch Query Optimization)
+            // Use Typed Keys (Pair) to avoid string collision/parsing risks locally
+            val zombiePairs = zombiesToResolve.mapNotNull { conflictId ->
+                val res = resolutionMap[conflictId]
+                if (res != null) res.chosenDeviceId to res.chosenLogicalClock else null
+            }
+
+            // Perform single batch query
+            val opTypeResults = if (zombiePairs.isNotEmpty()) {
+                // Map to composite keys strictly for the SQL IN clause
+                val compositeKeys = zombiePairs.map { "${it.first}:${it.second}" }
+                ledgerDao.getOperationTypesBatch(compositeKeys)
+            } else {
+                emptyList()
+            }
+
+            // Map keys back to operation types using Typed Keys for O(1) lookup
+            // Return type from DAO is already structured (OpTypeResult)
+            val loadedOpTypes = opTypeResults.associate { (it.deviceId to it.logicalClock) to it.operationType }
+
+            // Populate the map needed for filtering
+            val opTypeMap = mutableMapOf<String, String>() // conflictId -> opType
+
+            for (conflictId in zombiesToResolve) {
+                val res = resolutionMap[conflictId] ?: continue
+                val key = res.chosenDeviceId to res.chosenLogicalClock
+                val type = loadedOpTypes[key]
+                if (type != null) {
+                    opTypeMap[conflictId] = type
+                }
+            }
+
+            // 3. Filter the list
+            expenses.filter { expense ->
+                val entityConflicts = conflictMap[expense.id] ?: emptyList()
+                if (entityConflicts.isEmpty()) return@filter true
+                
+                // Zombie Check
+                val zombie = entityConflicts.find { it.conflictType == ConflictType.POST_DELETE_MUTATION.name }
+                if (zombie != null) {
+                    val res = resolutionMap[zombie.conflictId]
+                    if (res == null) {
+                        // Unresolved Zombie -> HIDE
+                        return@filter false
+                    } else {
+                        // Resolved -> Check Type
+                        val type = opTypeMap[zombie.conflictId]
+                        
+                        if (type == null) {
+                            android.util.Log.e("ExpenseRepository", "Integrity Warning: effective expense ${expense.id} has resolved zombie conflict ${zombie.conflictId} but opType is missing. Hiding.")
+                            return@filter false
+                        }
+
+                        // If type is DELETE -> Hide.
+                        return@filter (type != "DELETE")
+                    }
+                }
+                
+                // All other conflicts (MULTIPLE_WRITERS) -> SHOW
+                true
+            }
+        }
+    }
 }

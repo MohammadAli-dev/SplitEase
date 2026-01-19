@@ -7,6 +7,8 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.splitease.data.local.AppDatabase
+import com.splitease.data.local.MIGRATION_12_13
+import com.splitease.data.local.MIGRATION_13_14
 import com.splitease.data.local.MIGRATION_9_10
 import com.splitease.data.local.dao.ConnectionStateDao
 import com.splitease.data.local.dao.ExpenseDao
@@ -298,6 +300,8 @@ object DatabaseModule {
             .addMigrations(MIGRATION_9_10)
             .addMigrations(MIGRATION_10_11)
             .addMigrations(MIGRATION_11_12)
+            .addMigrations(MIGRATION_12_13)
+            .addMigrations(MIGRATION_13_14)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -352,5 +356,15 @@ object DatabaseModule {
     @Provides
     fun provideLedgerDao(db: AppDatabase): LedgerDao {
         return db.ledgerDao()
+    }
+
+    @Provides
+    fun provideLedgerConflictDao(db: AppDatabase): com.splitease.data.local.dao.LedgerConflictDao {
+        return db.ledgerConflictDao()
+    }
+
+    @Provides
+    fun provideConflictResolutionDao(db: AppDatabase): com.splitease.data.local.dao.ConflictResolutionDao {
+        return db.conflictResolutionDao()
     }
 }

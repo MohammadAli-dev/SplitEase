@@ -71,6 +71,7 @@ sealed class FriendLedgerItem {
 
 @Singleton
 class FriendTransactionsRepository @Inject constructor(
+    private val expenseRepository: ExpenseRepository,
     private val expenseDao: ExpenseDao,
     private val groupDao: GroupDao,
     private val userDao: UserDao,
@@ -84,7 +85,7 @@ class FriendTransactionsRepository @Inject constructor(
             if (currentUserId.isEmpty()) return@flatMapLatest flowOf(emptyList())
 
             combine(
-                expenseDao.getAllExpenses(),
+                expenseRepository.getAllEffectiveExpenses(),
                 expenseDao.getAllSplits(),
                 groupDao.getAllGroups(),
                 userDao.getAllUsers(),

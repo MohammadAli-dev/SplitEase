@@ -31,7 +31,12 @@ enum class HydrationInvariant(val category: HydrationInvariantCategory) {
     /**
      * MemberSnapshot.joinedAt must be present for MEMBER:CREATE operations.
      */
-    MEMBER_JOINED_AT_PRESENT(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
+    MEMBER_JOINED_AT_PRESENT(HydrationInvariantCategory.MALFORMED_REMOTE_DATA),
+
+    /**
+     * ConflictResolutionPayload must be valid JSON.
+     */
+    RESOLUTION_PAYLOAD_VALID(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
 }
 
 /**

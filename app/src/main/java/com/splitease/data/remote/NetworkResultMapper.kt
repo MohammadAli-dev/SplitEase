@@ -73,7 +73,7 @@ fun Throwable.toWorkResult(tag: String = "NetworkResultMapper"): Result {
             this.response()?.toWorkResult(tag) ?: Result.failure()
         }
         is java.io.IOException -> {
-            Log.w(tag, "IO/Network Exception: Transient failure, retrying...")
+            Log.w(tag, "IO/Network Exception: ${this.message}", this)
             Result.retry()
         }
         else -> {

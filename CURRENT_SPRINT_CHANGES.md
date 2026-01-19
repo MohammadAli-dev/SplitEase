@@ -180,29 +180,104 @@ Following an architectural audit, the conflict system was hardened against edge-
 
 ---
 
-# Appendix: Development Status Summary (as of 2026-01-18)
+# Sprint 21: Explicit Conflict Resolution (Suppressed History) & Cloud Mirroring
 
-## 1. High-Level Architecture Audit
-The system has successfully evolved from a simple mock-synced local DB to a sophisticated **Supabase-backed ledger system**.
+## Overview
+This sprint implements the final layer of the conflict management system: explicit, user-driven resolution, followed by the initial deployment of the Supabase Ledger Mirror. The system now supports appending resolution "facts" to suppress conflicting operations during state derivation, ensuring deterministic convergence across devices. Additionally, a post-sprint grounding audit was performed to solidify the "Dumb Courier" architecture before enabling the Supabase push pipeline.
 
-| Layer | Status | Key Components |
-|-------|--------|----------------|
-| **Ledger Mirror** | ✅ Stable | Append-only Supabase `ledger_operations`. |
-| **Hydration** | ✅ Stable | Convergence-based `ReplayEngine`. |
-| **Serialization** | ✅ Stable | Mutex-gated `LedgerWriteGate`. |
-| **Promotion** | ✅ Stable | Crash-safe `PromotionCoordinator`. |
-| **Conflict Detection** | ✅ Integrated | O(N) `ConflictDetector` (Tier 2). |
+## Key Changes
 
-## 2. Core Features (Stable)
-| Area | Features |
-|------|----------|
-| **Authentication** | Real Supabase Auth (JWT), Token Refresh, Interceptors. |
-| **Expense Management** | CRUD, Splits (Equal/Exact/%), Settlement recording. |
-| **Group Operations** | Creation, Member Management, Permission Guards. |
-| **UI/UX** | M3 Scaffold, Dashboard, Groups, Activity, Sync Status. |
+### 1. Ledger & Operation Design
+- **RESOLVE_CONFLICT Operation**: Introduced a new ledger operation type containing a `ConflictResolutionPayload`.
+- **ResolutionPayload**: Encapsulates the `conflictId`, `resolutionType` (e.g. `KEEP_OPERATION`), and the specific `chosenOpRef` (deviceId:logicalClock).
+- **Immutability**: Resolution operations are append-only. Once a resolution is accepted by the ledger, it becomes a permanent part of the causal history.
 
-## 3. Notable Resolutions (Hardening Phase)
-- **Dual-Write Recovery**: `recoverPromotionIfNeeded` repairs partial commits after crashes.
-- **Identity Restoration**: Fixed "Unknown" display during cold start via local profile caching.
-- **Fail-Closed Security**: `DeviceRoleManager` defaults to `REPLICA` upon data corruption.
+### 2. Write Path & Preconditions
+- **ResolutionUseCase**: A strict service for creating resolution operations. It enforces the following invariants:
+    - **Conflict Existence**: The `conflictId` must refer to a conflict already detected and stored locally.
+    - **Set Membership**: The `chosenOpRef` must be one of the participants in the specified conflict.
+    - **Historical Validity**: The `chosenOpRef` must refer to a ledger operation that has already been successfully replayed/hydrated.
+    - **Write Authority**: Only `PRIMARY` or `PROMOTED` devices can append resolutions.
+    - **Unresolved State**: Prevents duplicate resolution attempts for the same conflict.
+
+### 3. Replay & Derivation (Effective State Projection)
+- **Strict Execution Replay**: Refactored `ReplayEngine` to unconditionally apply all ledger operations. Removed pre-flight filtering to ensure the "Local State" remains a perfect mirror of applied history.
+- **Post-Replay Conflict Detection**: Detection logic specifically transitioned to run *after* history has been fully applied.
+- **Repository-Level Derivation**: Moved operation suppression to the read-path. Repositories (e.g., `ExpenseRepository`) now join conflict and resolution metadata to project the "Effective State".
+- **Friend Ledger Alignment**: Updated `FriendTransactionsRepository` to use the filtered expense stream, ensuring "Zombie" entities are hidden from ledger views.
+- **Zombie Suppression**: Implemented strict rules to hide "Zombie" entities (e.g., updates to a deleted entity) and ensure "lose" operations are invisible to the UI while remaining in the database for audit integrity.
+- **Deterministic Convergence**: Ensures that regardless of the order in which resolution operations and conflicting data arrive, the projected state is identical across all devices.
+
+### 4. Data Layer & DI
+- **Room Schema (v14)**: Introduced the `conflict_resolutions` table.
+- **Derived State Invariant**: The resolution table is strictly derived from the ledger. It is populated ONLY during replay via `INSERT OR IGNORE` (First-Resolution-Wins).
+- **Reactive Derivation**: Added `observeAllResolutions()` Flow to `ConflictResolutionDao` to allow the Repository layer to reactively re-project state when resolutions arrive.
+- **Referential Integrity**: Added `getOperationType` to `LedgerDao` to support derivation-time verification of resolution effects.
+- **DI Provisioning**: Updated `DatabaseModule` to provide `LedgerConflictDao` and `ConflictResolutionDao`, resolving dependency graph errors.
+
+### 5. Grounding Audit & System Verification
+- **System Check Conducted**: Completed a comprehensive post-Sprint-21 audit to formalize "Ground Truth" before Supabase integration.
+- **Invariant Freeze**: Hardened and verified the following invariants:
+    - **Room as SSOT**: UI never observes network directly; always derives from local Room ledger.
+    - **Ledger as Append-Only**: Immutable history of facts.
+    - **Replay as Truth**: Unconditional, deterministic replay logic.
+    - **Dumb Courier Principle**: Supabase holds facts but never meaning or authority.
+
+### 6. Supabase Ledger Mirror (Phase 1: Push)
+- **Schema Deployment**: Implemented the `ledger_operations` table in Supabase.
+    - **Cloud Parity**: Matches local schema byte-for-byte; uses `TEXT` for `operation_id` and `entity_id` to ensure opaque format safety.
+    - **Explicit Indexing**: Added `idx_ledger_operations_replay_order` on `(device_id, logical_clock)` for performant sync.
+- **Access Control (RLS)**: Enforced strict append-only security:
+    - Authenticated users can `INSERT` and `SELECT`.
+    - `UPDATE`, `DELETE`, and `TRUNCATE` are explicitly revoked.
+- **Client Infrastructure Polish**:
+    - **Hilt/WorkManager Fix**: Resolved `NoSuchMethodException` crash by disabling default WorkManager initialization in `AndroidManifest.xml`, enabling customized `HiltWorkerFactory` injection.
+    - **Network Alignment**: Corrected `NetworkModule` to use production Supabase Base URLs and updated `SplitEaseApi` to use `/rest/v1/` prefixes for PostgREST compatibility.
+    - **Detailed Diagnostics**: Enhanced `NetworkResultMapper` to log full stack traces for `IOException`, accelerating network debugging.
+- **End-to-End Verification**: Confirmed that local writes (Expenses/Groups) are successfully mirrored to the cloud `ledger_operations` table.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation and KSP processing.
+- **Unit Tests**:
+    - Verified `ResolutionUseCase` precondition logic (Role-gating, Read-only guards).
+    - Verified `ReplayEngine` strict execution: conflicting operations are applied and detected post-replay.
+    - Verified `ExpenseRepositoryDerivationTest`: Confirmed that Zombies are hidden and resolved wins are shown correctly.
+- **Manual Verification**: Verified live row ingestion in Supabase Table Editor.
+- **Operational Safety**: Confirmed that `LedgerPushWorker` handles network failures gracefully using exponential backoff.
+
+---
+
+**Sprint 21 Status: Grounding, Resolution, and Cloud Mirror (Push) Complete.**
+
+---
+
+# Post-Sprint 21: Safety Audit & Architectural Hardening
+
+## Overview
+Following a comprehensive safety audit (facilitated by CodeRabbit and architectural review), the system was hardened against data integrity risks and potential configuration errors. These changes ensure "fail-fast" behavior for database inconsistencies and tighten the security posture of the networking layer.
+
+## Key Changes
+
+### 1. ReplayEngine: Strict Exception Handling
+- **Narrowed Idempotency Catch**: Refactored `ReplayEngine` to specifically whitelist `UNIQUE constraint failed` and `PRIMARY KEY constraint failed` messages within `SQLiteConstraintException`.
+- **Integrity Enforcement**: All other constraint violations (e.g., Foreign Key or Not Null violations) are now rethrown as fatal errors. This prevents the engine from silently swallowing genuine data corruption or out-of-order ingestion errors.
+
+### 2. ExpenseRepository: Fail-Closed Integrity Logging
+- **Integrity Alerting**: Introduced explicit `Log.e` (Error) logging for cases where a resolved conflict has a `null opType` (missing winning operation).
+- **Fail-Closed Projection**: Maintained the "hide-by-default" behavior for such cases but added high-severity logging to ensure visibility of potential ledger-local state mismatches.
+
+### 3. Network Layer Security & Robustness
+- **Environment-Aware Logging**: Updated `HttpLoggingInterceptor` in `NetworkModule` to use `Level.BODY` only in `DEBUG` builds. Production/Release builds now use `Level.NONE` to prevent sensitive data leakage (tokens, PII) into system logs.
+- **Base URL Normalization**: Instrumented strict trailing-slash normalization for `AuthConfig.supabaseBaseUrl`, preventing double-slash (`//`) malformations in Retrofit requests.
+
+### 4. Test Rigor
+- **Strengthened Replay Assertions**: Updated `ReplayEngineTest` to verify that conflicting operations are *both* attempted using `exactly = 2` assertions.
+- **Mock Safety**: Fixed test helpers to generate unique `operationId`s for conflicting operations, ensuring the `ReplayEngine` idempotency check doesn't skip legitimate execution attempts in unit tests.
+
+## Verification Results
+- **Build**: Successful build with `assembleDebug`.
+- **Tests**: `ReplayEngineTest` and `ExpenseRepositoryDerivationTest` passed with 100% success.
+- **Security**: Verified logging levels are correctly gated by `BuildConfig.DEBUG`.
+
+---
 

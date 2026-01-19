@@ -147,6 +147,12 @@ class HydrationCoordinatorImpl @Inject constructor(
             val operations = pullResult.getOrNull() ?: emptyList()
             Log.d(TAG, "Pulled ${operations.size} ledger operations")
 
+            // === NEW STEP: Persist Ledger Operations (Sprint 21 Ingest) ===
+            if (operations.isNotEmpty()) {
+                db.ledgerDao().insertAll(operations)
+                Log.d(TAG, "Persisted ${operations.size} ledger operations to local ledger")
+            }
+
             // === STEP 3: Check if there's anything to hydrate ===
             if (operations.isEmpty()) {
                 Log.d(TAG, "No ledger operations found, aborting hydration (nothing to hydrate)")

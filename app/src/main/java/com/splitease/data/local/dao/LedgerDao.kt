@@ -76,6 +76,13 @@ interface LedgerDao {
     suspend fun insert(operation: LedgerOperation)
 
     /**
+     * Batch insert ledger operations.
+     * Uses IGNORE strategy for idempotency.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(operations: List<LedgerOperation>)
+
+    /**
      * Stream all ledger operations ordered by deviceId then logicalClock.
      *
      * Intended for verification, testing, and sync engines; not for UI observation.
@@ -101,4 +108,36 @@ interface LedgerDao {
      */
     @Query("SELECT COUNT(*) FROM ledger_operations")
     suspend fun getOperationCountSync(): Int
+
+    /**
+     * Checks if a specific ledger operation exists.
+     * Used by ResolutionUseCase to verify chosenOpRef points to a valid historical operation.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM ledger_operations WHERE deviceId = :deviceId AND logicalClock = :logicalClock)")
+    suspend fun exists(deviceId: String, logicalClock: Long): Boolean
+
+    /**
+     * Retrieves the operation type for a specific ledger entry.
+     * Used by Derivation Layer to check if a resolution points to a DELETE or KEEP operation.
+     */
+    @Query("SELECT operationType FROM ledger_operations WHERE deviceId = :deviceId AND logicalClock = :logicalClock")
+    suspend fun getOperationType(deviceId: String, logicalClock: Long): String?
+
+    /**
+     * Batch retrieve operation types for a set of composite keys.
+     * 
+     * @param compositeKeys List of strings in format "deviceId:logicalClock".
+     * @return List of results containing the type for each found key.
+     */
+    @Query("SELECT deviceId, logicalClock, operationType FROM ledger_operations WHERE deviceId || ':' || logicalClock IN (:compositeKeys)")
+    suspend fun getOperationTypesBatch(compositeKeys: List<String>): List<OpTypeResult>
 }
+
+/**
+ * Partial projection for batch lookups.
+ */
+data class OpTypeResult(
+    val deviceId: String,
+    val logicalClock: Long,
+    val operationType: String
+)
