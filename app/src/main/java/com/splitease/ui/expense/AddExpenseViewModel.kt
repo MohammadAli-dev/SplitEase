@@ -171,10 +171,12 @@ constructor(
                     
                     // Current user is ALWAYS a participant in non-group expenses
                     // They select additional participants from the list
+                    // Fix: Do not reset selection to just [currentUserId]. Merge existing checks.
                     _uiState.update {
+                        val newSelection = (it.selectedParticipants + currentUserId).distinct()
                         it.copy(
                             groupMembers = sortedMemberIds,
-                            selectedParticipants = listOf(currentUserId), // Auto-include "You"
+                            selectedParticipants = newSelection,
                             userNames = userNamesMap
                         ).withNormalizedShares()
                     }
@@ -317,16 +319,43 @@ constructor(
             try {
                 val userId = userRepository.createPhantomUser(name, email, phone)
                 
-                val allUsers = userRepository.getAllUsers().first()
-                val userMap = allUsers.associate { it.id to it.name }
+                // No manual state update here.
+                // userRepository.createPhantomUser -> database -> loadGroupMembers() flow triggers -> UI update.
+                // Unblocking UI happens automatically via Flow emission or could be explicitly done if needed, 
+                // but effectively we just wait for the db.
+                
+                // However, to ensure the new user is *selected* automatically, we might rely on the fact 
+                // that they are added to the group members list. 
+                // For non-group expense, `loadGroupMembers` re-runs on user table change.
+                
+                // We do need to ensure `selectedParticipants` includes the new `userId`.
+                // Since `loadGroupMembers` runs on ANY user change (for non-group), it refreshes the list.
+                // To *select* them, we might need to update selection. But `loadGroupMembers` as written now
+                // preserves selection. It doesn't *auto-select* new users unless we do it here OR modify `loadGroupMembers` to auto-select new additions (risky).
+                
+                // STRICT FIX: logic says "ViewModel must not double mutate". 
+                // BUT we need to select the new user. 
+                // The prompt strategy said: "Fix createPhantomUserAndSelect: REMOVE the manual _uiState.update block entirely. Rely solely on userRepository.createPhantomUser updating the database, which will trigger loadGroupMembers via Flow collection, thus updating the UI."
+                
+                // Wait, if I remove the update, who adds `userId` to `selectedParticipants`?
+                // `loadGroupMembers` only preserves *existing* selection.
+                // Ah, effectively, if I want to "auto select" the new user, I should probably do a lightweight update to "intent to select" OR
+                // Update selection *after* the user exists? 
+                
+                // Actually, the Plan said: "Rely solely on userRepository.createPhantomUser updating the database... This enforces Room as the only observable source."
+                // "verify: 'You' and the new person are selected"
+                
+                // The safest way to modify selection without duplicating "data" is to update *only* the selection state *after* creation, 
+                // assuming the user will appear in `availableUsers`.
+                // But `loadGroupMembers` will fire asynchronously.
+                
+                // Let's implement exactly as planned: Remove the manual update that was causing duplication (likely adding to `groupMembers` manually while flow also added it).
+                // To Select the user: I can add them to `selectedParticipants` safely. The "duplication" bug was likely due to `groupMembers + userId` manually AND `groupMembers` from flow.
                 
                 _uiState.update { currentState ->
-                    currentState.copy(
-                        selectedParticipants = currentState.selectedParticipants + userId,
-                        userNames = userMap,
-                        groupMembers = currentState.groupMembers + userId
-                    ).withNormalizedShares()
+                     currentState.copy(selectedParticipants = currentState.selectedParticipants + userId).withNormalizedShares()
                 }
+                
                 recalculateSplits()
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = "Failed to add person: ${e.message}") }

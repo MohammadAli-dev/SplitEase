@@ -91,7 +91,7 @@ fun MainScaffold() {
                          navController.navigate(Screen.AddExpense.createRoute(groupId))
                     },
                     onNavigateToCreateGroup = {
-                        navController.navigate(Screen.CreateGroup.route)
+                        navController.navigate("${Screen.CreateGroup.route}?returnToDetail=true")
                     },
                     onNavigateToFriendDetail = { friendId ->
                         navController.navigate(Screen.PersonalLedger.createRoute(friendId))
@@ -159,9 +159,25 @@ fun MainScaffold() {
                     onExpenseSaved = { navController.popBackStack() }
                 )
             }
-            composable(Screen.CreateGroup.route) {
+            composable(
+                route = "${Screen.CreateGroup.route}?returnToDetail={returnToDetail}",
+                arguments = listOf(
+                    androidx.navigation.navArgument("returnToDetail") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    }
+                )
+            ) { backStackEntry ->
+                val returnToDetail = backStackEntry.arguments?.getBoolean("returnToDetail") ?: false
                 CreateGroupScreen(
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    navigateToDetailOnSuccess = returnToDetail,
+                    onGroupCreated = { groupId ->
+                        // Navigate to detail and clear create screen from backstack
+                        navController.navigate(Screen.GroupDetail.createRoute(groupId)) {
+                            popUpTo(Screen.CreateGroup.route) { inclusive = true }
+                        }
+                    }
                 )
             }
             composable(Screen.SyncIssues.route) {

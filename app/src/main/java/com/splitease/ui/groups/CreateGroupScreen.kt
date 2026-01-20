@@ -60,13 +60,20 @@ import com.splitease.ui.components.AddPersonDialog
 @Composable
 fun CreateGroupScreen(
     onNavigateBack: () -> Unit,
+    onGroupCreated: ((String) -> Unit)? = null,
+    navigateToDetailOnSuccess: Boolean = false,
     viewModel: CreateGroupViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
-            onNavigateBack()
+            val createdGroupId = uiState.createdGroupId
+            if (navigateToDetailOnSuccess && createdGroupId != null && onGroupCreated != null) {
+                onGroupCreated(createdGroupId)
+            } else {
+                onNavigateBack()
+            }
         }
     }
 
