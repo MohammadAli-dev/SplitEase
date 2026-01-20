@@ -281,10 +281,10 @@ Following a comprehensive safety audit (facilitated by CodeRabbit and architectu
 
 ---
 
-# Sprint 22: Navigation Correctness & UI Duplication Fix
+# Post-Sprint 21: Navigation & UI Correctness Bugfixes
 
 ## Overview
-This sprint focused on hardening the navigation flow for group creation and resolving a common UI glitch where participants appeared duplicated in non-group expense scenarios. These fixes were implemented while strictly maintaining the "Room as Single Source of Truth" and "Command-Driven Navigation" architectural rules.
+This bugfix round focused on hardening the navigation flow for group creation and resolving a common UI glitch where participants appeared duplicated in non-group expense scenarios. These fixes were implemented while strictly maintaining the "Room as Single Source of Truth" and "Command-Driven Navigation" architectural rules.
 
 ## Key Changes
 
