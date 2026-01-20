@@ -24,6 +24,7 @@ data class CreateGroupUiState(
     val selectedMemberIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
+    val createdGroupId: String? = null,
     val errorMessage: String? = null,
     // Trip date fields (only relevant for TRIP type)
     val hasTripDates: Boolean = false,
@@ -149,8 +150,10 @@ class CreateGroupViewModel @Inject constructor(
             try {
                 // Ensure we have a valid user ID before attempting to save
                 val creatorUserId = userContext.userId.first()
+                val newGroupId = java.util.UUID.randomUUID().toString()
 
                 groupRepository.createGroup(
+                    id = newGroupId,
                     name = state.name,
                     type = state.type.name,
                     memberIds = state.selectedMemberIds.toList(),
@@ -159,7 +162,7 @@ class CreateGroupViewModel @Inject constructor(
                     tripEndDate = state.tripEndDate,
                     creatorUserId = creatorUserId
                 )
-                _uiState.update { it.copy(isSaved = true, isLoading = false) }
+                _uiState.update { it.copy(isSaved = true, isLoading = false, createdGroupId = newGroupId) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Failed to save group", isLoading = false) }
             }

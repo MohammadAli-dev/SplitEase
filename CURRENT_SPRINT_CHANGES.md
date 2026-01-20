@@ -281,3 +281,31 @@ Following a comprehensive safety audit (facilitated by CodeRabbit and architectu
 
 ---
 
+# Sprint 22: Navigation Correctness & UI Duplication Fix
+
+## Overview
+This sprint focused on hardening the navigation flow for group creation and resolving a common UI glitch where participants appeared duplicated in non-group expense scenarios. These fixes were implemented while strictly maintaining the "Room as Single Source of Truth" and "Command-Driven Navigation" architectural rules.
+
+## Key Changes
+
+### 1. Intent-Preserving Navigation (Bug 1 Fix)
+- **Problem**: Users creating a group from the "Create Group Expense" flow were incorrectly navigated back to the Dashboard, requiring manual navigation to the newly created group.
+- **Strict Identity Ownership**: Updated `GroupRepository.createGroup` to accept a mandatory `id: String`. This allows the `CreateGroupViewModel` to generate the ID locally *before* persistence.
+- **Context-Aware Routing**: Introduced a `returnToDetail` navigation argument to the `CreateGroup` route. 
+- **Navigation Convergence**: 
+    - If launched from the Dashboard FAB (via `returnToDetail=true`), the app now navigates directly to the `GroupDetail` screen of the new group and clears the creation screen from the backstack.
+    - Standard creation from the Groups tab preserves the original behavior (popping back to the list).
+
+### 2. Participant List Integrity (Bug 2 Fix)
+- **Problem**: Adding a new user during a non-group expense flow resulted in the user appearing twice in the UI list due to concurrent manual and Flow-based state updates.
+- **Authoritative Derivation**: Refactored `AddExpenseViewModel` to rely solely on the database Flow for members.
+- **Deduplication**: Updated `loadGroupMembers` to merge the current user into the participant list using `.distinct()`, ensuring stable identity across recompositions.
+- **Manual State Elimination**: Removed the manual `_uiState.update` block for members in `createPhantomUserAndSelect`, letting the Room Flow drive the UI update automatically.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation (`./gradlew assembleDebug`).
+- **Navigation Test**: Verified that the FAB flow navigates to `GroupDetail`, while the Groups list flow pops back.
+- **UI Integrity Test**: Verified that adding a phantom user results in exactly one chip appearing in the participant list.
+
+---
+

@@ -258,6 +258,7 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 - **Repository** (`data/repository/`):
   - `AuthRepository`: Login/logout, token storage
   - `ExpenseRepository`: Expense CRUD with sync
+  - `GroupRepository`: Group management and participant coordination
   - `SettlementRepository`: Settlement recording with sync
   - `SyncRepository`: Sync queue, health monitoring, manual triggers
 - **Sync** (`data/sync/`):
