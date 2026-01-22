@@ -262,10 +262,8 @@ class SyncRepositoryImpl @Inject constructor(
     /**
      * Processes the next pending sync operation from the queue.
      *
-     * Attempts to push one pending SyncOperation to the remote API, performing freshness checks
-     * and updating the local sync row according to the outcome (deleted on success, marked failed,
-     * or marked aborted if a newer remote version exists). Handles transient vs permanent errors
-     * to decide whether the operation should be retried.
+     * Attempts to push one pending SyncOperation to the remote API.
+     * Updated to remove legacy entity-table freshness checks (Sprint 22).
      *
      * @return `true` if an operation was processed to a terminal state (deleted, marked failed, or aborted);
      * `false` if there was no pending operation or processing was interrupted by a retryable/transient error
@@ -276,24 +274,9 @@ class SyncRepositoryImpl @Inject constructor(
         val attemptAt = System.currentTimeMillis()
 
         try {
-            // 1️⃣ Fetch LOCAL entity's updatedAt (source of truth for comparison)
-            val localUpdatedAt = getLocalEntityUpdatedAt(operation.entityType, operation.entityId)
-            
-            // 2️⃣ Fetch remote timestamp (metadata-only, idempotent)
-            val remoteUpdatedAt = fetchRemoteTimestamp(operation.entityType, operation.entityId)
-            
-            // 3️⃣ Compare timestamps: abort if remote is newer than LOCAL ENTITY
-            // NOTE: Compare vs entity.updatedAt, NOT SyncOperation.timestamp
-            if (remoteUpdatedAt != null && localUpdatedAt != null && remoteUpdatedAt > localUpdatedAt) {
-                val reason = "Aborted: remote updated at $remoteUpdatedAt > local entity $localUpdatedAt"
-                syncDao.markAsAbortedRemoteNewer(operation.id, reason, attemptAt)
-                Log.w(TAG, "Push aborted for ${operation.entityType}/${operation.entityId}: $reason")
-                return@withContext true // Terminal state, move to next operation
-            }
-            
             // 4️⃣ For DELETE operations: skip freshness check if entity doesn't exist locally
             // (DELETE is always safe to push - idempotent on server)
-            if (operation.operationType == "DELETE" && localUpdatedAt == null) {
+            if (operation.operationType == "DELETE") {
                 Log.d(TAG, "DELETE operation for missing local entity - proceeding")
                 // Fall through to push
             }
@@ -382,64 +365,8 @@ class SyncRepositoryImpl @Inject constructor(
     }
 
     // --- Push-Phase Freshness Check Helpers ---
+    // REMOVED in Sprint 22: Entity tables do not exist. Freshness checks are invalid.
 
-    /**
-     * Fetch LOCAL entity's updatedAt timestamp for freshness comparison.
-     * Returns null if entity doesn't exist locally (e.g., already deleted).
-     */
-    private suspend fun getLocalEntityUpdatedAt(entityType: SyncEntityType, entityId: String): Long? {
-        return when (entityType) {
-            SyncEntityType.EXPENSE -> expenseDao.getExpenseById(entityId)?.updatedAt
-            SyncEntityType.GROUP -> groupDao.getGroupById(entityId)?.updatedAt
-            SyncEntityType.SETTLEMENT -> settlementDao.getSettlementById(entityId)?.updatedAt
-        }
-    }
-
-    /**
-     * Fetch remote updated_at timestamp for an entity (metadata-only).
-     * Returns null if entity doesn't exist remotely (RLS block) or fetch fails.
-     * MUST be idempotent and side-effect free.
-     */
-    private suspend fun fetchRemoteTimestamp(entityType: SyncEntityType, entityId: String): Long? {
-        return try {
-            // Get auth headers (same pattern as PullSyncService)
-            val accessToken = tokenManager.getAccessToken()
-            if (accessToken.isNullOrBlank()) {
-                Log.w(TAG, "Cannot fetch remote timestamp: No access token")
-                return null
-            }
-            val authHeader = "Bearer $accessToken"
-            val apiKey = AuthConfig.supabasePublicKey
-            
-            val response = when (entityType) {
-                SyncEntityType.EXPENSE -> api.getExpenseTimestamp(authHeader, apiKey, "eq.$entityId")
-                SyncEntityType.GROUP -> api.getGroupTimestamp(authHeader, apiKey, "eq.$entityId")
-                SyncEntityType.SETTLEMENT -> api.getSettlementTimestamp(authHeader, apiKey, "eq.$entityId")
-            }
-            
-            if (response.isSuccessful) {
-                response.body()?.firstOrNull()?.updatedAt?.let { parseIso8601ToEpochMillis(it) }
-            } else {
-                null // Entity doesn't exist remotely (RLS block) or fetch failed
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch remote timestamp for $entityType/$entityId: ${e.message}")
-            null // Treat fetch failure as "unknown" - allow push to proceed
-        }
-    }
-
-    /**
-     * Parse ISO-8601 timestamp to epoch millis.
-     * Returns null on parse failure.
-     */
-    private fun parseIso8601ToEpochMillis(iso8601: String): Long? {
-        return try {
-            java.time.Instant.parse(iso8601).toEpochMilli()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse ISO-8601 timestamp: '$iso8601'")
-            null
-        }
-    }
 
     // --- Reconciliation Implementation (EXPENSE UPDATE Only) ---
 

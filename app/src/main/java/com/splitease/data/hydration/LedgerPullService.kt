@@ -101,14 +101,16 @@ class LedgerPullServiceImpl @Inject constructor(
     }
 
     private fun RemoteLedgerOperation.toDomain(): LedgerOperation {
-        val resolvedCreatedAt = this.createdAt ?: throw HydrationInvariantException(
-            HydrationFailureReport(
-                invariant = HydrationInvariant.LEDGER_CREATED_AT_PRESENT,
-                location = HydrationFailureLocation.LEDGER_PULL_SERVICE,
-                operationId = this.operationId,
-                details = "deviceId=${this.deviceId}, logicalClock=${this.logicalClock}"
-            )
-        )
+        val resolvedCreatedAt: Long = try {
+            if (this.createdAt != null) {
+                java.time.Instant.parse(this.createdAt).toEpochMilli()
+            } else {
+                0L
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse diagnostic field 'created_at': ${this.createdAt}. Defaulting to 0.")
+            0L
+        }
 
         return LedgerOperation(
             operationId = this.operationId,
