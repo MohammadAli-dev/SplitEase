@@ -79,5 +79,11 @@ class PullSyncRollbackTest {
         // ASSERT
         assertTrue("Expected Error result", result is PullSyncResult.Error)
         assertTrue((result as PullSyncResult.Error).message.contains("Generic Replay Error"))
+
+        // Verify that operations were persisted BEFORE replay was attempted
+        coVerifyOrder {
+            ledgerDao.insertAll(ops)
+            replayEngine.replay(ops)
+        }
     }
 }

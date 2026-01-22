@@ -89,7 +89,7 @@ class LedgerPullServiceImpl @Inject constructor(
             } while (allOperations.size == offset)
 
             // Map to domain entities
-            // Note: We does NOT sort here. Sorting is the responsibility of PullSyncService.
+            // Note: We do NOT sort here. Sorting is the responsibility of PullSyncService.
             val domainOperations = allOperations.map { it.toDomain() }
 
             Log.d(TAG, "Total operations fetched: ${domainOperations.size}")
