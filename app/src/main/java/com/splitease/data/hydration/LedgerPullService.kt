@@ -15,23 +15,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Service for pulling ledger operations from Supabase for hydration.
+ * Service for pulling ledger operations from Supabase.
  *
- * **Sprint 18 Contract**:
- * - Read-only: Fetches operations, never writes.
- * - Local sorting: Supabase order is a hint; we sort locally.
- * - Opaque payloads: No interpretation of payload content here.
+ * **Sprint 22 Contract**:
+ * - Stateless Fetcher: Fetches ALL operations.
+ * - Order: Unimportant (Sorting happens in PullSyncService).
+ * - Pagination: Best-effort to retrieve full dataset.
  */
 interface LedgerPullService {
     /**
      * Fetch all ledger operations from Supabase.
      *
-     * **Contract**:
-     * - Returns operations sorted by (deviceId ASC, logicalClock ASC).
-     * - Sorting is performed locally, NOT trusting Supabase ordering.
-     * - Payloads are passed through opaquely.
-     *
-     * @return Result.success with sorted operations, or Result.failure on error.
+     * @return Result.success with list of operations (unsorted), or Result.failure on error.
      */
     suspend fun fetchAllOperations(): Result<List<LedgerOperation>>
 }
@@ -60,10 +55,6 @@ class LedgerPullServiceImpl @Inject constructor(
                 return@withContext Result.failure(IllegalStateException("Auth not configured"))
             }
 
-            // ATOMIC CREDENTIAL RETRIEVAL
-            // CRITICAL: We must use the user's JWT access token, NOT the static anon/public key.
-            // Supabase RLS (Row Level Security) relies on the JWT claims to determine row ownership.
-            // Using the anon key as a Bearer token would treat the request as unauthenticated.
             val accessToken = tokenManager.getAccessToken() ?: return@withContext Result.failure(
                 IllegalStateException("Zombie Session: Authenticated state detected but Access Token is missing")
             )
@@ -95,29 +86,20 @@ class LedgerPullServiceImpl @Inject constructor(
                 offset += PAGE_SIZE
 
                 Log.d(TAG, "Fetched ${operations.size} operations, total: ${allOperations.size}")
-            } while (allOperations.size == offset) // Continue if full page returned
+            } while (allOperations.size == offset)
 
-            // Map to domain entities and sort locally (CRITICAL: do not trust server order)
-            val sortedOperations = allOperations
-                .map { it.toDomain() }
-                .sortedWith(compareBy({ it.deviceId }, { it.logicalClock }))
+            // Map to domain entities
+            // Note: We does NOT sort here. Sorting is the responsibility of PullSyncService.
+            val domainOperations = allOperations.map { it.toDomain() }
 
-            Log.d(TAG, "Total operations fetched and sorted: ${sortedOperations.size}")
-            Result.success(sortedOperations)
+            Log.d(TAG, "Total operations fetched: ${domainOperations.size}")
+            Result.success(domainOperations)
         } catch (e: Exception) {
             Log.e(TAG, "Exception fetching ledger operations", e)
             Result.failure(e)
         }
     }
 
-    /**
-     * Maps remote DTO to domain entity.
-     *
-     * **Strict Invariant**: createdAt MUST be present. If missing, this throws a
-     * [HydrationInvariantException] to fail the hydration atomically.
-     *
-     * @throws HydrationInvariantException if createdAt is null.
-     */
     private fun RemoteLedgerOperation.toDomain(): LedgerOperation {
         val resolvedCreatedAt = this.createdAt ?: throw HydrationInvariantException(
             HydrationFailureReport(

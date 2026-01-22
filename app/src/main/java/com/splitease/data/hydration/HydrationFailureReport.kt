@@ -36,7 +36,12 @@ enum class HydrationInvariant(val category: HydrationInvariantCategory) {
     /**
      * ConflictResolutionPayload must be valid JSON.
      */
-    RESOLUTION_PAYLOAD_VALID(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
+    RESOLUTION_PAYLOAD_VALID(HydrationInvariantCategory.MALFORMED_REMOTE_DATA),
+
+    /**
+     * All dependencies for an operation must be present in the ledger (e.g., Group for Expense).
+     */
+    DEPENDENCIES_SATISFIED(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
 }
 
 /**

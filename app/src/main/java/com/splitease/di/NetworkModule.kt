@@ -64,17 +64,12 @@ object NetworkModule {
     @Provides
     @Singleton
     fun providePullSyncService(
-        api: SplitEaseApi,
-        syncMetadataStore: com.splitease.data.sync.SyncMetadataStore,
-        tokenManager: com.splitease.data.auth.TokenManager,
-        expenseDao: com.splitease.data.local.dao.ExpenseDao,
-        groupDao: com.splitease.data.local.dao.GroupDao,
-        settlementDao: com.splitease.data.local.dao.SettlementDao,
-        syncDao: com.splitease.data.local.dao.SyncDao,
-        transactionRunner: com.splitease.data.sync.TransactionRunner
+        ledgerPullService: com.splitease.data.hydration.LedgerPullService,
+        ledgerDao: com.splitease.data.local.dao.LedgerDao,
+        replayEngine: com.splitease.data.hydration.ReplayEngine
     ): com.splitease.data.sync.PullSyncService {
         return com.splitease.data.sync.PullSyncServiceImpl(
-            api, syncMetadataStore, tokenManager, expenseDao, groupDao, settlementDao, syncDao, transactionRunner
+            ledgerPullService, ledgerDao, replayEngine
         )
     }
 }

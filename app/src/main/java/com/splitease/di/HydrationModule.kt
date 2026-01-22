@@ -54,11 +54,10 @@ object HydrationModule {
     @Singleton
     fun provideHydrationCoordinator(
         db: AppDatabase,
-        ledgerPullService: LedgerPullService,
-        replayEngine: ReplayEngine,
+        pullSyncService: com.splitease.data.sync.PullSyncService,
         deviceRoleManager: com.splitease.data.device.DeviceRoleManager,
         @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): HydrationCoordinator {
-        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, deviceRoleManager, ioDispatcher)
+        return HydrationCoordinatorImpl(db, pullSyncService, deviceRoleManager, ioDispatcher)
     }
 }

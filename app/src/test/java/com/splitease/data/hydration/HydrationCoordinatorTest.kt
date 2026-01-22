@@ -21,8 +21,7 @@ class HydrationCoordinatorTest {
     private val groupDao: GroupDao = mockk(relaxed = true)
     private val settlementDao: SettlementDao = mockk(relaxed = true)
     private val ledgerDao: com.splitease.data.local.dao.LedgerDao = mockk(relaxed = true)
-    private val ledgerPullService: LedgerPullService = mockk(relaxed = true)
-    private val replayEngine: ReplayEngine = mockk(relaxed = true)
+    private val pullSyncService: com.splitease.data.sync.PullSyncService = mockk(relaxed = true)
     private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager = mockk(relaxed = true)
 
     private val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
@@ -32,8 +31,7 @@ class HydrationCoordinatorTest {
     fun setup() {
         coordinator = HydrationCoordinatorImpl(
             appDatabase,
-            ledgerPullService,
-            replayEngine,
+            pullSyncService,
             deviceRoleManager,
             testDispatcher
         )
@@ -145,10 +143,10 @@ class HydrationCoordinatorTest {
         coEvery { ledgerDao.getOperationCountSync() } returns 0
         coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.PRIMARY
 
-        // AND: fetchAllOperations is slow
-        coEvery { ledgerPullService.fetchAllOperations() } coAnswers {
+        // AND: performPullSync is slow
+        coEvery { pullSyncService.performPullSync() } coAnswers {
             delay(1000)
-            Result.success(emptyList())
+            com.splitease.data.sync.PullSyncResult.Success(0, 0)
         }
 
         // WHEN: Two calls are made in parallel

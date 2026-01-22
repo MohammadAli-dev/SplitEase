@@ -4,6 +4,8 @@ import android.util.Log
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.device.DeviceRole
 import com.splitease.data.device.DeviceRoleManager
+import com.splitease.data.sync.PullSyncService
+import com.splitease.data.sync.PullSyncResult
 import com.splitease.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -85,8 +87,7 @@ sealed class HydrationResult {
 @Singleton
 class HydrationCoordinatorImpl @Inject constructor(
     private val db: AppDatabase,
-    private val ledgerPullService: LedgerPullService,
-    private val replayEngine: ReplayEngine,
+    private val pullSyncService: PullSyncService,
     private val deviceRoleManager: DeviceRoleManager,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : HydrationCoordinator {
@@ -136,45 +137,32 @@ class HydrationCoordinatorImpl @Inject constructor(
             // === STEP 1: Set Hydration Attempted Flag ===
             deviceRoleManager.setHydrationAttempted(true)
 
-            // === STEP 2: Pull ledger operations from Supabase ===
-            val pullResult = ledgerPullService.fetchAllOperations()
-            if (pullResult.isFailure) {
-                val error = pullResult.exceptionOrNull() ?: RuntimeException("Unknown pull error")
-                Log.e(TAG, "Failed to pull ledger operations", error)
-                return@withContext HydrationResult.Failed(error)
-            }
+            // === STEP 2: Execute Unified Pull Pipeline (Fetch -> Ingest -> Replay) ===
+            // Sprint 22: Unify Hydration and Pull Sync into single path
+            val pullResult = pullSyncService.performPullSync()
 
-            val operations = pullResult.getOrNull() ?: emptyList()
-            Log.d(TAG, "Pulled ${operations.size} ledger operations")
-
-            // === NEW STEP: Persist Ledger Operations (Sprint 21 Ingest) ===
-            if (operations.isNotEmpty()) {
-                db.ledgerDao().insertAll(operations)
-                Log.d(TAG, "Persisted ${operations.size} ledger operations to local ledger")
-            }
-
-            // === STEP 3: Check if there's anything to hydrate ===
-            if (operations.isEmpty()) {
-                Log.d(TAG, "No ledger operations found, aborting hydration (nothing to hydrate)")
-                deviceRoleManager.setHydrationAttempted(false)
-                return@withContext HydrationResult.Aborted("No ledger operations found on server")
-            }
-
-            // === STEP 4: Replay operations into Room ===
-            val replayResult = replayEngine.replay(operations)
-            when (replayResult) {
-                is ReplayResult.Success -> {
-                    Log.d(TAG, "Replay completed successfully")
+            when (pullResult) {
+                is PullSyncResult.Success -> {
+                    if (pullResult.operationsIngested == 0) {
+                        Log.d(TAG, "No ledger operations found, aborting hydration")
+                        // If no operations, we treat it as aborted/empty server state.
+                        // We reset the attempted flag so it can retry later if needed,
+                        // or should we stay in UNKNOWN role?
+                        // If server is truly empty, we are basically fresh.
+                        deviceRoleManager.setHydrationAttempted(false)
+                        return@withContext HydrationResult.Aborted("No ledger operations found on server")
+                    }
+                    Log.d(TAG, "Hydration Pipeline Success: ${pullResult.operationsIngested} ingested, ${pullResult.replayedCount} replayed")
                 }
-                is ReplayResult.Failed -> {
-                    Log.e(TAG, "Replay failed: ${replayResult.reason}")
+                is PullSyncResult.Error -> {
+                    Log.e(TAG, "Hydration Pipeline Failed: ${pullResult.message}", pullResult.cause)
                     return@withContext HydrationResult.Failed(
-                        RuntimeException("Replay failed: ${replayResult.reason}")
+                        pullResult.cause ?: RuntimeException(pullResult.message)
                     )
                 }
             }
 
-            // === STEP 5: Set role to REPLICA (implies read-only) ===
+            // === STEP 3: Set role to REPLICA (implies read-only) ===
             deviceRoleManager.setDeviceRole(DeviceRole.REPLICA)
             deviceRoleManager.setHydrationAttempted(false)
             Log.d(TAG, "Entered REPLICA role, hydration complete")

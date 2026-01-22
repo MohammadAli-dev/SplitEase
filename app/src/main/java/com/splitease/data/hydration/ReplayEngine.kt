@@ -83,23 +83,17 @@ class ReplayEngineImpl @Inject constructor(
 
     override suspend fun replay(operations: List<LedgerOperation>): ReplayResult = withContext(ioDispatcher) {
         if (operations.isEmpty()) {
-            Log.d(TAG, "No operations to replay")
             return@withContext ReplayResult.Success
         }
 
-        // Sort locally (CRITICAL: do not trust input order)
+        // Sort locally (CRITICAL: (deviceId, logicalClock) is the ONLY valid ordering)
         val sortedOps = operations.sortedWith(compareBy({ it.deviceId }, { it.logicalClock }))
         Log.d(TAG, "Starting replay of ${sortedOps.size} operations")
 
-        // SPRINT 21: Strict Execution Contract
-        // ReplayEngine applies ALL operations unconditionally.
-        // It does not filter, suppress, or judge.
-        // Suppression is the responsibility of the Derivation Layer (Repositories/UI).
-
-        val applied = mutableSetOf<String>() // operationIds that have been applied
+        val applied = mutableSetOf<String>()
         var deferred = sortedOps.toMutableList()
 
-        // Convergence loop: keep retrying until no progress is made
+        // Convergence loop: keep retrying until all ops applied or no progress made (deadlock)
         var pass = 0
         do {
             pass++
@@ -108,61 +102,60 @@ class ReplayEngineImpl @Inject constructor(
 
             for (op in deferred) {
                 if (applied.contains(op.operationId)) {
-                    // Already applied (idempotency check)
                     continue
                 }
 
-                val canApply = canApplyOperation(op)
-                if (canApply) {
-                    try {
-                        applyOperation(op)
+                try {
+                    // SPRINT 22 STRICTNESS: Attempt application UNCONDITIONALLY.
+                    applyOperation(op)
+                    applied.add(op.operationId)
+                    appliedThisPass++
+
+                } catch (e: SQLiteConstraintException) {
+                    val msg = e.message.orEmpty()
+                    if (isUniqueConstraintViolation(msg)) {
+                        // Benign: Entity already exists (idempotency).
+                        Log.d(TAG, "Idempotent skip for ${op.operationId}: $msg")
                         applied.add(op.operationId)
                         appliedThisPass++
-                    } catch (e: SQLiteConstraintException) {
-                        val msg = e.message.orEmpty()
-                        if (msg.contains("UNIQUE constraint failed", ignoreCase = true) ||
-                            msg.contains("PRIMARY KEY constraint failed", ignoreCase = true)) {
-                            // Benign: Entity already exists (idempotency)
-                            Log.d(TAG, "Operation ${op.operationId} already applied (idempotency): $msg")
-                            applied.add(op.operationId) // Mark as applied even if DB no-op
-                            appliedThisPass++
-                        } else {
-                            Log.e(TAG, "Non-idempotent constraint violation for ${op.operationId}: $msg", e)
-                            throw e
-                        }
-                    } catch (e: HydrationInvariantException) {
+                    } else if (isForeignKeyConstraintViolation(msg)) {
+                        // Dependency missing. Defer to next pass.
+                        Log.d(TAG, "Deferring ${op.operationId} (FK violation): $msg")
+                        nextDeferred.add(op)
+                    } else {
+                        // Other constraints -> FATAL
+                        Log.e(TAG, "Fatal constraint violation for ${op.operationId}: $msg", e)
                         throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Fatal error applying operation ${op.operationId}: ${e.message}")
-                        return@withContext ReplayResult.Failed("Fatal error applying operation ${op.operationId}: ${e.message}")
                     }
-                } else {
-                    nextDeferred.add(op)
+                } catch (e: HydrationInvariantException) {
+                    // Invariant violations are critical system errors - propagate them
+                    Log.e(TAG, "Invariant violated for ${op.operationId}: ${e.report}", e)
+                    throw e
+                } catch (e: Exception) {
+                    // Other fatal errors return Failed result
+                    Log.e(TAG, "Fatal error applying operation ${op.operationId}", e)
+                    return@withContext ReplayResult.Failed("Fatal error: ${e.message}")
                 }
             }
 
             deferred = nextDeferred
             Log.d(TAG, "Pass $pass: applied $appliedThisPass, deferred ${deferred.size}")
 
-        } while (appliedThisPass > 0 && deferred.isNotEmpty())
+            if (deferred.isNotEmpty() && appliedThisPass == 0) {
+                // DEADLOCK
+                val deferredIds = deferred.take(5).map { "${it.entityType}:${it.operationId}" }
+                val cause = "Replay Deadlock: ${deferred.size} operations pending with no progress. Missing Dependencies? First 5: $deferredIds"
+                Log.e(TAG, cause)
+                
+                return@withContext ReplayResult.Failed("Replay Deadlock: ${deferred.size} operations pending. First: $deferredIds")
+            }
 
-        // Check for unresolved dependencies
-        if (deferred.isNotEmpty()) {
-            val deferredIds = deferred.take(5).map { "${it.entityType}:${it.entityId}" }
-            val reason = "Hydration failed: ${deferred.size} operations could not be applied after convergence. " +
-                "First 5: $deferredIds"
-            Log.e(TAG, reason)
-            return@withContext ReplayResult.Failed(reason)
-        }
+        } while (deferred.isNotEmpty())
 
         Log.d(TAG, "Replay complete: ${applied.size} operations applied in $pass passes")
 
         // SPRINT 20: Post-Replay Conflict Detection
-        // Run detection ONLY on the successfully replayed ledger prefix.
-        // We filter the original sorted list to ensure we only detect on what was applied
-        // (though in success case, this is everything).
         val replayedHistory = sortedOps.filter { applied.contains(it.operationId) }
-        
         val prefix = LedgerPrefix.fromConvergedReplay(replayedHistory)
         val detector = ConflictDetector()
         val conflicts = detector.detect(prefix)
@@ -176,80 +169,18 @@ class ReplayEngineImpl @Inject constructor(
         ReplayResult.Success
     }
 
-
-
-    /**
-     * Check if an operation's dependencies are satisfied.
-     *
-     * Dependencies:
-     * - UPDATE/DELETE for entity: entity must exist (from prior CREATE)
-     * - EXPENSE CREATE: group must exist
-     * - SETTLEMENT CREATE: group must exist
-     * - MEMBER DELETE: group must exist
-     */
-    private suspend fun canApplyOperation(op: LedgerOperation): Boolean {
-        return when (op.entityType) {
-            ENTITY_GROUP -> {
-                when (op.operationType) {
-                    OP_CREATE -> true // Groups have no dependencies
-                    OP_UPDATE, OP_DELETE -> db.groupDao().getGroupById(op.entityId) != null
-                    else -> true
-                }
-            }
-            ENTITY_EXPENSE -> {
-                val snapshot = try {
-                    gson.fromJson(op.payload, ExpenseSnapshot::class.java)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse ExpenseSnapshot: ${e.message}")
-                    return false
-                }
-                when (op.operationType) {
-                    OP_CREATE -> {
-                        // Expense requires group to exist
-                        db.groupDao().getGroupById(snapshot.groupId) != null
-                    }
-                    OP_UPDATE, OP_DELETE -> {
-                        // Expense must exist (from prior CREATE)
-                        db.expenseDao().existsById(op.entityId)
-                    }
-                    else -> true
-                }
-            }
-            ENTITY_SETTLEMENT -> {
-                val snapshot = try {
-                    gson.fromJson(op.payload, SettlementSnapshot::class.java)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse SettlementSnapshot: ${e.message}")
-                    return false
-                }
-                when (op.operationType) {
-                    OP_CREATE -> {
-                        // Settlement requires group to exist
-                        db.groupDao().getGroupById(snapshot.groupId) != null
-                    }
-                    OP_UPDATE, OP_DELETE -> {
-                        db.settlementDao().existsById(op.entityId)
-                    }
-                    else -> true
-                }
-            }
-            ENTITY_MEMBER -> {
-                val snapshot = try {
-                    gson.fromJson(op.payload, MemberSnapshot::class.java)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse MemberSnapshot: ${e.message}")
-                    return false
-                }
-                // Member operations require group to exist
-                db.groupDao().getGroupById(snapshot.groupId) != null
-            }
-            OP_RESOLVE_CONFLICT -> true // Metadata, always applicable
-            else -> {
-                Log.w(TAG, "Unknown entity type: ${op.entityType}")
-                true // Allow unknown types to pass (forward compatibility)
-            }
-        }
+    private fun isUniqueConstraintViolation(msg: String): Boolean {
+        return msg.contains("UNIQUE constraint failed", ignoreCase = true) ||
+               msg.contains("PRIMARY KEY constraint failed", ignoreCase = true)
     }
+
+    private fun isForeignKeyConstraintViolation(msg: String): Boolean {
+        return msg.contains("FOREIGN KEY constraint failed", ignoreCase = true)
+    }
+
+
+
+
 
     /**
      * Apply an operation by deserializing payload and persisting to Room.

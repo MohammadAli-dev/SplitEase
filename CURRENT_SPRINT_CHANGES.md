@@ -309,3 +309,44 @@ This bugfix round focused on hardening the navigation flow for group creation an
 
 ---
 
+# Sprint 22: Unified Pull-Sync & Replay Convergence
+
+## Overview
+This sprint implements the definitive multi-device synchronization pipeline. It completes the "Dumb Courier" architecture by enabling devices to fetch, merge, and replay ledger history from the cloud. The system now guarantees eventual consistency across all devices through strictly ordered replay and deterministic convergence logic.
+
+## Key Changes
+
+### 1. Unified Pull-Sync Pipeline
+- **PullSyncService**: Developed the master synchronization pipeline. It orchestrates the flow from cloud ingestion (`LedgerPullService`) to local persistence (`LedgerDao`) and finally to deterministic state projection (`ReplayEngine`).
+- **Global Serialization**: Enforced authoritative local sorting by `(deviceId, logicalClock)` during the pull phase. This ensures that regardless of the order in which Supabase returns operations, every device replays the history in the exact same sequence.
+- **Incremental Convergence**: The pipeline now merges remote operations into the local ledger before triggering replay, allowing the `ReplayEngine` to resolve dependencies across both new and existing data.
+
+### 2. Strict Replay Engine (Sprint 22 Hardening)
+- **Convergence Algorithm**: Implemented a multi-pass replay engine that "unblocks" operations as their dependencies arrive. It provides a mathematical guarantee of convergence: if a solution exists in the ledger, the engine will find it.
+- **Exception Contract**: Hardened the error handling model to distinguish between critical and recoverable failures:
+    - **Invariant Violations**: `HydrationInvariantException` is re-thrown as a fatal error to prevent data corruption.
+    - **Idempotency**: `SQLiteConstraintException` (Unique/PK) is treated as a benign "skip," enabling safe resumption after crashes.
+    - **Dependencies**: `SQLiteConstraintException` (FK) triggers an automatic deferral to the next replay pass.
+    - **Deadlock Detection**: If no operations can be applied in a pass due to cyclic or missing dependencies, the engine returns a `Failed` result rather than crashing.
+
+### 3. Orchestration & Resilience
+- **HydrationCoordinator**: Automated the "Clean Install" and "Remediation" flows. It now detects "Dirty" states (e.g., interrupted hydration) and automatically triggers a safe database wipe and re-hydration.
+- **Fast-Fail Admission**: Protected the hydration lifecycle with a `Mutex`, ensuring only one sync/rehydration process can modify the database at a time.
+- **SyncWorker Integration**: Refactored the background sync worker to observe the new `PullSyncResult` sealed class, mapping errors to WorkManager retry policies.
+
+### 4. Data Layer & Repository Alignment
+- **Sequential Ledger Access**: Added `getAllOperationsSequentially()` to `LedgerDao` to provide the `ReplayEngine` with a stable, ordered view of the entire operation history.
+- **Repository Observability**: Verified that all entity repositories correctly observe the converged ledger state, ensuring UI consistency follows sync completion immediately.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation and ASM transformations (`./gradlew assembleDebug`).
+- **Tests**:
+    - **`PullSyncPipelineTest`**: Verified the full Merge-Sort-Replay sequence.
+    - **`ReplayEngineTest`**: Verified strict exception handling, deadlock detection, and idempotency.
+    - **`HydrationCoordinatorTest`**: Verified remediation logic and concurrency guards.
+    - **`PullSyncRollbackTest`**: Verified pipeline aborts on fetch/replay failures.
+- **Performance**: Confirmed linear $O(N \log N)$ sorting and $O(N)$ replay passes for a standard ledger.
+
+---
+
+**Sprint 22 Status: Unified Pull-Sync & Replay Complete.**

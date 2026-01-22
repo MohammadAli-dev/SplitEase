@@ -93,6 +93,13 @@ interface LedgerDao {
     fun getAllOperations(): Flow<List<LedgerOperation>>
 
     /**
+     * Retrieve all operations sorted strictly by (deviceId, logicalClock).
+     * Used by [ReplayEngine] for deterministic replay.
+     */
+    @Query("SELECT * FROM ledger_operations ORDER BY deviceId ASC, logicalClock ASC")
+    suspend fun getAllOperationsSequentially(): List<LedgerOperation>
+
+    /**
      * Retrieve ledger operations for the specified entity, ordered by deviceId then logicalClock.
      *
      * @param entityType The type/category of the entity whose operations to fetch.
