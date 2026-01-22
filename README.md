@@ -96,7 +96,10 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Derivation Integrity** | ✅ Complete | "Loser" history remains in DB for audit but is hidden from UI/Effective State |
 | **Order Independence** | ✅ Complete | Results are consistent regardless of whether resolution arrives before or after data |
 | **Supabase Mirror (Push)** | ✅ Complete | Append-only mirroring of local ledger to Supabase `ledger_operations` |
-| **Dumb Courier Architecture** | ✅ Design | Supabase serves as durable exchange layer; local app maintains logic/authority |
+| **Dumb Courier Architecture** | ✅ Complete | Supabase serves as durable exchange layer; local app maintains logic/authority |
+| **Unified Pull-Sync** | ✅ Complete | Master pipeline orchestrating Fetch, Merge, Sort, and Replay |
+| **Strict Replay Engine** | ✅ Complete | Convergence-based multi-pass execution with deadlock detection |
+| **Hydration & Remediation** | ✅ Complete | Automated fresh-install setup and self-healing for structural inconsistencies |
 
 
 ### 🎯 Sync Status Indicators
@@ -135,7 +138,7 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 1. **Offline-First**: The local database (Room) is the single source of truth. The UI never observes network responses directly.
 
 2. **Three-Tier Convergence Logic**:
-    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively executes all ledger history unconditionally to ensure raw state convergence.
+    - **Tier 1: Deterministic Replay (`ReplayEngine`)**: Authoritatively executes all ledger history in a multi-pass convergence loop (Merge -> Sort -> Replay).
     - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
     - **Tier 3: Explicit Conflict Resolution (Derivation)**: Repositories join resolution "facts" with raw state to project the Effective State (hiding Zombies/Losers) without corrupting the historical record.
 
@@ -178,10 +181,11 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 ┌───────────────────────────────┐      ┌────────────────────────────────┐
 │       WRITE PATH (PUSH)       │      │       READ PATH (PULL)         │
 │                               │      │                                │
-│ 1. DB: [ledger_operations]    │      │ 1. [Remote API]: Pull Ops      │
-│ 2. WorkManager: [PushWorker]  │      │ 2. [ReplayEngine]: Tier 1      │
-│ 3. [Remote Service]: Mirror   │      │    (Deterministic Replay)      │
-│                               │      │ 3. [ConflictDetector]: Tier 2  │
+│ 1. DB: [ledger_operations]    │      │ 1. [LedgerPullService]: Fetch  │
+│ 2. WorkManager: [PushWorker]  │      │ 2. [PullSyncService]: Ingest   │
+│ 3. [Remote Service]: Mirror   │      │ 3. [ReplayEngine]: Tier 1      │
+│                               │      │    (Convergence Replay)        │
+│                               │      │ 4. [ConflictDetector]: Tier 2  │
 │                               │      │    (Multi-Device Detection)    │
 └───────────────┬───────────────┘      └──────────────┬─────────────────┘
                 │                                     │
@@ -518,28 +522,30 @@ POST /sync → {"success": true}
 #### `GET /ledger/pull`
 ```json
 // Request
-// GET /ledger/pull?sinceDeviceId=dev1&sinceClock=10
+// GET /rest/v1/ledger_operations?select=*
+// Header: Range: 0-999
 
-// Response
-{
-  "operations": [
-    {
-      "operationId": "456",
-      "entityType": "GROUP",
-      "entityId": "g1",
-      "operationType": "UPDATE",
-      "payload": "{...}",
-      "deviceId": "dev2",
-      "logicalClock": 11,
-      "createdAt": 1700000000000
-    }
-  ],
-  "highWaterMarks": {
-    "dev1": 10,
-    "dev2": 11
+// Response (Array of operations)
+[
+  {
+    "operation_id": "456",
+    "entity_type": "GROUP",
+    "entity_id": "g1",
+    "operation_type": "UPDATE",
+    "payload": "{...}",
+    "device_id": "dev2",
+    "logical_clock": 11,
+    "created_at": "2024-01-01T00:00:00Z"
   }
-}
+]
 ```
+
+### Stateless Pull Contract (Sprint 22)
+
+The `LedgerPullService` is now a **Stateless Fetcher**. It does not track high-water marks (cursors). Instead, it fetches the available history, and the `PullSyncService` performs an `INSERT OR IGNORE` merge into the local database, followed by a full sorted replay. This ensures:
+1. **Convergence**: Every device sees the exact same sequence of facts.
+2. **Resilience**: Interrupted pulls are safely resumed by re-fetching.
+3. **Simplicity**: No complex cursor synchronization between client and server.
 
 ---
 
