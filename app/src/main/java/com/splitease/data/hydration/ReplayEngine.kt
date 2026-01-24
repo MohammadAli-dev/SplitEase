@@ -142,7 +142,7 @@ class ReplayEngineImpl @Inject constructor(
                 for (op in distinctOps) {
                     val opRef = LedgerOpRef(op.deviceId, op.logicalClock)
                     if (opRef != chosenRef) {
-                        suppressedOpIds.add(op.operationId) // Suppress looser
+                        suppressedOpIds.add(op.operationId) // Suppress loser
                     }
                     // Winner (chosenRef) is allowed to proceed
                 }
