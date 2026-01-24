@@ -281,3 +281,43 @@ Following a comprehensive safety audit (facilitated by CodeRabbit and architectu
 
 ---
 
+# Sprint 21.1: Stability & Resolution Correctness
+
+## Overview
+This stabilization sprint restores deterministic correctness to the conflict resolution system and enforces architectural purity in the UI layer. It addresses critical logic bugs in the `ReplayEngine` and `ExpenseRepository` that were flagged by the Sprint 21 Stability Gate, ensuring that "losers" of resolved conflicts are properly suppressed and that the UI adheres strictly to the `StateFlow` unidirectional data flow.
+
+## Key Changes
+
+### 1. ReplayEngine: Resolution Supremacy
+Transitioned from a "passive" replay model (apply everything, filter later) to an **"active suppression"** model.
+- **Pre-Replay Scan**: `ReplayEngine` now performs a deterministic pre-scan of the operation history to build a map of `resolvedConflicts` (`conflictId -> chosenOpRef`).
+- **Loser Suppression**: During the replay loop, the engine computes the `conflictId` for each group of conflicting operations. If a resolution exists, any operation that is NOT the winner (`chosenOpRef`) is strictly suppressed and never touches the database.
+- **Deterministic ID Generation**: Duplicated the `generateConflictId` logic from `ConflictDetector` into `ReplayEngine` to allow identifying conflict participants without relying on pre-existing database rows.
+
+### 2. ExpenseRepository: Visibility Derivation
+Refined the projected state logic to follow strict visibility rules for entities in conflict:
+- **Zombie Invariant**: Entities in a `POST_DELETE_MUTATION` conflict (deleted on one device, edited on another) are now hidden by default if unresolved.
+- **Resolution-Aware Visibility**: Once resolved, visibility depends solely on the **winner's operation type**:
+    - Winner is `UPDATE` -> Visible.
+    - Winner is `DELETE` -> Hidden.
+- **Batch Optimization**: Fixed a mocking mismatch in `ExpenseRepositoryDerivationTest` to correctly verify the `getOperationTypesBatch` path used for performant visibility lookups.
+
+### 3. UI Architectural Purity (LiveData Removal)
+Eliminated the use of `LiveData` in the Compose layer to maintain a pure, boilerplate-free architecture.
+- **StateFlow Migration**: Refactored `ClaimInviteScreen` to observe navigation results and auth state via `SavedStateHandle.getStateFlow().collectAsState()`.
+- **Single-Fire Consistency**: Established a pattern for idempotent event consumption in Compose to replace the "SingleLiveEvent" or LiveData-observer behaviors.
+
+### 4. Stability Gate Recovery
+- **Zero-Failure Baseline**: Cleared 3 critical unit test failures in `ReplayEngineResolutionTest` and `ExpenseRepositoryDerivationTest`.
+- **Full Sweep Verification**: Established a 100% pass rate across all 64 unit tests as a hard exit criterion for Sprint 21.1.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation.
+- **Tests**:
+    - **`ReplayEngineResolutionTest`**: Verified that reordering resolution operations does not affect the final state (all participants suppressed except the winner).
+    - **`ExpenseRepositoryDerivationTest`**: Verified correct hiding/showing logic for resolved and unresolved zombies.
+    - **Full Suite**: `./gradlew testDebugUnitTest` passed (64 tests).
+
+---
+
+**Sprint 21.1 Status: Stability Gate Cleared. Correctness Restored.**
