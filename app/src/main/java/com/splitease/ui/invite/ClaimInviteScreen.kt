@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -50,10 +49,10 @@ fun ClaimInviteScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Observe auth result via SavedStateHandle LiveData at composable top level
+    // Observe auth result via SavedStateHandle StateFlow at composable top level
     val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
-    val authResultLiveData = savedStateHandle?.getLiveData<String>(NavResultKeys.AUTH_RESULT)
-    val authResult by authResultLiveData?.observeAsState() ?: remember { mutableStateOf(null) }
+    val authResult by savedStateHandle?.getStateFlow<String?>(NavResultKeys.AUTH_RESULT, null)
+        ?.collectAsState() ?: remember { mutableStateOf(null) }
 
     // Handle auth result
     LaunchedEffect(authResult) {
