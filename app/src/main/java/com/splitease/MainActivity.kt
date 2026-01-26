@@ -6,7 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
                     val currentRoute = navController.currentDestination?.route
                     if (currentRoute != Screen.Login.route) {
                         navController.navigate(Screen.Login.route) {
-                            popUpTo(0) { inclusive = true } // Clear entire backstack including MainScaffold ViewModels
+                            popUpTo(navController.graph.id) { inclusive = true } // Clear entire backstack including MainScaffold ViewModels
                         }
                     }
                 }
