@@ -15,6 +15,11 @@ import javax.inject.Singleton
 
 interface LocalUserManager {
     val userId: Flow<String>
+    
+    /**
+     * Clears the locally persisted user identity (Sprint 22.1 Hard Isolation).
+     */
+    suspend fun clearIdentity()
 }
 
 private val Context.dataStore by preferencesDataStore(name = IdentityConstants.PREFS_FILE)
@@ -52,5 +57,15 @@ class LocalUserManagerImpl @Inject constructor(
         }
         // Return what's in the store (either what we wrote or what someone else wrote)
         return context.dataStore.data.first()[userIdKey] ?: newId
+    }
+
+    /**
+     * Clears the locally persisted user identity.
+     * MUST be called during Hard Logout to ensure the next session gets a fresh ID.
+     */
+    override suspend fun clearIdentity() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(userIdKey)
+        }
     }
 }

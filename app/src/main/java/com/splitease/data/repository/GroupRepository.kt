@@ -148,6 +148,13 @@ class GroupRepositoryImpl @Inject constructor(
             if (!deviceRoleManager.canWrite()) {
                 throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
             }
+            
+            // Critical Guardrail: Ensure creator identity exists to prevent broken UI state
+            val creatorExists = appDatabase.userDao().getUser(creatorUserId).first() != null
+            if (!creatorExists) {
+                 throw IllegalStateException("Invariant violated: createGroup attempted without local user row for $creatorUserId")
+            }
+
             val groupId = id
             val now = Date()
 

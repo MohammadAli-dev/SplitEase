@@ -24,4 +24,16 @@ sealed interface AuthState {
      * @param cloudUserId The user ID from Supabase (auth.users.id).
      */
     data class Authenticated(val cloudUserId: String) : AuthState
+
+    /**
+     * User is in the process of logging out.
+     * UI should show a blocking loading indicator.
+     */
+    object LoggingOut : AuthState
+
+    /**
+     * Authentication or Logout error.
+     * @param isFatal If true, the app is in an unrecoverable state (e.g. logout failed).
+     */
+    data class Error(val message: String, val isFatal: Boolean = false) : AuthState
 }

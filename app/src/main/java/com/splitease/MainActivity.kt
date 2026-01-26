@@ -6,6 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
@@ -105,12 +108,48 @@ class MainActivity : ComponentActivity() {
                 }
             }
             
+            // Gap 2/10: Handle Logout Transitions & Blocking UI
+            LaunchedEffect(authState) {
+                if (authState is com.splitease.data.auth.AuthState.Unauthenticated) {
+                    // Only navigate if we are not already at the start/login to avoid loops
+                    val currentRoute = navController.currentDestination?.route
+                    if (currentRoute != Screen.Login.route) {
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true } // Clear entire backstack including MainScaffold ViewModels
+                        }
+                    }
+                }
+            }
+            
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    SplitEaseNavGraph(
-                        navController = navController,
-                        startDestination = startDestination
-                    )
+                androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        SplitEaseNavGraph(
+                            navController = navController,
+                            startDestination = startDestination
+                        )
+                    }
+                    
+                    // Blocking UI for LoggingOut state
+                    if (authState is com.splitease.data.auth.AuthState.LoggingOut) {
+                        androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+                            Surface(
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 8.dp
+                            ) {
+                                androidx.compose.foundation.layout.Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                                ) {
+                                    androidx.compose.material3.CircularProgressIndicator()
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(16.dp))
+                                    Text("Logging out safely...")
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

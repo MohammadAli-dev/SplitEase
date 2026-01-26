@@ -94,7 +94,7 @@ class IdentityLinkStateStoreImpl @Inject constructor(
      */
     override suspend fun reset() {
         context.identityLinkDataStore.edit { preferences ->
-            preferences[KEY_IS_LINKED] = false
+            preferences.remove(KEY_IS_LINKED)
         }
     }
 }

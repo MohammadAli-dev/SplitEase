@@ -47,6 +47,7 @@ class IdentityLinkingWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "IdentityLinkingWorker"
         const val KEY_LOCAL_USER_ID = "local_user_id"
+        const val WORK_NAME = "identity_link_work"
         private const val MAX_RETRY_ATTEMPTS = 3
     }
 
