@@ -165,6 +165,34 @@ class HydrationCoordinatorImpl @Inject constructor(
             when (replayResult) {
                 is ReplayResult.Success -> {
                     Log.d(TAG, "Replay completed successfully")
+                    
+                    // === STEP 4b: Hydrate User Profiles (Sprint 23) ===
+                    // Replay creates GroupMember rows, but DOES NOT fill the 'users' table.
+                    // We must fetch profiles for all referenced users to ensure UI has names.
+                    try {
+                        val memberUserIds = db.groupDao().getAllMemberUserIds().toSet()
+                        val existingUserIds = db.userDao().getAllUserIdsSync().toSet()
+                        val missingUserIds = (memberUserIds - existingUserIds).toList()
+                        
+                        if (missingUserIds.isNotEmpty()) {
+                            Log.d(TAG, "Hydrating ${missingUserIds.size} missing user profiles...")
+                            val userFetchResult = ledgerPullService.fetchUserProfiles(missingUserIds)
+                            
+                            if (userFetchResult.isSuccess) {
+                                val profiles = userFetchResult.getOrThrow()
+                                db.userDao().insertUsers(profiles)
+                                Log.d(TAG, "Successfully hydrated ${profiles.size} user profiles")
+                            } else {
+                                Log.w(TAG, "Failed to hydrate user profiles: ${userFetchResult.exceptionOrNull()?.message}")
+                                // Non-fatal? Currently treating as non-fatal to allow hydration to complete.
+                                // UI will show "Unknown User" or fall back to ID, but app works.
+                            }
+                        } else {
+                            Log.d(TAG, "No missing user profiles to hydrate")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error during user profile hydration (non-fatal)", e)
+                    }
                 }
                 is ReplayResult.Failed -> {
                     Log.e(TAG, "Replay failed: ${replayResult.reason}")
@@ -173,11 +201,11 @@ class HydrationCoordinatorImpl @Inject constructor(
                     )
                 }
             }
-
-            // === STEP 5: Set role to REPLICA (implies read-only) ===
-            deviceRoleManager.setDeviceRole(DeviceRole.REPLICA)
+            // === STEP 5: Set role to PROMOTED (implies Read-Write) ===
+            // Sprint 23: Hydration ensures we are consistent, so we promote to allow writes on this device.
+            deviceRoleManager.setDeviceRole(DeviceRole.PROMOTED)
             deviceRoleManager.setHydrationAttempted(false)
-            Log.d(TAG, "Entered REPLICA role, hydration complete")
+            Log.d(TAG, "Entered PROMOTED role, hydration complete (Writable)")
             HydrationResult.Success
 
         } catch (e: HydrationInvariantException) {

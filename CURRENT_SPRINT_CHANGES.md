@@ -388,3 +388,37 @@ This stabilization sprint addresses a critical regression where the local user i
 ## Verification Results
 - **Build**: Passed `assembleDebug`.
 - **Manual Verification**: Confirmed that logging out and logging back in (User A -> User B) correctly shows the new user as "me" in groups, and that the previous user's data is completely gone.
+
+---
+
+# Sprint 23: Incremental Ledger Pull & Convergence (Pull-to-Refresh)
+
+## Overview
+This sprint implements the "Pull" half of the synchronization architecture. Devices can now incrementally pull new ledger operations from Supabase and replay them into their local state, enabling full cross-device convergence. This also introduces a user-facing swipe-to-refresh mechanism for on-demand synchronization.
+
+## Key Changes
+
+### 1. Synchronization Layer (Pull Path)
+- **LedgerSyncCoordinator**: Orchestrates the incremental synchronization flow:
+    - Fetches all available remote operations from Supabase.
+    - Persists new operations to the local ledger (idempotent INSERT OR IGNORE).
+    - Triggers `ReplayEngine` for a full history replay to ensure deterministic state convergence.
+    - Automatically hydrates missing user profiles for any newly discovered users in the ledger.
+- **SyncWorker Integration**: Updated the background `SyncWorker` to use `LedgerSyncCoordinator` during its "Phase 2 (Pull)" stage, replacing the legacy no-op stub.
+
+### 2. UI & Experience
+- **Swipe-to-Refresh**: Integrated `PullToRefreshContainer` into `GroupListScreen` and `GroupDetailScreen`.
+- **Manual Trigger**: Added `triggerManualSync()` to `GroupListViewModel` and `GroupDetailViewModel` to allow users to force a ledger reconciliation.
+- **Visual Feedback**: Sync status icons and spinners now accurately reflect ledger pull/replay progress.
+
+### 3. Identity & Hydration Hardening
+- **Convergence Deadlock Fix**: Resolved a critical deadlock where the `ReplayEngine` would fail if the user's "Personal Group" was not yet hydrated.
+- **IdentityBootstrapper**: Enhanced to ensure the current user's identity row and personal group exist before the first replay cycle starts.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation and Hilt/KSP processing.
+- **Deterministic Convergence**: Verified that swiping to refresh on a secondary device correctly pulls and displays expenses created on a primary device.
+- **Manual Verification**:
+    - [x] Swipe-to-refresh on Groups list triggers full sync.
+    - [x] Swipe-to-refresh on Group Detail list triggers full sync.
+    - [x] New member profiles are automatically fetched during pull sync.

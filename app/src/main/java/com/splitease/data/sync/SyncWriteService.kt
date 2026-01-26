@@ -48,6 +48,11 @@ interface SyncWriteService {
  * @return A SyncOperation representing the intent to remove the specified `userId` from the specified `groupId`.
  */
     fun createGroupMemberRemoveSyncOp(groupId: String, userId: String): SyncOperation
+
+    /**
+     * Creates a SyncOperation that represents an intent to add a member to a group.
+     */
+    fun createGroupMemberAddSyncOp(groupId: String, userId: String): SyncOperation
 }
 
 @Singleton
@@ -155,7 +160,31 @@ class SyncWriteServiceImpl @Inject constructor(
             timestamp = System.currentTimeMillis()
         )
     }
+
+    override fun createGroupMemberAddSyncOp(groupId: String, userId: String): SyncOperation {
+        val payload = GroupMemberAddPayload(
+            version = 1,
+            groupId = groupId,
+            userId = userId
+        )
+        return SyncOperation(
+            operationType = SyncOperationType.ADD_MEMBER.name,
+            entityType = SyncEntityType.GROUP,
+            entityId = groupId,
+            payload = gson.toJson(payload),
+            timestamp = System.currentTimeMillis()
+        )
+    }
 }
+
+/**
+ * Versioned payload for expense creation sync.
+ */
+data class ExpenseCreatePayload(
+    val version: Int = 1,
+    val expense: Expense,
+    val splits: List<ExpenseSplit>
+)
 
 /**
  * Versioned payload for group creation sync.
@@ -184,6 +213,15 @@ data class SettlementCreatePayload(
  * This is an explicit intent, not a state replacement.
  */
 data class GroupMemberRemovePayload(
+    val version: Int,
+    val groupId: String,
+    val userId: String
+)
+
+/**
+ * Versioned payload for group member addition sync.
+ */
+data class GroupMemberAddPayload(
     val version: Int,
     val groupId: String,
     val userId: String

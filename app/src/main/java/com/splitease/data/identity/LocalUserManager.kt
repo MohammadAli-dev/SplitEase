@@ -20,6 +20,12 @@ interface LocalUserManager {
      * Clears the locally persisted user identity (Sprint 22.1 Hard Isolation).
      */
     suspend fun clearIdentity()
+
+    /**
+     * Explicitly sets the local user ID.
+     * Used by AuthManager to enforce "Cloud ID Adoption" (Identity Continuity).
+     */
+    suspend fun setUserId(id: String)
 }
 
 private val Context.dataStore by preferencesDataStore(name = IdentityConstants.PREFS_FILE)
@@ -66,6 +72,12 @@ class LocalUserManagerImpl @Inject constructor(
     override suspend fun clearIdentity() {
         context.dataStore.edit { preferences ->
             preferences.remove(userIdKey)
+        }
+    }
+
+    override suspend fun setUserId(id: String) {
+        context.dataStore.edit { preferences ->
+            preferences[userIdKey] = id
         }
     }
 }

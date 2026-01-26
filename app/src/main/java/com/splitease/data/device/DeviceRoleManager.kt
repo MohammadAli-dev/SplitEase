@@ -86,6 +86,12 @@ interface DeviceRoleManager {
      */
     suspend fun isRemediationInProgress(): Boolean
     suspend fun setRemediationInProgress(inProgress: Boolean)
+
+    /**
+     * Resets all role and state flags to default (Fresh Install state).
+     * Used during Logout to ensure next login starts clean.
+     */
+    suspend fun reset()
 }
 
 // Extension property for Context-scoped DataStore
@@ -199,6 +205,12 @@ class DeviceRoleManagerImpl @Inject constructor(
     override suspend fun setRemediationInProgress(inProgress: Boolean) {
         context.deviceRoleDataStore.edit { preferences ->
             preferences[KEY_REMEDIATION_IN_PROGRESS] = inProgress
+        }
+    }
+
+    override suspend fun reset() {
+        context.deviceRoleDataStore.edit { preferences ->
+            preferences.clear()
         }
     }
 }

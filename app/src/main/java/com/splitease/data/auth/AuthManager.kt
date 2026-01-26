@@ -160,7 +160,10 @@ class AuthManagerImpl @Inject constructor(
     private val localUserManager: LocalUserManager,
     private val syncMetadataStore: SyncMetadataStore,
     private val appDatabase: AppDatabase,
-    private val identityBootstrapper: IdentityBootstrapper
+    private val identityBootstrapper: IdentityBootstrapper,
+    // LAZY to break DI cycle: AuthManager -> LedgerPullService -> HydrationCoordinator -> AuthManager
+    private val hydrationCoordinatorLazy: dagger.Lazy<com.splitease.data.hydration.HydrationCoordinator>,
+    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager
 ) : AuthManager {
 
     companion object {
@@ -207,6 +210,32 @@ class AuthManagerImpl @Inject constructor(
                     val bootstrapped = identityBootstrapper.ensureLocalUserRegistered()
                     if (bootstrapped) {
                         Log.d(TAG, "initialize: valid token found, authenticated as $cloudUserId")
+                        
+                        // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
+                        localUserManager.setUserId(cloudUserId)
+                        
+                        // SPRINT 23: Recovery Hydration Trigger
+                        // If we crashed mid-hydration, DB might be empty. Attempt hydration.
+                        // remediateInconsistency() was called BEFORE this (AppStartupInitializer).
+                        val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
+                        when (hydrationResult) {
+                            is com.splitease.data.hydration.HydrationResult.Success -> {
+                                Log.d(TAG, "initialize: Hydration recovered successfully")
+                            }
+                            is com.splitease.data.hydration.HydrationResult.Aborted -> {
+                                Log.d(TAG, "initialize: Hydration aborted - ${hydrationResult.reason}")
+                            }
+                            is com.splitease.data.hydration.HydrationResult.Failed -> {
+                                // FAILURE = HARD LOGOUT
+                                Log.e(TAG, "initialize: Hydration FAILED - forcing logout", hydrationResult.error)
+                                tokenManager.clearTokens()
+                                _userProfile.value = null
+                                _authState.value = AuthState.Unauthenticated
+                                // Error is silently recoverable by user retrying login
+                                return@withContext
+                            }
+                        }
+                        
                         _authState.value = AuthState.Authenticated(cloudUserId)
                     } else {
                         Log.e(TAG, "initialize: identity bootstrap failed, forcing logout")
@@ -444,6 +473,9 @@ class AuthManagerImpl @Inject constructor(
             )
             tokenManager.saveCloudUserId(cloudUserId)
             
+            // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
+            localUserManager.setUserId(cloudUserId)
+            
             // Populate userProfile from auth response
             val name = authResponse.user?.userMetadata?.name 
                 ?: authResponse.user?.userMetadata?.fullName
@@ -477,6 +509,29 @@ class AuthManagerImpl @Inject constructor(
                 _authState.value = AuthState.Unauthenticated
                 _authError.tryEmit("Failed to initialize account: ${e.message}")
                 return false
+            }
+            
+            // SPRINT 23: Initial Hydration (Authoritative Rebuild from Server)
+            // Hydration runs AFTER identity bootstrap and BEFORE Authenticated emission.
+            // If it fails, we perform a Hard Logout to prevent corrupt session.
+            val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
+            when (hydrationResult) {
+                is com.splitease.data.hydration.HydrationResult.Success -> {
+                    Log.d(TAG, "handleSuccessfulAuth: Hydration completed successfully")
+                }
+                is com.splitease.data.hydration.HydrationResult.Aborted -> {
+                    // Aborted is acceptable (e.g., DB not empty, already replica)
+                    Log.d(TAG, "handleSuccessfulAuth: Hydration aborted - ${hydrationResult.reason}")
+                }
+                is com.splitease.data.hydration.HydrationResult.Failed -> {
+                    // FAILURE = HARD LOGOUT (per Sprint 23 contract)
+                    Log.e(TAG, "handleSuccessfulAuth: Hydration FAILED - forcing logout", hydrationResult.error)
+                    tokenManager.clearTokens()
+                    _userProfile.value = null
+                    _authState.value = AuthState.Unauthenticated
+                    _authError.tryEmit("Account setup failed. Please log in again.")
+                    return false
+                }
             }
             
             _authState.value = AuthState.Authenticated(cloudUserId)
@@ -559,32 +614,10 @@ class AuthManagerImpl @Inject constructor(
      * with a network-connected constraint and a unique KEEP policy to avoid duplicate work.
      */
     private suspend fun enqueueIdentityLinkingIfNeeded() {
-        val isLinked = identityLinkStateStore.isLinked().first()
-        if (isLinked) {
-            Log.d(TAG, "Identity already linked, skipping worker enqueue")
-            return
-        }
-
-        val localUserId = localUserManager.userId.first()
-        Log.d(TAG, "Enqueueing identity linking worker for localUserId: $localUserId")
-
-        val workRequest = OneTimeWorkRequestBuilder<IdentityLinkingWorker>()
-            .setInputData(
-                workDataOf(IdentityLinkingWorker.KEY_LOCAL_USER_ID to localUserId)
-            )
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
-            )
-            .build()
-
-        WorkManager.getInstance(context)
-            .enqueueUniqueWork(
-                IdentityLinkingWorker.WORK_NAME,
-                ExistingWorkPolicy.KEEP, // Don't replace if already running
-                workRequest
-            )
+        // Sprint 23: Legacy Worker Disabled.
+        // The backend function 'identity-link' is deprecated and removed.
+        // Local user ID mapping is now handled implicitly by Ledger Operations.
+        Log.d(TAG, "Identity linking worker disabled (legacy)")
     }
 
     /**
@@ -643,6 +676,8 @@ class AuthManagerImpl @Inject constructor(
                 tokenManager.clearTokens() // Clears cloud identity
                 localUserManager.clearIdentity() // Clears phantom ID (generates new one next time)
                 identityLinkStateStore.reset() // Clears link state
+                // Sprint 23: Reset Device Role to avoid zombie PROMOTED state on next login
+                deviceRoleManager.reset() 
                 syncMetadataStore.clear() // Clears sync cursors
 
                 // 5. Finalize

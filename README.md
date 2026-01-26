@@ -96,7 +96,8 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Derivation Integrity** | ✅ Complete | "Loser" history remains in DB for audit but is hidden from UI/Effective State |
 | **Order Independence** | ✅ Complete | Results are consistent regardless of whether resolution arrives before or after data |
 | **Supabase Mirror (Push)** | ✅ Complete | Append-only mirroring of local ledger to Supabase `ledger_operations` |
-| **Dumb Courier Architecture** | ✅ Design | Supabase serves as durable exchange layer; local app maintains logic/authority |
+| **Supabase Mirror (Pull)** | ✅ Complete | Incremental pull and deterministic replay of remote ledger operations |
+| **Dumb Courier Architecture** | ✅ Complete | Supabase serves as durable exchange layer; local app maintains logic/authority |
 
 
 ### 🎯 Sync Status Indicators

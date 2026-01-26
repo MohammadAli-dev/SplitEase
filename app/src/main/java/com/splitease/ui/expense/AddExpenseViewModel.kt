@@ -95,6 +95,7 @@ constructor(
         savedStateHandle: SavedStateHandle,
         private val expenseRepository: ExpenseRepository,
         private val userRepository: UserRepository,
+        private val groupRepository: com.splitease.data.repository.GroupRepository,
         private val userContext: UserContext,
         private val groupDao: GroupDao,
         private val userDao: com.splitease.data.local.dao.UserDao
@@ -319,7 +320,11 @@ constructor(
             try {
                 val userId = userRepository.createPhantomUser(name, email, phone)
                 
-                // No manual state update here.
+                // If in a group context, automatically join them to the group
+                if (groupId != "" && groupId != PersonalGroupConstants.PERSONAL_GROUP_ID) {
+                    groupRepository.addMember(groupId, userId)
+                }
+                
                 // userRepository.createPhantomUser -> database -> loadGroupMembers() flow triggers -> UI update.
                 // Unblocking UI happens automatically via Flow emission or could be explicitly done if needed, 
                 // but effectively we just wait for the db.

@@ -43,4 +43,10 @@ interface UserDao {
      */
     @Query("DELETE FROM users WHERE id = :userId")
     suspend fun deleteUser(userId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUsers(users: List<User>)
+
+    @Query("SELECT id FROM users")
+    suspend fun getAllUserIdsSync(): List<String>
 }

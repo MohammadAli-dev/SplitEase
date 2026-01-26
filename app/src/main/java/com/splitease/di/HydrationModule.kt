@@ -8,6 +8,8 @@ import com.splitease.data.hydration.HydrationCoordinator
 import com.splitease.data.hydration.HydrationCoordinatorImpl
 import com.splitease.data.hydration.LedgerPullService
 import com.splitease.data.hydration.LedgerPullServiceImpl
+import com.splitease.data.hydration.LedgerSyncCoordinator
+import com.splitease.data.hydration.LedgerSyncCoordinatorImpl
 import com.splitease.data.hydration.ReplayEngine
 import com.splitease.data.hydration.ReplayEngineImpl
 import com.splitease.data.local.AppDatabase
@@ -60,5 +62,16 @@ object HydrationModule {
         @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): HydrationCoordinator {
         return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, deviceRoleManager, ioDispatcher)
+    }
+
+    @Provides
+    @Singleton
+    fun provideLedgerSyncCoordinator(
+        db: AppDatabase,
+        ledgerPullService: LedgerPullService,
+        replayEngine: ReplayEngine,
+        @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
+    ): LedgerSyncCoordinator {
+        return LedgerSyncCoordinatorImpl(db, ledgerPullService, replayEngine, ioDispatcher)
     }
 }

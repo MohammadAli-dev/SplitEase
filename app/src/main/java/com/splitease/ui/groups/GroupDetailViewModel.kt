@@ -62,7 +62,8 @@ sealed interface GroupDetailUiState {
         val groupSyncState: SyncState = SyncState.IDLE,
         val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED,
         val canLeaveGroup: Boolean = false, // Derived, checks balances
-        val currentUserId: String = "" // Default empty, populated by VM
+        val currentUserId: String = "", // Default empty, populated by VM
+        val balancesValid: Boolean = true // True if balances sum to zero
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
@@ -214,15 +215,21 @@ class GroupDetailViewModel @Inject constructor(
 
             // Compute balances as derived state (no caching)
             // Includes persisted settlements in calculation
-            val balances = if (expenses.isEmpty() && persistedSettlements.isEmpty()) {
-                emptyMap()
+            val balanceResult = if (expenses.isEmpty() && persistedSettlements.isEmpty()) {
+                com.splitease.domain.BalanceResult(emptyMap(), true, BigDecimal.ZERO)
             } else {
                 BalanceCalculator.calculate(expenses, splits, persistedSettlements)
             }
+            val balances = balanceResult.balances
+            val balancesValid = balanceResult.isValid
 
             // Compute settlements as derived state from balances
             // Uses current settlement mode (UI-only, defaults to SIMPLIFIED)
-            val settlements = SettlementCalculator.calculate(balances, settlementMode)
+            val settlements = if (balancesValid) {
+                SettlementCalculator.calculate(balances, settlementMode)
+            } else {
+                emptyList()
+            }
 
             // Compute group-scoped pending count
             val groupExpenseIds = expenses.map { it.id }.toSet()
@@ -252,23 +259,24 @@ class GroupDetailViewModel @Inject constructor(
                 group = group,
                 members = sortedMembers,
                 expenses = expenses,
-                balances = balances,
-                settlements = settlements,
-                executingSettlements = executingSettlements,
-                pendingExpenseIds = sync.pendingExpenseIds,
-                pendingSettlementIds = sync.pendingSettlementIds,
-                pendingGroupSyncCount = pendingGroupSyncCount,
-                groupFailedSyncCount = groupFailedSyncCount,
-                groupSyncState = groupSyncState,
-                settlementMode = settlementMode,
-
-                currentUserId = currentUserId,
-                canLeaveGroup = com.splitease.domain.GroupExitValidator.checkLeaveEligibility(
-                    userId = currentUserId,
                     balances = balances,
-                    memberCount = sortedMembers.size
-                ) is com.splitease.domain.GroupExitValidator.LeaveGroupResult.Allowed
-            )
+                    settlements = settlements,
+                    executingSettlements = executingSettlements,
+                    pendingExpenseIds = sync.pendingExpenseIds,
+                    pendingSettlementIds = sync.pendingSettlementIds,
+                    pendingGroupSyncCount = pendingGroupSyncCount,
+                    groupFailedSyncCount = groupFailedSyncCount,
+                    groupSyncState = groupSyncState,
+                    settlementMode = settlementMode,
+
+                    currentUserId = currentUserId,
+                    balancesValid = balancesValid,
+                    canLeaveGroup = balancesValid && com.splitease.domain.GroupExitValidator.checkLeaveEligibility(
+                        userId = currentUserId,
+                        balances = balances,
+                        memberCount = sortedMembers.size
+                    ) is com.splitease.domain.GroupExitValidator.LeaveGroupResult.Allowed
+                )
         }
     }.stateIn(
         scope = viewModelScope,
@@ -280,6 +288,10 @@ class GroupDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _retryTrigger.value++
         }
+    }
+
+    fun triggerManualSync() {
+        syncRepository.triggerManualSync()
     }
 
     /**

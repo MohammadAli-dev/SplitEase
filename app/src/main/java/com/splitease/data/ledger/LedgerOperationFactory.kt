@@ -10,6 +10,7 @@ import com.splitease.data.ledger.model.GroupMemberSnapshot
 import com.splitease.data.ledger.model.GroupSnapshot
 import com.splitease.data.ledger.model.MemberSnapshot
 import com.splitease.data.ledger.model.SettlementSnapshot
+import com.splitease.data.ledger.model.UserSnapshot
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
@@ -20,6 +21,7 @@ import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_EXPENSE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_GROUP
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_MEMBER
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_SETTLEMENT
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_USER
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_CREATE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_DELETE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_UPDATE
@@ -126,6 +128,20 @@ interface LedgerOperationFactory {
     ): LedgerOperation
 
     /**
+     * Create a LedgerOperation that records adding a user to a group.
+     * 
+     * @param groupId The id of the group the member is being added to.
+     * @param userId The id of the user being added.
+     * @param authorUserId The local user id performing the addition.
+     * @return A LedgerOperation for entity type "MEMBER" with operation type "CREATE".
+     */
+    suspend fun createMemberAddOp(
+        groupId: String,
+        userId: String,
+        authorUserId: String
+    ): LedgerOperation
+
+    /**
      * Creates a ledger operation representing the creation of a settlement.
      *
      * Builds a canonical, versioned SettlementSnapshot from the provided settlement (amount canonicalized to two decimals),
@@ -156,11 +172,21 @@ interface LedgerOperationFactory {
         authorUserId: String
     ): LedgerOperation
 
+    /**
+     * Creates a ledger operation for creating a User (Phantom User).
+     */
+    suspend fun createUserCreateOp(
+        user: com.splitease.data.local.entities.User,
+        authorUserId: String
+    ): LedgerOperation
+
     companion object {
         const val ENTITY_EXPENSE = "EXPENSE"
         const val ENTITY_GROUP = "GROUP"
         const val ENTITY_SETTLEMENT = "SETTLEMENT"
         const val ENTITY_MEMBER = "MEMBER"
+        const val ENTITY_USER = "USER"
+
 
         const val OP_CREATE = "CREATE"
         const val OP_UPDATE = "UPDATE"
@@ -168,6 +194,8 @@ interface LedgerOperationFactory {
         /** Sprint 21: Explicit conflict resolution operation type. */
         const val OP_RESOLVE_CONFLICT = "RESOLVE_CONFLICT"
     }
+
+
 }
 
 @Singleton
@@ -377,6 +405,31 @@ class LedgerOperationFactoryImpl @Inject constructor(
         )
     }
 
+    override suspend fun createMemberAddOp(
+        groupId: String,
+        userId: String,
+        authorUserId: String
+    ): LedgerOperation {
+        ensureNotReadOnly()
+        val snapshot = MemberSnapshot(
+            groupId = groupId,
+            userId = userId,
+            joinedAt = now(),
+            removedAt = null
+        )
+        return LedgerOperation(
+            operationId = generateOperationId(),
+            entityType = ENTITY_MEMBER,
+            entityId = "$groupId:$userId", // Composite key
+            operationType = OP_CREATE,
+            payload = gson.toJson(snapshot),
+            authorLocalUserId = authorUserId,
+            deviceId = deviceId(),
+            logicalClock = 0L,
+            createdAt = now()
+        )
+    }
+
     override suspend fun createSettlementCreateOp(
         settlement: Settlement,
         authorUserId: String
@@ -426,6 +479,30 @@ class LedgerOperationFactoryImpl @Inject constructor(
             entityId = conflictId,
             operationType = OP_RESOLVE_CONFLICT,
             payload = gson.toJson(payload),
+            authorLocalUserId = authorUserId,
+            deviceId = deviceId(),
+            logicalClock = 0L,
+            createdAt = now()
+        )
+    }
+    override suspend fun createUserCreateOp(
+        user: com.splitease.data.local.entities.User,
+        authorUserId: String
+    ): LedgerOperation {
+        ensureNotReadOnly()
+        val snapshot = UserSnapshot(
+            id = user.id,
+            name = user.name,
+            email = user.email,
+            phone = user.phone,
+            profileUrl = user.profileUrl
+        )
+        return LedgerOperation(
+            operationId = generateOperationId(),
+            entityType = LedgerOperationFactory.ENTITY_USER,
+            entityId = user.id,
+            operationType = OP_CREATE,
+            payload = gson.toJson(snapshot),
             authorLocalUserId = authorUserId,
             deviceId = deviceId(),
             logicalClock = 0L,

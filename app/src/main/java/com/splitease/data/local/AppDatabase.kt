@@ -423,6 +423,24 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
+     * Adds a member to a group and atomically records the corresponding sync and ledger operations.
+     * 
+     * @param member The GroupMember record to insert.
+     * @param syncOp SyncOperation to insert for synchronization.
+     * @param ledgerOp LedgerOperation to commit to the ledger.
+     */
+    @androidx.room.Transaction
+    open suspend fun insertMemberWithLedger(
+        member: GroupMember,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        groupDao().insertMember(member)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
+    }
+
+    /**
      * Merge a local phantom user into an existing real cloud user in a single atomic transaction.
      *
      * This inserts the real user (if necessary), reassigns all foreign-key references from the phantom
@@ -468,5 +486,18 @@ abstract fun connectionStateDao(): ConnectionStateDao
 
         // 5️⃣ Delete phantom user (FK CASCADE cleans up connection_state)
         userDao().deleteUser(phantomUserId)
+    }
+
+    /**
+     * Inserts a user and commits the associated ledger operation atomically.
+     * Used for creating Phantom Users that need to be synced via the Ledger.
+     */
+    @androidx.room.Transaction
+    open suspend fun insertUserWithLedger(
+        user: User,
+        ledgerOp: LedgerOperation
+    ) {
+        userDao().insertUser(user)
+        commitLedgerOp(ledgerOp)
     }
 }

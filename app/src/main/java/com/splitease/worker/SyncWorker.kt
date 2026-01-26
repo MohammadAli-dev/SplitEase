@@ -9,6 +9,8 @@ import com.splitease.data.repository.SyncRepository
 import com.splitease.data.sync.PullSyncResult
 import com.splitease.data.sync.PullSyncService
 import com.splitease.data.remote.toWorkResult
+import com.splitease.data.hydration.LedgerSyncCoordinator
+import com.splitease.data.hydration.LedgerSyncResult
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -26,7 +28,8 @@ class SyncWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val syncRepository: SyncRepository,
-    private val pullSyncService: PullSyncService
+    private val pullSyncService: PullSyncService,
+    private val ledgerSyncCoordinator: LedgerSyncCoordinator
 ) : CoroutineWorker(context, params) {
 
     companion object {
@@ -37,10 +40,11 @@ class SyncWorker @AssistedInject constructor(
      * Performs a two-phase synchronization: pushes local pending operations first, then pulls remote updates.
      *
      * The worker first attempts to process all pending local operations; if that phase encounters a transient error it requests a retry.
-     * Next it performs a pull of remote updates and maps pull errors (with an underlying cause) to an appropriate Worker Result.
-     * Any uncaught exception is converted to a Worker Result using the class TAG.
+     * Next it performs a pull of remote updates.
      *
-     * @return `Result.success()` when both phases complete successfully; `Result.retry()` if the push phase reports a transient failure; otherwise a `Result` converted from the pull error cause or any thrown exception.
+     * In the Ledger-Backed architecture (Sprint 23):
+     * 1. Phase 1 (Push) sends sync operations to server.
+     * 2. Phase 2 (Pull) triggers LedgerSyncCoordinator to fetch the latest ledger and replay.
      */
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting sync work...")
@@ -55,20 +59,21 @@ class SyncWorker @AssistedInject constructor(
             }
             
             // 2️⃣ PULL SECOND: Fetch and reconcile remote updates
-            Log.d(TAG, "Phase 2: Pull remote updates...")
-            val pullResult = pullSyncService.performPullSync()
+            Log.d(TAG, "Phase 2: Pull ledger updates...")
+            val pullResult = ledgerSyncCoordinator.sync()
             
             when (pullResult) {
-                is PullSyncResult.Success -> {
-                    Log.d(TAG, "Sync completed: $pullResult")
+                is LedgerSyncResult.Success -> {
+                    Log.d(TAG, "Sync completed successfully")
                 }
-                is PullSyncResult.Error -> {
-                    Log.w(TAG, "Phase 2 (Pull) failed: ${pullResult.message}")
-                    if (pullResult.cause != null) {
-                        return pullResult.cause.toWorkResult(TAG)
-                    }
+                is LedgerSyncResult.Failed -> {
+                    Log.w(TAG, "Phase 2 (Pull) failed: ${pullResult.error.message}")
+                    return pullResult.error.toWorkResult(TAG)
                 }
             }
+            
+            // 3️⃣ LEGACY PULL: Remains for backward compatibility (No-Op)
+            pullSyncService.performPullSync()
             
             Log.d(TAG, "Sync work completed successfully")
             Result.success()

@@ -60,6 +60,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import com.splitease.data.sync.SyncState
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.User
@@ -106,6 +110,25 @@ fun GroupDetailScreen(
     var showRemoveConfirmation by remember { mutableStateOf<String?>(null) } // targetUserId or null
     var showRemoveBlockedByBalance by remember { mutableStateOf<String?>(null) } // targetUserId
     var showRemoveBlockedAsLastMember by remember { mutableStateOf(false) }
+
+    // Swipe-to-refresh state
+    val pullRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    val isSyncing = when (val state = uiState) {
+        is GroupDetailUiState.Success -> state.groupSyncState == SyncState.SYNCING
+        else -> false
+    }
+
+    LaunchedEffect(pullRefreshState.isRefreshing) {
+        if (pullRefreshState.isRefreshing) {
+            viewModel.triggerManualSync()
+        }
+    }
+
+    LaunchedEffect(isSyncing) {
+        if (!isSyncing && pullRefreshState.isRefreshing) {
+            pullRefreshState.endRefresh()
+        }
+    }
 
     // Handle one-off events
     LaunchedEffect(viewModel.events) {
@@ -261,7 +284,6 @@ fun GroupDetailScreen(
         )
     }
 
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -292,7 +314,7 @@ fun GroupDetailScreen(
                         )
                     }
                     
-                    IconButton(onClick = { viewModel.retry() }) {
+                    IconButton(onClick = { viewModel.triggerManualSync() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                     
@@ -328,6 +350,7 @@ fun GroupDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .nestedScroll(pullRefreshState.nestedScrollConnection)
         ) {
             when (val state = uiState) {
                 is GroupDetailUiState.Loading -> {
@@ -553,6 +576,11 @@ fun GroupDetailScreen(
                     }
                 }
             }
+
+            PullToRefreshContainer(
+                state = pullRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
         }
     }
 

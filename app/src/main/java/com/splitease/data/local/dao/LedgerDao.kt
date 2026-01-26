@@ -92,6 +92,9 @@ interface LedgerDao {
     @Query("SELECT * FROM ledger_operations ORDER BY deviceId ASC, logicalClock ASC")
     fun getAllOperations(): Flow<List<LedgerOperation>>
 
+    @Query("SELECT * FROM ledger_operations ORDER BY deviceId ASC, logicalClock ASC")
+    suspend fun getAllOperationsSync(): List<LedgerOperation>
+
     /**
      * Retrieve ledger operations for the specified entity, ordered by deviceId then logicalClock.
      *
