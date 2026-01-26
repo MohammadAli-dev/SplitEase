@@ -91,11 +91,69 @@ class ReplayEngineImpl @Inject constructor(
         val sortedOps = operations.sortedWith(compareBy({ it.deviceId }, { it.logicalClock }))
         Log.d(TAG, "Starting replay of ${sortedOps.size} operations")
 
-        // SPRINT 21: Strict Execution Contract
-        // ReplayEngine applies ALL operations unconditionally.
-        // It does not filter, suppress, or judge.
-        // Suppression is the responsibility of the Derivation Layer (Repositories/UI).
+        // SPRINT 21.1: Pre-Replay Computation (Resolution Supremacy)
+        // 1. Scan for OP_RESOLVE_CONFLICT to build map of conflictId -> chosenOpRef
+        val resolvedConflicts = mutableMapOf<String, LedgerOpRef>()
+        
+        for (op in sortedOps) {
+            if (op.operationType == OP_RESOLVE_CONFLICT) {
+                try {
+                    val payload = gson.fromJson(op.payload, ConflictResolutionPayload::class.java)
+                    // Last resolution wins if duplicates exist (LWW by sort order essentially)
+                    resolvedConflicts[payload.conflictId] = payload.chosenOpRef
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse resolution payload for op ${op.operationId}: ${e.message}")
+                }
+            }
+        }
 
+        // 2. Identify Suppressed Operations based on Resolved Conflicts
+        val suppressedOpIds = mutableSetOf<String>()
+        val opsByEntity = sortedOps.groupBy { it.entityId }
+
+        for ((entityId, entityOps) in opsByEntity) {
+            // Filter out metadata ops (resolutions) from conflict consideration if they are mixed (rare)
+            // But OP_RESOLVE_CONFLICT naturally targets a 'conflictId', not an 'entityId' in the traditional sense,
+            // though strict schema says entityId=conflictId.
+            // We only care about domain ops (Group, Expense, etc).
+            val domainOps = entityOps.filter { it.entityType != OP_RESOLVE_CONFLICT }
+            if (domainOps.isEmpty()) continue
+
+            // Deduplicate by (deviceId, logicalClock) needed? sortedOps might have dupes?
+            // ReplayEngine handles idempotency, but ID generation needs strict unique ops set.
+            val distinctOps = domainOps.distinctBy { it.deviceId to it.logicalClock }
+            
+            // Single writer optimization: cannot be a conflict
+            val distinctDevices = distinctOps.map { it.deviceId }.toSet()
+            if (distinctDevices.size <= 1) continue
+
+            // Compute Conflict ID
+            val opRefs = distinctOps
+                .map { LedgerOpRef(it.deviceId, it.logicalClock) }
+                .sorted() // OpRefs must be sorted for deterministic ID
+            
+            val entityType = com.splitease.data.conflict.EntityType.fromString(distinctOps.first().entityType) ?: continue
+            val conflictId = generateConflictId(entityType.name, entityId, opRefs)
+
+            // Check if this conflict is resolved
+            val chosenRef = resolvedConflicts[conflictId]
+            if (chosenRef != null) {
+                // Resolution exists! Suppress all losers.
+                for (op in distinctOps) {
+                    val opRef = LedgerOpRef(op.deviceId, op.logicalClock)
+                    if (opRef != chosenRef) {
+                        suppressedOpIds.add(op.operationId) // Suppress loser
+                    }
+                    // Winner (chosenRef) is allowed to proceed
+                }
+            }
+        }
+        
+        Log.d(TAG, "Suppressed ${suppressedOpIds.size} operations due to ${resolvedConflicts.size} resolutions")
+
+        // SPRINT 21: Strict Execution Contract
+        // ReplayEngine applies ALL operations unconditionally UNLESS SUPPRESSED.
+        
         val applied = mutableSetOf<String>() // operationIds that have been applied
         var deferred = sortedOps.toMutableList()
 
@@ -107,8 +165,20 @@ class ReplayEngineImpl @Inject constructor(
             val nextDeferred = mutableListOf<LedgerOperation>()
 
             for (op in deferred) {
+                // 1. Idempotency Check
                 if (applied.contains(op.operationId)) {
-                    // Already applied (idempotency check)
+                    continue
+                }
+
+                // 2. Suppression Check (SPRINT 21.1)
+                if (suppressedOpIds.contains(op.operationId)) {
+                    // Treat as applied (skipped)
+                    applied.add(op.operationId) 
+                    // Do NOT increment appliedThisPass to force convergence if it was only a suppression?
+                    // Actually, treating it as "handled" helps clear the deferred list.
+                    // If it was skipped, it doesn't help unblock others (dependencies), 
+                    // BUT if it was suppressed, it shouldn't block others either (assuming losers don't have unique dependents).
+                    // We'll mark it applied so we don't process it again.
                     continue
                 }
 
@@ -155,12 +225,26 @@ class ReplayEngineImpl @Inject constructor(
             return@withContext ReplayResult.Failed(reason)
         }
 
-        Log.d(TAG, "Replay complete: ${applied.size} operations applied in $pass passes")
+        Log.d(TAG, "Replay complete: ${applied.size} operations applied (including suppressed) in $pass passes")
 
         // SPRINT 20: Post-Replay Conflict Detection
         // Run detection ONLY on the successfully replayed ledger prefix.
         // We filter the original sorted list to ensure we only detect on what was applied
         // (though in success case, this is everything).
+        // NOTE: We should exclude Suppressed ops from this "replayed history" so they don't trigger detection again?
+        // But conflict detection works on the ledger state.
+        // Actually, if we suppressed them, they didn't affect DB.
+        // But detection logic (ConflictDetector) takes the OpHistory. 
+        // If we include suppressed ops in `replayedHistory`, the Detector will find the conflict again.
+        // Is that good?
+        // Yes, because the conflict *exists* in the ledger, it is just *resolved*.
+        // The Detector will emit `LedgerConflict`. The UI uses `ledger_conflicts` table combined with `conflict_resolutions` table.
+        // If we hide the conflict from `ledger_conflicts` table, the UI might think everything is fine but `conflict_resolutions` has an orphan?
+        // Standard flow: Conflict exists -> User resolves -> Resolution recorded -> Replay.
+        // User wants to see "Resolved" state.
+        // So we MUST pass the full history (including suppressed ops) to detector so it reports the conflict,
+        // so the UI can look it up and say "Ah, this conflict ID has a resolution".
+        
         val replayedHistory = sortedOps.filter { applied.contains(it.operationId) }
         
         val prefix = LedgerPrefix.fromConvergedReplay(replayedHistory)
@@ -174,6 +258,30 @@ class ReplayEngineImpl @Inject constructor(
         }
 
         ReplayResult.Success
+    }
+
+    /**
+     * Generates a deterministic SHA-256 fingerprint for the conflict.
+     * Duplicated from ConflictDetector to ensure deterministic ID match without architectural coupling.
+     */
+    private fun generateConflictId(
+        entityTypeName: String,
+        entityId: String,
+        opRefs: List<LedgerOpRef>
+    ): String {
+        fun encode(s: String): String = "${s.length}:$s"
+
+        val typeEncoded = encode(entityTypeName)
+        val idEncoded = encode(entityId)
+        
+        val opRefsEncoded = opRefs.joinToString(",") { 
+            "${encode(it.deviceId)}:${it.logicalClock}"
+        }
+
+        val canonicalString = "$typeEncoded|$idEncoded|$opRefsEncoded"
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(canonicalString.toByteArray(Charsets.UTF_8))
+        return hashBytes.joinToString("") { "%02x".format(it) }
     }
 
 

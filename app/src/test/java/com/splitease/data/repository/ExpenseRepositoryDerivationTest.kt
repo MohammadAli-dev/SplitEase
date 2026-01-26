@@ -97,8 +97,10 @@ class ExpenseRepositoryDerivationTest {
         )
         resolutionsFlow.value = listOf(resolution)
         
-        // Mock Ledger Op Type
-        coEvery { ledgerDao.getOperationType("dev-1", 10L) } returns "UPDATE"
+        // Mock Ledger Op Type (Batch)
+        coEvery { ledgerDao.getOperationTypesBatch(any()) } returns listOf(
+            com.splitease.data.local.dao.OpTypeResult("dev-1", 10L, "UPDATE")
+        )
 
         val result = repository.getAllEffectiveExpenses().first()
         assertEquals(1, result.size)
@@ -121,8 +123,10 @@ class ExpenseRepositoryDerivationTest {
         )
         resolutionsFlow.value = listOf(resolution)
         
-        // Mock Ledger Op Type
-        coEvery { ledgerDao.getOperationType("dev-1", 10L) } returns "DELETE"
+        // Mock Ledger Op Type (Batch)
+        coEvery { ledgerDao.getOperationTypesBatch(any()) } returns listOf(
+            com.splitease.data.local.dao.OpTypeResult("dev-1", 10L, "DELETE")
+        )
 
         val result = repository.getAllEffectiveExpenses().first()
         assertTrue("Zombie should be hidden when resolved to DELETE", result.isEmpty())
@@ -136,6 +140,7 @@ class ExpenseRepositoryDerivationTest {
         val conflict = createConflict("clean", ConflictType.MULTIPLE_WRITERS)
         conflictsFlow.value = listOf(conflict)
 
+        // No resolution needed for MW
         val result = repository.getAllEffectiveExpenses().first()
         assertEquals(1, result.size)
         assertEquals("clean", result[0].id)
