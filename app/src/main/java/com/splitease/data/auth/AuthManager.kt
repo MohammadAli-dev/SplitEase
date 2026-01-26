@@ -607,19 +607,20 @@ class AuthManagerImpl @Inject constructor(
                 Log.d(TAG, "logout: cancelling all work")
                 WorkManager.getInstance(context).cancelAllWork()
                 
-                // Busy-wait for up to 5 seconds for workers to actually stop
+                // Busy-wait for up to 5 seconds for ALL workers to actually stop
                 val timeout = 5000L
                 val start = System.currentTimeMillis()
                 while (System.currentTimeMillis() - start < timeout) {
-                    val workInfos = WorkManager.getInstance(context)
-                        .getWorkInfosForUniqueWork(IdentityLinkingWorker.WORK_NAME).get()
+                    // Query ALL work in RUNNING or ENQUEUED state (not just IdentityLinkingWorker)
+                    val query = androidx.work.WorkQuery.Builder
+                        .fromStates(listOf(
+                            androidx.work.WorkInfo.State.RUNNING,
+                            androidx.work.WorkInfo.State.ENQUEUED
+                        ))
+                        .build()
+                    val allWorkInfos = WorkManager.getInstance(context).getWorkInfos(query).get()
                     
-                    val anyRunning = workInfos.any { 
-                        it.state == androidx.work.WorkInfo.State.RUNNING || 
-                        it.state == androidx.work.WorkInfo.State.ENQUEUED 
-                    }
-                    
-                    if (!anyRunning) break
+                    if (allWorkInfos.isEmpty()) break
                     delay(100)
                 }
 
