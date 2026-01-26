@@ -356,3 +356,35 @@ This sprint surgically disables the legacy `PullSyncService` to transition the s
 ---
 
 **Sprint 22 Status: Ledger-Only Mode Active. Legacy Pull Neutralized.**
+
+---
+
+# Sprint 22.1: Hard Account Isolation & Identity Persistence
+
+## Overview
+This stabilization sprint addresses a critical regression where the local user identity ("me") was lost after a logout/login cycle, and implements strict account isolation to prevent data bleed between sessions.
+
+## Key Changes
+
+### 1. Hard Account Isolation (Logout Teardown)
+- **Strict Teardown Sequence**: `AuthManager.logout()` now executes a blocking, atomic teardown:
+    1.  **Stop Background Work**: Cancels all WorkManager jobs to prevent race conditions.
+    2.  **Wipe Database**: Executes `appDatabase.clearAllTables()` to physically remove all user data.
+    3.  **Clear Identity**: Resets `LocalUserManager`, `TokenManager`, and sync metadata.
+- **Blocking UI**: `MainActivity` displays a blocking "Logging out..." overlay during this process to prevent interaction.
+- **Navigation Reset**: Global navigation reset (`popUpTo(0)`) is triggered on `Unauthenticated` state to destroy all ViewModels.
+
+### 2. Identity Bootstrap Logic (Model A)
+- **Problem**: Previously, `IdentityBootstrapper` only ran on app startup. Wiping the DB on logout meant subsequent logins had no "me" row in the `users` table.
+- **Fix**: Moved identity bootstrapping into `AuthManager`.
+    - **Login-Coupled**: `ensureLocalUserRegistered()` is now called immediately after token persistence in `handleSuccessfulAuth()`.
+    - **Startup Recovery**: also called in `AuthManager.initialize()` to recover identity if the DB was wiped but tokens persisted (rare edge case).
+    - **Idempotency**: `IdentityBootstrapper` uses `INSERT OR IGNORE` to safely ensure the row exists without overwriting metadata.
+
+### 3. Safety Guardrails
+- **Repository Assertions**: `GroupRepository.createGroup` now explicitly asserts that the creator's `User` row exists before writing, failing fast with a clear invariant violation message instead of creating broken state.
+- **Worker Ownership**: `LedgerPushWorker` now verifies that the `ledgerOp.authorLocalUserId` matches the current session ID, aborting operations if there is a mismatch (preventing cross-user sync bugs).
+
+## Verification Results
+- **Build**: Passed `assembleDebug`.
+- **Manual Verification**: Confirmed that logging out and logging back in (User A -> User B) correctly shows the new user as "me" in groups, and that the previous user's data is completely gone.
