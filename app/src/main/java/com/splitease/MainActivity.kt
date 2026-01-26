@@ -7,6 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
@@ -144,7 +146,7 @@ class MainActivity : ComponentActivity() {
                                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
                                 ) {
                                     androidx.compose.material3.CircularProgressIndicator()
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(16.dp))
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
                                     Text("Logging out safely...")
                                 }
                             }

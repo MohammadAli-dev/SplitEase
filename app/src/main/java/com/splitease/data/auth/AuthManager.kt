@@ -113,7 +113,7 @@ interface AuthManager {
      *   - authState = AuthState.Unauthenticated
      * - Callers may **safely navigate immediately** after invocation.
      * - UI MUST NOT infer logout completion from AuthState observation.
-     * - Preserves all local data (expenses, groups, etc.).
+     * - **PERFORMS HARD RESET**: Clears all local user data and identity state.
      */
     suspend fun logout()
 
@@ -211,11 +211,13 @@ class AuthManagerImpl @Inject constructor(
                     } else {
                         Log.e(TAG, "initialize: identity bootstrap failed, forcing logout")
                         tokenManager.clearTokens()
+                        _userProfile.value = null
                         _authState.value = AuthState.Unauthenticated
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "initialize: identity bootstrap exception during recovery", e)
                     tokenManager.clearTokens()
+                    _userProfile.value = null
                     _authState.value = AuthState.Unauthenticated
                 }
             } else {
@@ -463,6 +465,7 @@ class AuthManagerImpl @Inject constructor(
                 if (!bootstrapped) {
                     Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap failed (no local ID)")
                     tokenManager.clearTokens() // Rollback
+                    _userProfile.value = null
                     _authState.value = AuthState.Unauthenticated
                     _authError.tryEmit("Failed to initialize account identity")
                     return false
@@ -470,6 +473,7 @@ class AuthManagerImpl @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap exception", e)
                 tokenManager.clearTokens() // Rollback
+                _userProfile.value = null
                 _authState.value = AuthState.Unauthenticated
                 _authError.tryEmit("Failed to initialize account: ${e.message}")
                 return false
@@ -607,17 +611,16 @@ class AuthManagerImpl @Inject constructor(
                 val timeout = 5000L
                 val start = System.currentTimeMillis()
                 while (System.currentTimeMillis() - start < timeout) {
-                    val runningWork = WorkManager.getInstance(context)
-                        .getWorkInfosByTag(IdentityLinkingWorker.WORK_NAME).get() // Check specific or all?
-                        // Ideally we check ALL work, but WorkManager doesn't have "getAllWorkInfo" easily for RUNNING.
-                        // We will check generally by assuming cancelAllWork propagates.
-                        // For strictness, we just wait a bit or assume cancelAllWork signals them.
-                        // Given we can't easily query "All Running Jobs" efficiently in Loop,
-                        // We rely on cancelAllWork() being a signal. 
-                        // To be safer, we can delay briefly to allow cancellation propagation.
+                    val workInfos = WorkManager.getInstance(context)
+                        .getWorkInfosForUniqueWork(IdentityLinkingWorker.WORK_NAME).get()
+                    
+                    val anyRunning = workInfos.any { 
+                        it.state == androidx.work.WorkInfo.State.RUNNING || 
+                        it.state == androidx.work.WorkInfo.State.ENQUEUED 
+                    }
+                    
+                    if (!anyRunning) break
                     delay(100)
-                    // If we had a specific list of tags, we would check them.
-                    // For now, we trust WorkManager but enforce a small grace period.
                 }
 
                 // 3. Clear DB (Gap 8)
