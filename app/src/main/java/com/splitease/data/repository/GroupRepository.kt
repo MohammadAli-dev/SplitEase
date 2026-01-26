@@ -60,6 +60,7 @@ interface GroupRepository {
      * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     suspend fun createGroup(
+        id: String,
         name: String,
         type: String,
         memberIds: List<String>,
@@ -134,6 +135,7 @@ class GroupRepositoryImpl @Inject constructor(
          * @throws WritePermissionDeniedException if device cannot write.
          */
         override suspend fun createGroup(
+        id: String,
         name: String,
         type: String,
         memberIds: List<String>,
@@ -146,7 +148,7 @@ class GroupRepositoryImpl @Inject constructor(
             if (!deviceRoleManager.canWrite()) {
                 throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
             }
-            val groupId = UUID.randomUUID().toString()
+            val groupId = id
             val now = Date()
 
             val group = Group(
