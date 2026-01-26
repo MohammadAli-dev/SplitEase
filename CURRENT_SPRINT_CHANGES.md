@@ -320,4 +320,39 @@ Eliminated the use of `LiveData` in the Compose layer to maintain a pure, boiler
 
 ---
 
-**Sprint 21.1 Status: Stability Gate Cleared. Correctness Restored.**
+---
+
+# Sprint 22: PullSyncService Noop & Ledger-Only Enforcement
+
+## Overview
+This sprint surgically disables the legacy `PullSyncService` to transition the system to a strict **Ledger-Only** architecture. Entity state is now derived exclusively via `ReplayEngine`, and no network code may write directly to entity tables.
+
+## Key Changes
+
+### 1. PullSyncService: NO-OP Conversion
+- **Neutralized**: `PullSyncServiceImpl.performPullSync()` now logs a single info message and immediately returns `PullSyncResult.Success` with all counts at zero.
+- **Documentation**: Added detailed KDoc explaining the architectural transition and risk of "ghost mutations" from legacy entity sync.
+- **DI Preserved**: The interface and implementation remain in place to prevent DI contract breakage.
+
+### 2. Ledger-Only Writes Invariant
+- **Audit Performed**: Verified that all DAO mutation calls (`insert`, `update`, `delete`) originate from either:
+    1. **User Actions** (via `Repository` layer).
+    2. **System Replay** (via `ReplayEngine`).
+- **Dead Code Identified**: Legacy `PullSyncService` helper methods (reconciliation, pagination, mapping) are now unreachable but remain in the file for historical reference.
+
+### 3. Obsolete Test Cleanup
+- **Deleted Files**:
+    - `PullSyncRollbackTest.kt`
+    - `PullSyncServiceAtomicityTest.kt`
+    - `PullSyncServicePagingTest.kt`
+    - `PullSyncTestFixtures.kt`
+- **Reason**: These tests verified the legacy sync logic, which is now dead code. They caused false failures after the NO-OP conversion.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation.
+- **Tests**: `./gradlew testDebugUnitTest` passed (55 tests after cleanup).
+- **Invariant Check**: Confirmed no entity tables are written during sync; only `ledger_operations` changes during push.
+
+---
+
+**Sprint 22 Status: Ledger-Only Mode Active. Legacy Pull Neutralized.**
