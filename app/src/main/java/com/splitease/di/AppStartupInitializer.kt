@@ -14,7 +14,6 @@ import javax.inject.Singleton
  */
 @Singleton
 class AppStartupInitializer @Inject constructor(
-    private val identityBootstrapper: IdentityBootstrapper,
     private val authManager: AuthManager,
     private val hydrationCoordinator: HydrationCoordinator,
     private val promotionCoordinator: PromotionCoordinator
@@ -24,8 +23,7 @@ class AppStartupInitializer @Inject constructor(
      *
      * - Checks for hydration inconsistency ("Zombie Mode") and wipes DB if needed.
      * - Fixes interrupted promotions (IN_PROGRESS -> PROMOTED).
-     * - Ensures local user identity exists.
-     * - Initializes auth state.
+     * - Initializes auth state (which includes identity bootstrapping).
      */
     suspend fun init() {
         // 1. Critical Safety Check: Remediate any hydration inconsistencies BEFORE anything else.
@@ -35,15 +33,7 @@ class AppStartupInitializer @Inject constructor(
         // This must run before any writes or identity registration.
         promotionCoordinator.recoverPromotionIfNeeded()
 
-        // 3. Auth Initialization: Restore session and refresh tokens before identity registration
+        // 3. Auth Initialization: Restore session, refresh tokens, and bootstrap identity
         authManager.initialize()
-
-        // 4. Ensure local identity exists
-        try {
-            identityBootstrapper.ensureLocalUserRegistered()
-        } catch (e: Exception) {
-            // Log but don't crash; authManager might handle recovery or UI will show error
-            Log.e("AppStartupInitializer", "Failed to register identity", e)
-        }
     }
 }

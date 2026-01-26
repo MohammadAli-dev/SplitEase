@@ -320,4 +320,71 @@ Eliminated the use of `LiveData` in the Compose layer to maintain a pure, boiler
 
 ---
 
-**Sprint 21.1 Status: Stability Gate Cleared. Correctness Restored.**
+---
+
+# Sprint 22: PullSyncService Noop & Ledger-Only Enforcement
+
+## Overview
+This sprint surgically disables the legacy `PullSyncService` to transition the system to a strict **Ledger-Only** architecture. Entity state is now derived exclusively via `ReplayEngine`, and no network code may write directly to entity tables.
+
+## Key Changes
+
+### 1. PullSyncService: NO-OP Conversion
+- **Neutralized**: `PullSyncServiceImpl.performPullSync()` now logs a single info message and immediately returns `PullSyncResult.Success` with all counts at zero.
+- **Documentation**: Added detailed KDoc explaining the architectural transition and risk of "ghost mutations" from legacy entity sync.
+- **DI Preserved**: The interface and implementation remain in place to prevent DI contract breakage.
+
+### 2. Ledger-Only Writes Invariant
+- **Audit Performed**: Verified that all DAO mutation calls (`insert`, `update`, `delete`) originate from either:
+    1. **User Actions** (via `Repository` layer).
+    2. **System Replay** (via `ReplayEngine`).
+- **Dead Code Identified**: Legacy `PullSyncService` helper methods (reconciliation, pagination, mapping) are now unreachable but remain in the file for historical reference.
+
+### 3. Obsolete Test Cleanup
+- **Deleted Files**:
+    - `PullSyncRollbackTest.kt`
+    - `PullSyncServiceAtomicityTest.kt`
+    - `PullSyncServicePagingTest.kt`
+    - `PullSyncTestFixtures.kt`
+- **Reason**: These tests verified the legacy sync logic, which is now dead code. They caused false failures after the NO-OP conversion.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation.
+- **Tests**: `./gradlew testDebugUnitTest` passed (55 tests after cleanup).
+- **Invariant Check**: Confirmed no entity tables are written during sync; only `ledger_operations` changes during push.
+
+---
+
+**Sprint 22 Status: Ledger-Only Mode Active. Legacy Pull Neutralized.**
+
+---
+
+# Sprint 22.1: Hard Account Isolation & Identity Persistence
+
+## Overview
+This stabilization sprint addresses a critical regression where the local user identity ("me") was lost after a logout/login cycle, and implements strict account isolation to prevent data bleed between sessions.
+
+## Key Changes
+
+### 1. Hard Account Isolation (Logout Teardown)
+- **Strict Teardown Sequence**: `AuthManager.logout()` now executes a blocking, atomic teardown:
+    1.  **Stop Background Work**: Cancels all WorkManager jobs to prevent race conditions.
+    2.  **Wipe Database**: Executes `appDatabase.clearAllTables()` to physically remove all user data.
+    3.  **Clear Identity**: Resets `LocalUserManager`, `TokenManager`, and sync metadata.
+- **Blocking UI**: `MainActivity` displays a blocking "Logging out..." overlay during this process to prevent interaction.
+- **Navigation Reset**: Global navigation reset (`popUpTo(0)`) is triggered on `Unauthenticated` state to destroy all ViewModels.
+
+### 2. Identity Bootstrap Logic (Model A)
+- **Problem**: Previously, `IdentityBootstrapper` only ran on app startup. Wiping the DB on logout meant subsequent logins had no "me" row in the `users` table.
+- **Fix**: Moved identity bootstrapping into `AuthManager`.
+    - **Login-Coupled**: `ensureLocalUserRegistered()` is now called immediately after token persistence in `handleSuccessfulAuth()`.
+    - **Startup Recovery**: also called in `AuthManager.initialize()` to recover identity if the DB was wiped but tokens persisted (rare edge case).
+    - **Idempotency**: `IdentityBootstrapper` uses `INSERT OR IGNORE` to safely ensure the row exists without overwriting metadata.
+
+### 3. Safety Guardrails
+- **Repository Assertions**: `GroupRepository.createGroup` now explicitly asserts that the creator's `User` row exists before writing, failing fast with a clear invariant violation message instead of creating broken state.
+- **Worker Ownership**: `LedgerPushWorker` now verifies that the `ledgerOp.authorLocalUserId` matches the current session ID, aborting operations if there is a mismatch (preventing cross-user sync bugs).
+
+## Verification Results
+- **Build**: Passed `assembleDebug`.
+- **Manual Verification**: Confirmed that logging out and logging back in (User A -> User B) correctly shows the new user as "me" in groups, and that the previous user's data is completely gone.

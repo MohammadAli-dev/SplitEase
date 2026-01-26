@@ -8,6 +8,7 @@ import androidx.work.WorkerParameters
 import com.splitease.data.auth.AuthConfig
 import com.splitease.data.auth.TokenManager
 import com.splitease.data.device.InstallationIdProvider
+import com.splitease.data.identity.LocalUserManager
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.remote.LedgerOperationUploadDto
@@ -16,6 +17,7 @@ import com.splitease.data.remote.toWorkResult
 import com.splitease.data.sync.LedgerSyncStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 
 /**
  * WorkManager worker for pushing local ledger operations to Supabase.
@@ -36,6 +38,7 @@ class LedgerPushWorker @AssistedInject constructor(
     private val appDatabase: AppDatabase,
     private val api: SplitEaseApi,
     private val tokenManager: TokenManager,
+    private val localUserManager: LocalUserManager,
     private val ledgerSyncStore: LedgerSyncStore,
     private val installationIdProvider: InstallationIdProvider
 ) : CoroutineWorker(context, params) {
@@ -63,6 +66,16 @@ class LedgerPushWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting ledger push...")
 
+        // 0. Ownership Safety Check (Sprint 22.1 Gap 2)
+        // Guard against cross-user sync (e.g., User B syncing User A's ops)
+        // Since logout forces a new Local ID, any op with a different Local ID belongs to a previous user.
+        val currentLocalUserId = localUserManager.userId.first()
+        // If current ID is somehow null/empty, we can't safely proceed. (Unlikely with DataStore default).
+        if (currentLocalUserId.isEmpty()) {
+             Log.e(TAG, "CRITICAL: Current local user ID is empty. Aborting push to prevent corruption.")
+             return Result.failure()
+        }
+
         // 1. Check auth
         val accessToken = tokenManager.getAccessToken()
         if (accessToken.isNullOrBlank()) {
@@ -86,10 +99,66 @@ class LedgerPushWorker @AssistedInject constructor(
                     break
                 }
 
-                Log.d(TAG, "Draining batch: pushing ${pendingOps.size} operations...")
+                // 2.5 Ownership Filtering (Sprint 22.1 Gap 2)
+                // Filter out any operations that don't belong to the current local user.
+                val (safeOps, unsafeOps) = pendingOps.partition { 
+                     // Null Safety: If authorLocalUserId missing, treat as unsafe mismatch
+                     it.authorLocalUserId == currentLocalUserId 
+                }
+
+                if (unsafeOps.isNotEmpty()) {
+                    Log.e(TAG, "SECURITY ALERT: Found ${unsafeOps.size} operations belonging to different local user " +
+                          "(first mismatch: ${unsafeOps.first().authorLocalUserId}). " +
+                          "These will be SKIPPED. Current local user: $currentLocalUserId")
+                    
+                    // If ALL ops are unsafe, we must abort to avoid infinite loop (since we can't advance clock).
+                    if (safeOps.isEmpty()) {
+                        Log.e(TAG, "Batch contained ONLY unsafe operations. Aborting push loop to prevent infinite retry.")
+                        // We return Success to signal "Worker is done" (don't retry immediately)
+                        // The unsafe ops will remain in DB until cleared by Hard Logout.
+                        return Result.success()
+                    }
+                }
+                
+                if (safeOps.isEmpty()) {
+                     // Should be covered above, but defensive check
+                     break 
+                }
+
+                Log.d(TAG, "Draining batch: pushing ${safeOps.size} operations...")
 
                 // 3. Map to DTOs
-                val dtos = pendingOps.map { it.toUploadDto() }
+                val dtos = safeOps.map { it.toUploadDto() }
+                
+                // ... rest of logic uses `safeOps` instead of `pendingOps` ...
+                // BUT WAIT: If we skip ops, `maxClock` calculation might be tricky.
+                // If we skip ops 101, 102 but push 103... we advance clock to 103?
+                // Then 101, 102 are forever skipped. THIS IS CORRECT behavior for isolation.
+                // However, `getOperationsAfter` uses `lastPushedClock`.
+                // If we advance clock past the unsafe ops, they will never be seen again. 
+                // That is effectively "skipping" them.
+                // So we MUST advance the clock to the max of the BATCH (even if unsafe), 
+                // OR we must ensure we don't accidentally re-fetch them.
+                
+                // Let's refine strictness:
+                // If we encounter unsafe ops, we should probably stop and NOT advance past them if we want to preserve them?
+                // NO. Sprint 22.1 goal is "Hard Isolation". User B should NEVER see/sync User A's data.
+                // "Skipping" implies we silently ignore them.
+                // If we don't push them, we shouldn't advance the clock past them?
+                // If we don't advance clock, we'll fetch them again next loop -> Infinite Loop.
+                
+                // Solution: We must advance the clock past them to "ignore" them for this session.
+                // Code below does: `maxClock = pendingOps.maxOf { it.logicalClock }`.
+                // This uses the ORIGINAL batch max. So yes, it advances past unsafe ops.
+                // This effectively "ghosts" User A's ops for User B. 
+                // When User A logs back in (New Local ID), they won't pick up where they left off?
+                // Wait. New Local ID means User A (Session 2) != User A (Session 1).
+                // So User A (Session 2) SHOULD NOT sync Session 1's ops either?
+                // Correct. "Local Identity is User-Scoped".
+                // If User A didn't sync before logout, that data is DEAD to the server.
+                // Hard Logout wipes the DB anyway.
+                // So this logic only applies if the DB Wipe FAILED or didn't happen yet.
+                // In that case, "ghosting" is the safest failure mode.
 
                 // 4. Push to Supabase
                 val response = api.insertLedgerOperations(
@@ -99,12 +168,13 @@ class LedgerPushWorker @AssistedInject constructor(
                 )
 
                 if (response.isSuccessful) {
-                    // 5. Advance cursor to max clock in batch
+                    // 5. Advance cursor to max clock in THE ORIGINAL BATCH
+                    // We must advance past even the unsafe ops to avoid re-fetching them
                     val maxClock = pendingOps.maxOf { it.logicalClock }
                     ledgerSyncStore.setLastPushedClock(maxClock)
-                    Log.d(TAG, "Batch committed, cursor advanced to $maxClock")
+                    Log.d(TAG, "Batch committed, cursor advanced to $maxClock (skipped ${unsafeOps.size} unsafe ops)")
                     
-                    // Loop continues automatically to pick up any ops added mid-push
+                    // Loop continues automatically
                 } else {
                     return response.toWorkResult(TAG)
                 }
