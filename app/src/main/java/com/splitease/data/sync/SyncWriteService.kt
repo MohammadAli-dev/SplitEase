@@ -53,6 +53,11 @@ interface SyncWriteService {
      * Creates a SyncOperation that represents an intent to add a member to a group.
      */
     fun createGroupMemberAddSyncOp(groupId: String, userId: String): SyncOperation
+
+    /**
+     * Creates a SyncOperation for a new user (phantom user).
+     */
+    fun createUserCreateSyncOp(user: com.splitease.data.local.entities.User): SyncOperation
 }
 
 @Singleton
@@ -175,6 +180,20 @@ class SyncWriteServiceImpl @Inject constructor(
             timestamp = System.currentTimeMillis()
         )
     }
+
+    override fun createUserCreateSyncOp(user: com.splitease.data.local.entities.User): SyncOperation {
+        val payload = UserCreatePayload(
+            version = 1,
+            user = user
+        )
+        return SyncOperation(
+            operationType = SyncOperationType.CREATE.name,
+            entityType = SyncEntityType.USER,
+            entityId = user.id,
+            payload = gson.toJson(payload),
+            timestamp = System.currentTimeMillis()
+        )
+    }
 }
 
 /**
@@ -225,4 +244,12 @@ data class GroupMemberAddPayload(
     val version: Int,
     val groupId: String,
     val userId: String
+)
+
+/**
+ * Versioned payload for user creation sync.
+ */
+data class UserCreatePayload(
+    val version: Int,
+    val user: com.splitease.data.local.entities.User
 )

@@ -11,6 +11,10 @@ import com.splitease.data.repository.ExpenseRepository
 import com.splitease.data.repository.UserRepository
 import com.splitease.domain.SplitValidationResult
 import com.splitease.domain.SplitValidator
+import com.splitease.data.repository.AddMemberResult
+
+// ... existing imports ...
+
 import com.splitease.domain.PersonalGroupConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.math.BigDecimal
@@ -322,7 +326,12 @@ constructor(
                 
                 // If in a group context, automatically join them to the group
                 if (groupId != "" && groupId != PersonalGroupConstants.PERSONAL_GROUP_ID) {
-                    groupRepository.addMember(groupId, userId)
+                    val currentUserId = userContext.userId.firstOrNull() ?: throw IllegalStateException("User identity missing")
+                    val result = groupRepository.addMember(groupId, userId, currentUserId)
+                    if (result is com.splitease.data.repository.AddMemberResult.Error) {
+                         _uiState.update { it.copy(errorMessage = "Failed to add to group: ${result.message}") }
+                         return@launch
+                    }
                 }
                 
                 // userRepository.createPhantomUser -> database -> loadGroupMembers() flow triggers -> UI update.

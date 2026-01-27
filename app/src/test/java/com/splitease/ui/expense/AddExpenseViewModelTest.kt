@@ -28,6 +28,7 @@ class AddExpenseViewModelTest {
 
     private val expenseRepository: ExpenseRepository = mockk(relaxed = true)
     private val userRepository: UserRepository = mockk(relaxed = true)
+    private val groupRepository: com.splitease.data.repository.GroupRepository = mockk(relaxed = true)
     private val userContext: UserContext = mockk()
     private val groupDao: GroupDao = mockk()
     private val userDao: UserDao = mockk()
@@ -69,6 +70,7 @@ class AddExpenseViewModelTest {
             savedStateHandle,
             expenseRepository,
             userRepository,
+            groupRepository,
             userContext,
             groupDao,
             userDao

@@ -638,37 +638,39 @@ class AuthManagerImpl @Inject constructor(
                 // 2. Worker Safety (Gap 1 - Final)
                 // Force stop all background work to prevent race conditions during DB wipe
                 Log.d(TAG, "logout: cancelling all work")
-                WorkManager.getInstance(context).cancelAllWork()
-                
-                // Busy-wait for up to 5 seconds for ALL workers to actually stop
-                val timeout = 5000L
-                val start = System.currentTimeMillis()
-                while (System.currentTimeMillis() - start < timeout) {
-                    // Query ALL work in RUNNING or ENQUEUED state (not just IdentityLinkingWorker)
-                    val query = androidx.work.WorkQuery.Builder
-                        .fromStates(listOf(
-                            androidx.work.WorkInfo.State.RUNNING,
-                            androidx.work.WorkInfo.State.ENQUEUED
-                        ))
-                        .build()
-                    val allWorkInfos = WorkManager.getInstance(context).getWorkInfos(query).get()
+                try {
+                    WorkManager.getInstance(context).cancelAllWork()
                     
-                    if (allWorkInfos.isEmpty()) break
-                    delay(100)
+                    // Busy-wait for up to 5 seconds for ALL workers to actually stop
+                    val timeout = 5000L
+                    val start = System.currentTimeMillis()
+                    while (System.currentTimeMillis() - start < timeout) {
+                        // Query ALL work in RUNNING or ENQUEUED state (not just IdentityLinkingWorker)
+                        val query = androidx.work.WorkQuery.Builder
+                            .fromStates(listOf(
+                                androidx.work.WorkInfo.State.RUNNING,
+                                androidx.work.WorkInfo.State.ENQUEUED
+                            ))
+                            .build()
+                        val allWorkInfos = WorkManager.getInstance(context).getWorkInfos(query).get()
+                        
+                        if (allWorkInfos.isEmpty()) break
+                        delay(100)
+                    }
+                } catch (e: Exception) {
+                    // Non-fatal error: If WorkManager fails (e.g. DB corrupt), we MUST proceed 
+                    // to wipe the app database and tokens regardless.
+                    Log.e(TAG, "logout: WorkManager cleanup failed (proceeding to DB wipe)", e)
                 }
 
-                // 3. Clear DB (Gap 8)
+                // 3. Clear DB (Gap 8) - Best Effort
                 Log.d(TAG, "logout: clearing database")
                 try {
                     appDatabase.clearAllTables()
                 } catch (e: Exception) {
-                    Log.e(TAG, "FATAL: Failed to clear database during logout", e)
-                    // Gap 5 (Final): Fatal error state handling
-                    _authState.value = AuthState.Error("Logout failed: potentially unsafe state. Please restart app.", isFatal = true)
-                    // We STOP here. We do NOT clear identity if DB wipe failed, to prevent orphan data access?
-                    // OR do we crash? 
-                    // Plan says: "Log Fatal. Set Error. STOP."
-                    return@withContext
+                    Log.e(TAG, "logout: Failed to clear database (proceeding to clear identity)", e)
+                    // Non-fatal for session termination: Surface high-priority warning, but MUST continue to revoke credentials.
+                    _authError.tryEmit("Database cleanup failed. Some local data might remain. Tokens were still revoked.")
                 }
 
                 // 4. Clear Identity (gap 13, gap 4)

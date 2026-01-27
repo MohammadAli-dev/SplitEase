@@ -405,6 +405,16 @@ interface SplitEaseApi {
         @Query("id") idFilter: String,
         @Query("select") select: String = "updated_at"
     ): Response<List<RemoteTimestampResponse>>
+    /**
+     * Fetch only the updated_at timestamp for a user (metadata-only).
+     */
+    @GET("rest/v1/profiles")
+    suspend fun getUserTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "updated_at"
+    ): Response<List<RemoteTimestampResponse>>
 }
 
 /**

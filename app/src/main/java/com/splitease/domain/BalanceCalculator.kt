@@ -68,9 +68,7 @@ object BalanceCalculator {
         val sum = rounded.values.fold(BigDecimal.ZERO, BigDecimal::add)
         val isValid = sum.compareTo(BigDecimal.ZERO) == 0
 
-        if (!isValid) {
-            android.util.Log.w("BalanceCalculator", "Invariant violated: sum=₹${sum.setScale(2, RoundingMode.HALF_UP)} for ${rounded.size} users. This is expected during sync/hydration.")
-        }
+
 
         return BalanceResult(
             balances = rounded,

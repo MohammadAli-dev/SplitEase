@@ -172,7 +172,14 @@ class LedgerPullServiceImpl @Inject constructor(
             // POSTGREST SYNTAX FIX:
             // 1. Filter out non-UUIDs (legacy/phantom IDs like "22fe") to avoid 400 Bad Request
             // 2. Wrap valid UUIDs in quotes for "in" operator: in.("uuid1","uuid2")
-            val validUuids = userIds.filter { it.length > 20 }
+            val validUuids = userIds.filter { id ->
+                try {
+                    java.util.UUID.fromString(id)
+                    true
+                } catch (e: IllegalArgumentException) {
+                    false
+                }
+            }
             
             if (validUuids.isEmpty()) {
                 Log.d(TAG, "No valid UUIDs found to hydrate (skipped ${userIds.size} non-UUIDs)")
@@ -182,7 +189,7 @@ class LedgerPullServiceImpl @Inject constructor(
             // Format filter: in.("id1","id2")
             val idFilter = "in.(${validUuids.joinToString(",") { "\"$it\"" }})"
             
-            Log.d(TAG, "Fetching profiles for ${validUuids.size} UUIDs. Filter: $idFilter")
+            Log.d(TAG, "Fetching profiles for ${validUuids.size} UUIDs.")
 
             val response = api.getUsers(
                 authHeader = "Bearer $accessToken",

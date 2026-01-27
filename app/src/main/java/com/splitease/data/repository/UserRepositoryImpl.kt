@@ -17,7 +17,8 @@ class UserRepositoryImpl @Inject constructor(
     private val ledgerSyncScheduler: com.splitease.data.sync.LedgerSyncScheduler,
     private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager,
     private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate,
-    private val userContext: com.splitease.data.identity.UserContext
+    private val userContext: com.splitease.data.identity.UserContext,
+    private val syncWriteService: com.splitease.data.sync.SyncWriteService
 ) : UserRepository {
 
     /**
@@ -73,13 +74,15 @@ class UserRepositoryImpl @Inject constructor(
                 }
                 
                 // Get Author ID (Me)
-                val authorId = userContext.userId.firstOrNull() ?: "unknown_author"
+                val authorId = userContext.userId.firstOrNull() 
+                    ?: throw IllegalStateException("Cannot create phantom user: Device user identity is missing (not authenticated/hydrated)")
                 
-                // Create Ledger Op
+                // Create Sync & Ledger Ops
+                val syncOp = syncWriteService.createUserCreateSyncOp(newUser)
                 val ledgerOp = ledgerOperationFactory.createUserCreateOp(newUser, authorId)
                 
                 // Persist Atomically
-                appDatabase.insertUserWithLedger(newUser, ledgerOp)
+                appDatabase.insertUserWithLedger(newUser, syncOp, ledgerOp)
                 
                 // Schedule Sync
                 ledgerSyncScheduler.schedulePush()

@@ -113,10 +113,11 @@ class LedgerPushWorker @AssistedInject constructor(
                     
                     // If ALL ops are unsafe, we must abort to avoid infinite loop (since we can't advance clock).
                     if (safeOps.isEmpty()) {
-                        Log.e(TAG, "Batch contained ONLY unsafe operations. Aborting push loop to prevent infinite retry.")
-                        // We return Success to signal "Worker is done" (don't retry immediately)
-                        // The unsafe ops will remain in DB until cleared by Hard Logout.
-                        return Result.success()
+                        Log.e(TAG, "Batch contained ONLY unsafe operations. Skipping batch to prevent infinite retry.")
+                        // Fix for Liveness Bug: Must advance clock past these unsafe ops to unblock queue
+                        val maxClock = pendingOps.maxOf { it.logicalClock }
+                        ledgerSyncStore.setLastPushedClock(maxClock)
+                        continue
                     }
                 }
                 

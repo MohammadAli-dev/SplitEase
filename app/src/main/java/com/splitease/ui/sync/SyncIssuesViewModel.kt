@@ -61,7 +61,8 @@ class SyncIssuesViewModel @Inject constructor(
     private val syncDao: SyncDao,
     private val expenseDao: ExpenseDao,
     private val groupDao: GroupDao,
-    private val settlementDao: SettlementDao
+    private val settlementDao: SettlementDao,
+    private val userDao: com.splitease.data.local.dao.UserDao
 ) : ViewModel() {
 
     private val _pendingActionId = MutableStateFlow<Int?>(null)
@@ -110,9 +111,16 @@ class SyncIssuesViewModel @Inject constructor(
                 val expenseIds = allOps.filter { it.entityType == SyncEntityType.EXPENSE }.map { it.entityId }
                 val groupIds = allOps.filter { it.entityType == SyncEntityType.GROUP }.map { it.entityId }
                 val settlementIds = allOps.filter { it.entityType == SyncEntityType.SETTLEMENT }.map { it.entityId }
+                val userIds = allOps.filter { it.entityType == SyncEntityType.USER }.map { it.entityId }
 
-                // Parallel batch fetch (max 3 queries)
-                val (expenseNames, groupNames, settlementAmounts) = coroutineScope {
+                data class BatchResult(
+                    val expenseNames: Map<String, String>,
+                    val groupNames: Map<String, String>,
+                    val settlementAmounts: Map<String, java.math.BigDecimal>,
+                    val userNames: Map<String, String>
+                )
+
+                val batch = coroutineScope {
                     val expenseDeferred = async { 
                         if (expenseIds.isNotEmpty()) expenseDao.getTitlesByIds(expenseIds).associate { it.id to it.value } else emptyMap() 
                     }
@@ -122,19 +130,30 @@ class SyncIssuesViewModel @Inject constructor(
                     val settlementDeferred = async { 
                         if (settlementIds.isNotEmpty()) settlementDao.getAmountsByIds(settlementIds).associate { it.id to it.value } else emptyMap() 
                     }
-                    Triple(expenseDeferred.await(), groupDeferred.await(), settlementDeferred.await())
+                    val userDeferred = async {
+                        if (userIds.isNotEmpty()) userDao.getNamesByIds(userIds).associate { it.id to it.value } else emptyMap()
+                    }
+                    
+                    BatchResult(
+                        expenseNames = expenseDeferred.await(),
+                        groupNames = groupDeferred.await(),
+                        settlementAmounts = settlementDeferred.await().mapValues { java.math.BigDecimal(it.value) },
+                        userNames = userDeferred.await()
+                    )
                 }
 
                 // Map with display names
                 _issues.value = allOps.map { op ->
                     val displayName = when (op.entityType) {
-                        SyncEntityType.EXPENSE -> expenseNames[op.entityId]?.let { DisplayName.Text(it) }
+                        SyncEntityType.EXPENSE -> batch.expenseNames[op.entityId]?.let { DisplayName.Text(it) }
                             ?: DisplayName.Resource(R.string.deleted_expense)
-                        SyncEntityType.GROUP -> groupNames[op.entityId]?.let { DisplayName.Text(it) }
+                        SyncEntityType.GROUP -> batch.groupNames[op.entityId]?.let { DisplayName.Text(it) }
                             ?: DisplayName.Resource(R.string.deleted_group)
-                        SyncEntityType.SETTLEMENT -> settlementAmounts[op.entityId]?.let { 
+                        SyncEntityType.SETTLEMENT -> batch.settlementAmounts[op.entityId]?.let { 
                             DisplayName.Text("Settlement (₹$it)") 
                         } ?: DisplayName.Resource(R.string.deleted_settlement)
+                        SyncEntityType.USER -> batch.userNames[op.entityId]?.let { DisplayName.Text("User: $it") }
+                            ?: DisplayName.Resource(R.string.deleted_user)
                     }
                     
                     val isError = op.status == SyncStatus.FAILED

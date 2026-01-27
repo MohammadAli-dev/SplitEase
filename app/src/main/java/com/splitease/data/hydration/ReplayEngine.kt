@@ -555,7 +555,6 @@ class ReplayEngineImpl @Inject constructor(
         )
         // Note: ReplayEngine purely records the resolution.
         // Interpretation and suppression happen in the Derivation Layer.
-        // Interpretation and suppression happen in the Derivation Layer.
     }
 
     private suspend fun applyUserOperation(op: LedgerOperation) {

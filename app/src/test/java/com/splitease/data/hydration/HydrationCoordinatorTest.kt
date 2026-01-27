@@ -4,6 +4,10 @@ import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
+import com.splitease.data.local.dao.LedgerDao
+import com.splitease.data.local.entities.LedgerOperation
+import com.splitease.data.device.DeviceRole
+import com.splitease.data.device.DeviceRoleManager
 import io.mockk.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -20,10 +24,10 @@ class HydrationCoordinatorTest {
     private val expenseDao: ExpenseDao = mockk(relaxed = true)
     private val groupDao: GroupDao = mockk(relaxed = true)
     private val settlementDao: SettlementDao = mockk(relaxed = true)
-    private val ledgerDao: com.splitease.data.local.dao.LedgerDao = mockk(relaxed = true)
+    private val ledgerDao: LedgerDao = mockk(relaxed = true)
     private val ledgerPullService: LedgerPullService = mockk(relaxed = true)
     private val replayEngine: ReplayEngine = mockk(relaxed = true)
-    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager = mockk(relaxed = true)
+    private val deviceRoleManager: DeviceRoleManager = mockk(relaxed = true)
 
     private val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
     private lateinit var coordinator: HydrationCoordinatorImpl
@@ -58,7 +62,7 @@ class HydrationCoordinatorTest {
         coEvery { settlementDao.getSettlementCountSync() } returns 0
         
         // AND: Device is NOT in read-only role
-        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.PRIMARY
+        coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.PRIMARY
         
         // AND: Hydration attempted flag is TRUE (crashed during hydration)
         coEvery { deviceRoleManager.isHydrationAttempted() } returns true
@@ -107,7 +111,7 @@ class HydrationCoordinatorTest {
         coEvery { expenseDao.getExpenseCountSync() } returns 10
 
         // BUT: Device is in REPLICA role
-        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.REPLICA
+        coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.REPLICA
 
         // WHEN
         val result = coordinator.remediateInconsistency()
@@ -123,7 +127,7 @@ class HydrationCoordinatorTest {
         coEvery { expenseDao.getExpenseCountSync() } returns 5
 
         // AND: Not REPLICA
-        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.PRIMARY
+        coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.PRIMARY
 
         // BUT: Hydration attempted is FALSE (this is just normal local usage)
         coEvery { deviceRoleManager.isHydrationAttempted() } returns false
@@ -137,13 +141,59 @@ class HydrationCoordinatorTest {
     }
 
     @Test
+    fun `hydrate should promote device to PROMOTED and reset hydration flag on success`() = runTest(testDispatcher) {
+        // GIVEN: Database is empty (Fresh Install)
+        coEvery { expenseDao.getExpenseCountSync() } returns 0
+        coEvery { groupDao.getGroupCountSync() } returns 0
+        coEvery { settlementDao.getSettlementCountSync() } returns 0
+        coEvery { ledgerDao.getOperationCountSync() } returns 0
+
+        // AND: Device is PRIMARY (Fresh Install) and hydration not attempted
+        coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.PRIMARY
+        coEvery { deviceRoleManager.isHydrationAttempted() } returns false
+
+        // AND: Ledger pull succeeds with operations
+        val mockOp = LedgerOperation(
+            operationId = "test-op-1",
+            entityType = "EXPENSE",
+            entityId = "exp-1",
+            operationType = "CREATE",
+            payload = "{}",
+            authorLocalUserId = "user-1",
+            deviceId = "device-1",
+            logicalClock = 1L,
+            createdAt = 1000L
+        )
+        coEvery { ledgerPullService.fetchAllOperations() } returns Result.success(listOf(mockOp))
+
+        // AND: Replay succeeds
+        coEvery { replayEngine.replay(any()) } returns ReplayResult.Success
+
+        // WHEN
+        val result = coordinator.hydrate()
+
+        // THEN
+        assertTrue(result is HydrationResult.Success)
+
+        // VERIFY:
+        // 1. Hydration Attempted flag is set, Role is promoted, then flag is reset
+        coVerifyOrder {
+            deviceRoleManager.setHydrationAttempted(true)
+            // Note: Persisting ops happens here
+            replayEngine.replay(any())
+            deviceRoleManager.setDeviceRole(DeviceRole.PROMOTED)
+            deviceRoleManager.setHydrationAttempted(false)
+        }
+    }
+
+    @Test
     fun `hydrate should fail fast when concurrent call is in progress`() = runTest(testDispatcher) {
         // GIVEN: Database is empty
         coEvery { expenseDao.getExpenseCountSync() } returns 0
         coEvery { groupDao.getGroupCountSync() } returns 0
         coEvery { settlementDao.getSettlementCountSync() } returns 0
         coEvery { ledgerDao.getOperationCountSync() } returns 0
-        coEvery { deviceRoleManager.getDeviceRole() } returns com.splitease.data.device.DeviceRole.PRIMARY
+        coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.PRIMARY
 
         // AND: fetchAllOperations is slow
         coEvery { ledgerPullService.fetchAllOperations() } coAnswers {

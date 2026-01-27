@@ -1,6 +1,7 @@
 package com.splitease.data.hydration
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.splitease.data.local.AppDatabase
 import com.splitease.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
@@ -25,7 +26,7 @@ interface LedgerSyncCoordinator {
      * 3. Replay ALL local operations to ensure consistency.
      * 4. Hydrate missing user profiles.
      *
-     * @return Result.Success on completion, or Result.Failure on error.
+     * @return [LedgerSyncResult.Success] on completion, or [LedgerSyncResult.Failed] on error.
      */
     suspend fun sync(): LedgerSyncResult
 }
@@ -62,22 +63,28 @@ class LedgerSyncCoordinatorImpl @Inject constructor(
             val remoteOps = pullResult.getOrNull() ?: emptyList()
             Log.d(TAG, "Pulled ${remoteOps.size} ledger operations from server")
 
-            // 2. Persist to local ledger (INSERT OR IGNORE)
-            if (remoteOps.isNotEmpty()) {
-                db.ledgerDao().insertAll(remoteOps)
-                Log.d(TAG, "Persisted ${remoteOps.size} ledger operations to local database")
-            }
+            // TRANSACTIONALITY FIX:
+            // Persist (Step 2) and Replay (Step 4) must be atomic.
+            // If we persist but fail replay, the UI (derived state) is out of sync with Ledger (source of truth).
+            // We use withTransaction to ensure "All or Nothing" update of local state.
+            db.withTransaction {
+                // 2. Persist to local ledger (INSERT OR IGNORE)
+                if (remoteOps.isNotEmpty()) {
+                    db.ledgerDao().insertAll(remoteOps)
+                    Log.d(TAG, "Persisted ${remoteOps.size} ledger operations to local database")
+                }
 
-            // 3. Fetch ALL local operations for full replay
-            // ReplayEngine requires full history to ensure deterministic convergence
-            val allLocalOps = db.ledgerDao().getAllOperationsSync()
-            Log.d(TAG, "Replaying total ${allLocalOps.size} local ledger operations")
+                // 3. Fetch ALL local operations for full replay
+                // ReplayEngine requires full history to ensure deterministic convergence
+                val allLocalOps = db.ledgerDao().getAllOperationsSync()
+                Log.d(TAG, "Replaying total ${allLocalOps.size} local ledger operations")
 
-            // 4. Replay into entity tables
-            val replayResult = replayEngine.replay(allLocalOps)
-            if (replayResult is ReplayResult.Failed) {
-                Log.e(TAG, "Replay failed: ${replayResult.reason}")
-                return@withContext LedgerSyncResult.Failed(RuntimeException(replayResult.reason))
+                // 4. Replay into entity tables
+                val replayResult = replayEngine.replay(allLocalOps)
+                if (replayResult is ReplayResult.Failed) {
+                    // Throwing exception triggers transaction rollback
+                    throw RuntimeException("Replay failed inside transaction: ${replayResult.reason}")
+                }
             }
 
             // 5. Hydrate User Profiles

@@ -5,10 +5,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
@@ -16,9 +21,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.compose.rememberNavController
 import com.splitease.data.deeplink.DeepLinkHandler
 import com.splitease.data.deeplink.DeepLinkResult
 import com.splitease.data.invite.PendingInviteStore
@@ -90,7 +98,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val authState by viewModel.authState.collectAsState()
-            val navController = androidx.navigation.compose.rememberNavController()
+            val navController = rememberNavController()
             
             // Stable startDestination based on auth TOKEN state (not local user existence)
             val startDestination = if (authState is com.splitease.data.auth.AuthState.Authenticated) {
@@ -124,7 +132,7 @@ class MainActivity : ComponentActivity() {
             }
             
             MaterialTheme {
-                androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         SplitEaseNavGraph(
                             navController = navController,
@@ -134,19 +142,19 @@ class MainActivity : ComponentActivity() {
                     
                     // Blocking UI for LoggingOut state
                     if (authState is com.splitease.data.auth.AuthState.LoggingOut) {
-                        androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+                        Dialog(onDismissRequest = {}) {
                             Surface(
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.surface,
                                 shadowElevation = 8.dp
                             ) {
-                                androidx.compose.foundation.layout.Column(
+                                Column(
                                     modifier = Modifier.padding(24.dp),
-                                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
                                 ) {
-                                    androidx.compose.material3.CircularProgressIndicator()
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
+                                    CircularProgressIndicator()
+                                    Spacer(modifier = Modifier.height(16.dp))
                                     Text("Logging out safely...")
                                 }
                             }

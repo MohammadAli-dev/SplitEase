@@ -30,10 +30,4 @@ sealed interface AuthState {
      * UI should show a blocking loading indicator.
      */
     object LoggingOut : AuthState
-
-    /**
-     * Authentication or Logout error.
-     * @param isFatal If true, the app is in an unrecoverable state (e.g. logout failed).
-     */
-    data class Error(val message: String, val isFatal: Boolean = false) : AuthState
 }

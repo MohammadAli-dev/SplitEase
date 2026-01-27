@@ -422,3 +422,30 @@ This sprint implements the "Pull" half of the synchronization architecture. Devi
     - [x] Swipe-to-refresh on Groups list triggers full sync.
     - [x] Swipe-to-refresh on Group Detail list triggers full sync.
     - [x] New member profiles are automatically fetched during pull sync.
+
+# Sprint 23.1: CodeRabbit Audit & Hydration Hardening
+
+## Overview
+This sprint addresses all issues raised during the CodeRabbit architectural audit and hardens the hydration/role promotion logic to explicit validation standards. It confirms the system creates a "Grand Unified Theory" of device roles where hydration determines authority.
+
+## Key Changes
+
+### 1. UI Architecture Modernization
+- **Pull-to-Refresh**: Replaced the legacy `SwipeRefreshLayout` with the modern Material 3 `PullToRefreshBox` in `GroupDetailScreen`. This resolves standard Material design compliance warnings and improves gesture handling.
+
+### 2. Concurrency & Safety
+- **LocalUserManager**: Fixed a race condition in `clearIdentity` by adding an `AtomicBoolean` guard (`KEY_CLEARING_IDENTITY`). This prevents the `clearIdentity` flow from triggering a re-login loop via the `isLoggedIn` flow during the teardown phase.
+- **LedgerPushWorker**: Verified the "infinite loop" warning was a False Positive (loop condition depends on `processNextOperation` returning `false` on transient failure, which is correct).
+
+### 3. Data Integrity & Attribution
+- **GroupRepository**: Fixed an attribution bug in `addMember`. The function now accepts an explicit `actorUserId` to ensure that `GroupMember` creates are attributed to the inviter, not the invitee.
+- **Resolution UseCase**: Explicitly permitted `DeviceRole.PROMOTED` to perform conflict resolution, replacing the implicit "not replica" check with a positive allow-list (`PRIMARY` or `PROMOTED`).
+
+### 4. Hydration & Role Semantics
+- **DeviceRole Documentation**: Updated KDoc to reflect that `REPLICA` is a transitional state during hydration, and successful hydration permanently upgrades the device to `PROMOTED` (writable).
+- **HydrationCoordinator**: Updated internal logic and comments to align with the "Promotion on Success" contract.
+- **Verification**: Added `HydrationCoordinatorTest.hydrate should promote device to PROMOTED` to assert this lifecycle transition and prevent regression.
+
+## Verification Results
+- **Build**: Successfully passed `assembleDebug`.
+- **Tests**: All unit tests passed, including the new hydration promotion test.

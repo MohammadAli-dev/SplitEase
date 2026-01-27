@@ -489,15 +489,17 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
-     * Inserts a user and commits the associated ledger operation atomically.
-     * Used for creating Phantom Users that need to be synced via the Ledger.
+     * Inserts a user and commits the associated sync and ledger operations atomically.
+     * Used for creating Phantom Users that need to be synced via both Legacy Sync and the Ledger.
      */
     @androidx.room.Transaction
     open suspend fun insertUserWithLedger(
         user: User,
+        syncOp: SyncOperation,
         ledgerOp: LedgerOperation
     ) {
         userDao().insertUser(user)
+        syncDao().insertSyncOp(syncOp)
         commitLedgerOp(ledgerOp)
     }
 }

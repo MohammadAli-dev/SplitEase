@@ -5,10 +5,9 @@ package com.splitease.data.device
  *
  * **Invariants**:
  * - Fresh install → PRIMARY (default writer)
- * - Hydrated install → REPLICA (read-only)
+ * - Hydrated install → PROMOTED (writer)
  * - Explicit promotion → PROMOTED (writer)
  * - Role alone determines write capability
- * - Role changes are irreversible (REPLICA → PROMOTED only)
  */
 enum class DeviceRole {
     /**
@@ -18,8 +17,9 @@ enum class DeviceRole {
     PRIMARY,
 
     /**
-     * Hydrated device, read-only.
-     * Received ledger via hydration, cannot create new operations.
+     * Hydrated device, transitional state.
+     * Received ledger via hydration, promoting to PROMOTED shortly.
+     * Cannot create new operations.
      */
     REPLICA,
 

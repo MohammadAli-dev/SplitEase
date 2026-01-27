@@ -14,13 +14,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Orchestrates the full hydration flow for Sprint 18.
+ * Orchestrates the full hydration flow for Sprint 18+ (Updated Sprint 23).
  *
- * **Sprint 18 Contract**:
+ * **Sprint 23 Contract**:
  * - Single-shot: Hydration runs once on first authenticated launch.
  * - Fresh-install only: Aborts if any financial data exists locally.
  * - Restart-from-zero: No checkpoints; replay restarts from beginning on crash.
- * - Read-only lock: Enters read-only mode on success.
+ * - **Write Promotion**: Enters PROMOTED (Read-Write) mode on success.
  * - Auto-trigger: Called automatically, no manual retry UI.
  *
  * **Note**: The interface and type consolidated here reflect an intentional alignment of
@@ -37,7 +37,7 @@ interface HydrationCoordinator {
      *
      * **Postconditions on Success**:
      * - All ledger operations replayed into Room.
-     * - Device enters permanent read-only mode.
+     * - Device enters PROMOTED (Read-Write) mode.
      *
      * @return [HydrationResult.Success] if hydration completed,
      *         [HydrationResult.Aborted] if preconditions not met,
@@ -61,7 +61,7 @@ interface HydrationCoordinator {
 sealed class HydrationResult {
     /**
      * Hydration completed successfully.
-     * Device is now in read-only mode with replayed data.
+     * Device is now in PROMOTED (Read-Write) mode with replayed data.
      */
     object Success : HydrationResult()
 
@@ -120,8 +120,8 @@ class HydrationCoordinatorImpl @Inject constructor(
 
             // === CHECK 1: Already in REPLICA mode? ===
             if (deviceRoleManager.getDeviceRole() == DeviceRole.REPLICA) {
-                Log.d(TAG, "Device already a REPLICA, hydration already complete")
-                return@withContext HydrationResult.Aborted("Already hydrated (REPLICA mode)")
+                Log.d(TAG, "Device in transitional REPLICA state, hydration likely incomplete or pending promotion")
+                return@withContext HydrationResult.Aborted("Already hydrated (Transitioning REPLICA state)")
             }
 
             // === CHECK 2: Fresh install guard ===

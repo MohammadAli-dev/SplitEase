@@ -42,6 +42,15 @@ sealed interface RemoveMemberResult {
 }
 
 /**
+ * Result of attempting to add a member to a group.
+ */
+sealed interface AddMemberResult {
+    data object Success : AddMemberResult
+    data object AlreadyMember : AddMemberResult
+    data class Error(val message: String) : AddMemberResult
+}
+
+/**
  * Repository for group operations.
  */
 interface GroupRepository {
@@ -105,6 +114,8 @@ interface GroupRepository {
      */
     suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult
 
+
+
     /**
      * Adds a member to the specified group.
      * 
@@ -112,9 +123,11 @@ interface GroupRepository {
      * 
      * @param groupId The ID of the group.
      * @param userId The ID of the user to add.
+     * @param actorUserId The ID of the user performing the add action (the inviter).
+     * @return [AddMemberResult] indicating outcome.
      * @throws ReadOnlyViolationException if device is in read-only mode.
      */
-    suspend fun addMember(groupId: String, userId: String)
+    suspend fun addMember(groupId: String, userId: String, actorUserId: String): AddMemberResult
 }
 
 @Singleton
@@ -332,22 +345,42 @@ class GroupRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun addMember(groupId: String, userId: String) = withContext(Dispatchers.IO) {
+    override suspend fun addMember(groupId: String, userId: String, actorUserId: String): AddMemberResult = withContext(Dispatchers.IO) {
         ledgerWriteGate.withWriteLock {
             if (!deviceRoleManager.canWrite()) {
                 throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
             }
 
-            val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
-            if (currentMembers.any { it.userId == userId }) return@withWriteLock
+            try {
+                // 1. Validate Group Existence
+                val group = appDatabase.groupDao().getGroupById(groupId)
+                if (group == null) {
+                    Log.e(TAG, "addMember: Group not found [groupId=$groupId]")
+                    return@withWriteLock AddMemberResult.Error("Group not found")
+                }
 
-            val member = GroupMember(groupId = groupId, userId = userId)
-            val syncOp = syncWriteService.createGroupMemberAddSyncOp(groupId, userId)
-            val ledgerOp = ledgerOperationFactory.createMemberAddOp(groupId, userId, userId)
+                // 2. Validate Membership (Idempotency)
+                val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
+                if (currentMembers.any { it.userId == userId }) {
+                    Log.d(TAG, "addMember: AlreadyMember [groupId=$groupId, userId=$userId]")
+                    return@withWriteLock AddMemberResult.AlreadyMember
+                }
 
-            appDatabase.insertMemberWithLedger(member, syncOp, ledgerOp)
-            ledgerSyncScheduler.schedulePush()
-            Log.d(TAG, "addMember: Success [groupId=$groupId, userId=$userId]")
+                // 3. Execute Add
+                val member = GroupMember(groupId = groupId, userId = userId)
+                val syncOp = syncWriteService.createGroupMemberAddSyncOp(groupId, userId)
+                // Fix: Attribute action to the ACTOR (inviter), not the generic user being added
+                val ledgerOp = ledgerOperationFactory.createMemberAddOp(groupId, userId, actorUserId)
+
+                appDatabase.insertMemberWithLedger(member, syncOp, ledgerOp)
+                ledgerSyncScheduler.schedulePush()
+                Log.d(TAG, "addMember: Success [groupId=$groupId, userId=$userId]")
+                AddMemberResult.Success
+
+            } catch (e: Exception) {
+                Log.e(TAG, "addMember: Error [groupId=$groupId, userId=$userId, error=${e.message}]", e)
+                AddMemberResult.Error(e.message ?: "Unknown error")
+            }
         }
     }
 }

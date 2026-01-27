@@ -32,8 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.R
 import kotlinx.coroutines.launch as coroutineLaunch
@@ -57,22 +56,22 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.lifecycle.viewModelScope
-import com.splitease.ui.common.SyncStatusIcon
-import com.splitease.data.local.dao.SyncDao
-import com.splitease.data.local.entities.SyncFailureType
-import com.splitease.data.repository.SyncRepository
-import com.splitease.data.sync.SyncConstants
-import com.splitease.data.sync.SyncHealth
-import com.splitease.data.sync.SyncState
-import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.splitease.data.sync.SyncConstants
+import com.splitease.data.local.entities.SyncFailureType
+import com.splitease.data.repository.SyncRepository
+import com.splitease.data.sync.SyncHealth
+import com.splitease.data.sync.SyncState
+import android.util.Log
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import com.splitease.ui.common.SyncStatusIcon
 
 @HiltViewModel
 class GroupListViewModel @Inject constructor(
@@ -128,26 +127,52 @@ class GroupListViewModel @Inject constructor(
     // Combined UI state
     val uiState: StateFlow<GroupListUiState> = combine(
         groupDao.getAllGroups(),
-        syncHealth
-    ) { groups, health ->
+        syncHealth,
+        syncRepository.observeManualSyncWork()
+    ) { groups, health, isWorkRunning ->
+        val derivedSyncState = deriveSyncState(health)
+        // If work manager says work is running, override IDLE state to SYNCING for UI
+        val finalSyncState = if (derivedSyncState == SyncState.IDLE && !isWorkRunning) {
+             SyncState.SYNCING 
+        } else {
+             derivedSyncState
+        }
+        
         GroupListUiState(
             groups = groups,
             failedSyncCount = health.failedCount,
             pendingSyncCount = health.pendingCount,
-            syncState = deriveSyncState(health)
+            syncState = finalSyncState,
+            // Expose explicit running flag for pull-to-refresh
+            isManualSyncRunning = !isWorkRunning,
+            isRefreshing = _isRefreshing.value
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = GroupListUiState()
     )
+
+    private val _isRefreshing = MutableStateFlow(false)
+
+    fun refresh() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            syncRepository.triggerManualSync()
+            kotlinx.coroutines.delay(SyncConstants.REFRESH_ACK_UI_DELAY_MS)
+            _isRefreshing.value = false
+        }
+    }
 }
 
 data class GroupListUiState(
     val groups: List<Group> = emptyList(),
     val failedSyncCount: Int = 0,
     val pendingSyncCount: Int = 0,
-    val syncState: SyncState = SyncState.IDLE
+    val syncState: SyncState = SyncState.IDLE,
+    val isManualSyncRunning: Boolean = false,
+    val isRefreshing: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -165,21 +190,7 @@ fun GroupListScreen(
     val syncStartedMessage = stringResource(R.string.sync_started)
     var showMenu by remember { mutableStateOf(false) }
 
-    // Swipe-to-refresh state
-    val pullRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
-    val isSyncing = uiState.syncState == SyncState.SYNCING
-
-    LaunchedEffect(pullRefreshState.isRefreshing) {
-        if (pullRefreshState.isRefreshing) {
-            viewModel.triggerManualSync()
-        }
-    }
-
-    LaunchedEffect(isSyncing) {
-        if (!isSyncing && pullRefreshState.isRefreshing) {
-            pullRefreshState.endRefresh()
-        }
-    }
+    val isSyncing = uiState.syncState == SyncState.SYNCING || uiState.isManualSyncRunning
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -205,7 +216,7 @@ fun GroupListScreen(
                                 text = { Text("Sync Now") },
                                 onClick = {
                                     showMenu = false
-                                    viewModel.triggerManualSync()
+                                    viewModel.refresh()
                                     scope.coroutineLaunch {
                                         snackbarHostState.showSnackbar(syncStartedMessage)
                                     }
@@ -222,11 +233,12 @@ fun GroupListScreen(
             }
         }
     ) { innerPadding ->
-        Box(
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = viewModel::refresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .nestedScroll(pullRefreshState.nestedScrollConnection)
         ) {
             Column(
                 modifier = Modifier
@@ -279,10 +291,6 @@ fun GroupListScreen(
                 }
             }
 
-            PullToRefreshContainer(
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
         }
     }
 }
