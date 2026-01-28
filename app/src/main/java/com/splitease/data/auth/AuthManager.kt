@@ -163,7 +163,8 @@ class AuthManagerImpl @Inject constructor(
     private val identityBootstrapper: IdentityBootstrapper,
     // LAZY to break DI cycle: AuthManager -> LedgerPullService -> HydrationCoordinator -> AuthManager
     private val hydrationCoordinatorLazy: dagger.Lazy<com.splitease.data.hydration.HydrationCoordinator>,
-    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager
+    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager,
+    private val identityRepository: com.splitease.data.repository.IdentityRepository
 ) : AuthManager {
 
     companion object {
@@ -472,78 +473,109 @@ class AuthManagerImpl @Inject constructor(
         Log.d(TAG, "handleSuccessfulAuth check: userId=$cloudUserId, access=${accessToken?.take(5)}..., refresh=${refreshToken?.take(5)}..., expires=$expiresIn")
 
         if (!accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank() && expiresIn != null && cloudUserId != null) {
-            // Full session available -> Authenticate
-            tokenManager.saveTokens(
-                accessToken = accessToken,
-                refreshToken = refreshToken,
-                expiresInSeconds = expiresIn
-            )
-            tokenManager.saveCloudUserId(cloudUserId)
-            
-            // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
-            localUserManager.setUserId(cloudUserId)
-            
-            // Populate userProfile from auth response
-            val name = authResponse.user?.userMetadata?.name 
-                ?: authResponse.user?.userMetadata?.fullName
-            val email = authResponse.user?.email
-            
-            val profile = UserProfile(
-                cloudUserId = cloudUserId,
-                name = name,
-                email = email
-            )
-            
-            _userProfile.value = profile
-            tokenManager.saveUserProfile(profile)
-            
-            // CRITICAL: Bootstrap local identity before emitting Authenticated state
-            // Model A: Auth-Coupled Identity Bootstrap
             try {
+                // Full session available -> Authenticate
+                tokenManager.saveTokens(
+                    accessToken = accessToken,
+                    refreshToken = refreshToken,
+                    expiresInSeconds = expiresIn
+                )
+                tokenManager.saveCloudUserId(cloudUserId)
+                
+                // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
+                // P0 FIX: Safe Identity Consolidation (Sprint 24)
+                // We must merge any existing phantom data BEFORE swapping the ID.
+                val currentLocalId = localUserManager.userId.first()
+                val canonicalId = if (currentLocalId.isNotEmpty()) {
+                    identityRepository.consolidateIdentity(
+                        localId = currentLocalId,
+                        cloudId = cloudUserId,
+                        profile = com.splitease.data.auth.UserProfile(
+                            cloudUserId = cloudUserId,
+                            name = authResponse.user?.userMetadata?.name ?: authResponse.user?.userMetadata?.fullName,
+                            email = authResponse.user?.email
+                        )
+                    )
+                } else {
+                    Log.d(TAG, "handleSuccessfulAuth: No local ID found, skipping consolidation")
+                    cloudUserId
+                }
+                localUserManager.setUserId(canonicalId)
+                
+                // Populate userProfile from auth response
+                val name = authResponse.user?.userMetadata?.name 
+                    ?: authResponse.user?.userMetadata?.fullName
+                val email = authResponse.user?.email
+                
+                val profile = UserProfile(
+                    cloudUserId = cloudUserId,
+                    name = name,
+                    email = email
+                )
+                
+                _userProfile.value = profile
+                tokenManager.saveUserProfile(profile)
+                
+                // CRITICAL: Bootstrap local identity before emitting Authenticated state
+                // Model A: Auth-Coupled Identity Bootstrap
                 val bootstrapped = identityBootstrapper.ensureLocalUserRegistered()
                 if (!bootstrapped) {
                     Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap failed (no local ID)")
-                    logoutMutex.withLock {
-                        performHardTeardown()
-                    }
+                    tokenManager.clearTokens()
+                    _authState.value = AuthState.Unauthenticated
                     _authError.tryEmit("Failed to initialize account identity")
                     return false
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap exception", e)
-                logoutMutex.withLock {
-                    performHardTeardown()
+                
+                // SPRINT 23: Initial Hydration (Authoritative Rebuild from Server)
+                // Hydration runs AFTER identity bootstrap and BEFORE Authenticated emission.
+                val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
+                when (hydrationResult) {
+                    is com.splitease.data.hydration.HydrationResult.Success -> {
+                        Log.d(TAG, "handleSuccessfulAuth: Hydration completed successfully")
+                    }
+                    is com.splitease.data.hydration.HydrationResult.Aborted -> {
+                        // Aborted is acceptable (e.g., DB not empty, already replica)
+                        Log.d(TAG, "handleSuccessfulAuth: Hydration aborted - ${hydrationResult.reason}")
+                    }
+                    is com.splitease.data.hydration.HydrationResult.Failed -> {
+                        // FAILURE = ABORT LOGIN (Sprint 23 contract refined: Safer teardown)
+                        Log.e(TAG, "handleSuccessfulAuth: Hydration FAILED - aborting login", hydrationResult.error)
+                        tokenManager.clearTokens()
+                        _authState.value = AuthState.Unauthenticated
+                        _authError.tryEmit("Account setup failed. Please log in again.")
+                        return false
+                    }
                 }
-                _authError.tryEmit("Failed to initialize account: ${e.message}")
+                
+                _authState.value = AuthState.Authenticated(cloudUserId)
+                enqueueIdentityLinkingIfNeeded()
+                return true
+
+            } catch (e: com.splitease.data.identity.IdentityInvariantViolationException) {
+                // TERMINAL AUTH FAILURE (Safety Rule 1):
+                // If the identity consolidation fails verification (e.g. orphaned references found),
+                // we ABORT the login and REVOKE the session tokens.
+                //
+                // P0 DATA CONSERVATION: We do NOT call performHardTeardown() here. 
+                // We must preserve the local database so the user can continue working offline 
+                // or contact support to resolve the conflict without losing their phantom data.
+                Log.e(TAG, "CRITICAL: Auth aborted due to identity invariant violation", e)
+                tokenManager.clearTokens() 
+                _authState.value = AuthState.Unauthenticated 
+                _authError.tryEmit("Critical Error: Account security check failed. Please contact support.")
+                return false
+            } catch (e: Exception) {
+                // GENERIC SAFETY NET (Safety Rule 2):
+                // If ANY unexpected failure occurs after tokens are saved (DB error, Logic crash), 
+                // we immediately revoke the session to avoid "Stuck Persistence" where the app 
+                // thinks it's logged in but local state is partially initialized.
+                Log.e(TAG, "handleSuccessfulAuth: Unexpected exception during login sequence", e)
+                tokenManager.clearTokens()
+                _authState.value = AuthState.Unauthenticated
+                _authError.tryEmit("Login failed: ${e.message}")
                 return false
             }
-            
-            // SPRINT 23: Initial Hydration (Authoritative Rebuild from Server)
-            // Hydration runs AFTER identity bootstrap and BEFORE Authenticated emission.
-            // If it fails, we perform a Hard Logout to prevent corrupt session.
-            val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
-            when (hydrationResult) {
-                is com.splitease.data.hydration.HydrationResult.Success -> {
-                    Log.d(TAG, "handleSuccessfulAuth: Hydration completed successfully")
-                }
-                is com.splitease.data.hydration.HydrationResult.Aborted -> {
-                    // Aborted is acceptable (e.g., DB not empty, already replica)
-                    Log.d(TAG, "handleSuccessfulAuth: Hydration aborted - ${hydrationResult.reason}")
-                }
-                is com.splitease.data.hydration.HydrationResult.Failed -> {
-                    // FAILURE = HARD LOGOUT (per Sprint 23 contract)
-                    Log.e(TAG, "handleSuccessfulAuth: Hydration FAILED - forcing hard teardown", hydrationResult.error)
-                    logoutMutex.withLock {
-                        performHardTeardown()
-                    }
-                    _authError.tryEmit("Account setup failed. Please log in again.")
-                    return false
-                }
-            }
-            
-            _authState.value = AuthState.Authenticated(cloudUserId)
-            enqueueIdentityLinkingIfNeeded()
-            return true
         } else if (cloudUserId != null && accessToken.isNullOrBlank()) {
             // User created/exists but no session -> Likely pending email verification
             _authState.value = AuthState.Unauthenticated
@@ -628,9 +660,16 @@ class AuthManagerImpl @Inject constructor(
     }
 
     /**
-     * Signs the current user out by clearing stored authentication tokens, resetting identity-linking state, and setting the authentication state to unauthenticated.
-     *
-     * Local application data is preserved; only authentication-related state and identity-linking status are cleared.
+     * Signs the current user out.
+     * 
+     * ## Destructive Tear-Down (Contract)
+     * This is a **HARD RESET**. Unlike failed login attempts, an explicit logout 
+     * performs a complete destructive cleanup:
+     * 1. Revokes session tokens.
+     * 2. Wipes the local database (`clearAllTables`).
+     * 3. Clears local user/identity preferences.
+     * 
+     * This ensures the device returns to a pristine state for the next user.
      */
     override suspend fun logout() {
         // Gap 4 (Final): Wrap entire logout in mutex and NonCancellable scope
@@ -646,7 +685,8 @@ class AuthManagerImpl @Inject constructor(
      */
     private suspend fun performHardTeardown() {
         withContext(Dispatchers.IO + NonCancellable) {
-            // Invariant: Logout teardown must be non-cancellable to avoid partial identity destruction.
+            // INVARIANT: Logout teardown is NON-CANCELLABLE.
+            // Partial teardown results in "Zombie Identities" (DB remaining but tokens gone).
             Log.d(TAG, "performHardTeardown: starting hard teardown")
 
             // 1. Signal State (Gap 10)

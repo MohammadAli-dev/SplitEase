@@ -54,9 +54,10 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | Guarantee | Description |
 |-----------|-------------|
 | **Offline-First** | Add expenses even without internet. Data syncs when you're back online. |
-| **No Data Loss** | All changes are saved locally first. The app never loses your data. |
+| **No Data Loss** | **Sprint 24 Update**: Atomic "Identity Consolidation" guarantees strict offline-to-online data survival. |
 | **Reliable Sync** | Background sync retries automatically until successful. |
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
+| **Zero Orphans** | Identity consolidation aborts if any data row cannot be safely merged, preventing orphaned references. |
 
 ---
 
@@ -66,7 +67,8 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **Authentication** | ✅ Mocked | Login/Signup screens with mock backend |
+| **Authentication** | ✅ **Real** | Strict Identity Consolidation & JWT Auth (Supabase) |
+| **Safe Merge** | ✅ **Complete** | **Sprint 24**: Atomic merge of offline (phantom) data to cloud account |
 | **Groups** | ✅ Complete | Create, view, and manage expense groups |
 | **Group Creation** | ✅ Complete | Create new groups with name, type, and member selection |
 | **Expenses** | ✅ Complete | Add expenses with title, amount, payer, date |
@@ -111,17 +113,15 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | SYNCING | ⏳ | Syncing changes... |
 | IDLE | — | Everything synced |
 
-### ⚠️ Intentionally Mocked & Partially Integrated
+### ⚠️ Intentionally Simulated & Partially Integrated
 | Component | Status | Why |
 |-----------|---|-----|
-| **Authentication Backend** | ⚠️ Partially Real | JWT support implemented for Supabase; Mock UI Login remains for Dev speed. |
-| **Remote API (Entity Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
-| **Ledger Mirror** | ✅ **Real (Supabase)** | **Sprint 21**: Real PostgREST integration for durable ledger mirroring. |
+| **Remote API (Legacy Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
+| **Ledger Mirror** | ✅ **Real** | **Supabase PostgREST** integration for durable ledger mirroring. Uses real JWT authorization. |
+| **Auth Backend** | ⚠️ Simulated | Supabase Auth endpoints are active, but intercepted by `MockAuthInterceptor` to bypass email confirmation during dev. |
 | **User Data Fetch** | ⚠️ Mocked | Seed data used for local users not yet linked to Supabase profiles. |
 
 ### 🚧 Future Features (Not Implemented)
-
-- Real authentication (OAuth, JWT)
 - Push notifications for expense updates
 - Currency conversion
 - Receipt image attachments
@@ -142,9 +142,13 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
     - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
     - **Tier 3: Explicit Conflict Resolution (Derivation)**: Repositories join resolution "facts" with raw state to project the Effective State (hiding Zombies/Losers) without corrupting the historical record.
 
-3. **Atomic Identity Linking**:
-    - **`ClaimManager`**: Orchestrates secure invite claiming and inviter discovery.
-    - **`AppDatabase.mergePhantomToReal`**: Atomic transaction that reassigns all foreign-key references from a local phantom user to a real cloud user without data loss.
+3. **Atomic Identity Linking (Sprint 24)**:
+    - **`IdentityRepository`**: The authority on user identity state.
+    - **`AppDatabase.mergeAndVerify`**: **Atomic Transaction** that:
+        1.  Reassigns all specific foreign-key references (Expenses, Settlements, Groups) from Phantom -> Real.
+        2.  **Audits** the database for any remaining "Orphan" references to the Phantom ID.
+        3.  **Aborts** the transaction if strict Zero-Reference invariant is violated.
+    - **Terminal Failure**: If identity consolidation fails, `AuthManager` **clears tokens and refuses login**. We favor crash-safety over data corruption.
 
 4. **Unidirectional Data Flow**: Data flows in one direction:
    ```
@@ -469,14 +473,17 @@ Each `SyncOperation` has a unique `operationId`. The (mocked) API accepts duplic
 
 ### Mock Interceptor
 
-The app uses a `MockAuthInterceptor` that intercepts HTTP requests and returns fake responses without hitting a real server.
+The app uses a `MockAuthInterceptor` to simulate legacy endpoints and bypass Supabase authentication friction during local development.
+
+> [!NOTE]
+> **Interception Logic**: The interceptor only catches URLs ending in `auth/login`, `auth/signup`, and `sync`. It **does NOT intercept** real Supabase Ledger calls (`rest/v1/...`) or complex Auth management flows.
 
 ```kotlin
-// Fake login always succeeds
-POST /auth/login → {"userId": "mock-123", "token": "fake-token", ...}
-
-// Fake sync always succeeds
+// Legacy Entity Sync (ID-less simulation)
 POST /sync → {"success": true}
+
+// Real Ledger Mirror (Production-grade JWT)
+POST /v1/ledger_operations → 201 Created (Requires Real JWT Header)
 ```
 
 ### API Contract
@@ -802,9 +809,9 @@ In Android Studio:
 
 ## 14. Non-Goals & Intentional Omissions
 
-### Why Auth is Mocked
+### Why Auth is Partially Simulated
 
-Building a real auth backend (OAuth, JWT, session management) is outside the scope of this architectural demo. The mock allows testing the full app flow without infrastructure.
+While the app uses **Production-Grade Identity Consolidation** and **JWT Token Management**, the remote authentication server is partially simulated via an OkHttp interceptor. This allows testing the multi-device ledger and identity merge logic (Sprint 24) without the overhead of real email verification or account management infrastructure.
 
 ### Why Backend is Minimal
 

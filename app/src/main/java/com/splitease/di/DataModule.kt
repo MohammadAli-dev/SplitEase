@@ -107,4 +107,10 @@ abstract class DataModule {
     abstract fun bindLedgerOperationFactory(
             ledgerOperationFactoryImpl: com.splitease.data.ledger.LedgerOperationFactoryImpl
     ): com.splitease.data.ledger.LedgerOperationFactory
+
+    @Binds
+    @Singleton
+    abstract fun bindIdentityRepository(
+        identityRepositoryImpl: com.splitease.data.repository.IdentityRepositoryImpl
+    ): com.splitease.data.repository.IdentityRepository
 }

@@ -469,10 +469,46 @@ This sprint addresses 8 specific issues flagged by CodeRabbit, focusing on race 
 - **LocalUserManager**: Fixed a potential "infinite no-ID" loop by ensuring the `isClearingIdentity` guard is reset in a `finally` block, preventing the app from getting stuck in a state where it refuses to generate a guest ID.
 
 ### 3. Sync Logic Correctness
-- **SyncRepository**: Fixed a bug where `SyncEntityType.USER` returned `0L` as its local timestamp, causing legitimate remote updates (timestamp > 0) to be rejected as "stale". It now returns `null`, correctly treating local state as having "no timestamp" to allow remote overwrites.
+- **SyncRepository**: Fixed a bug by forcing `timestamp` to `null` for new local sync operations created via `SyncEntityType.USER`. This ensures remote servers treat them as new rather than "timestamp 0" conflicts.
 - **GroupListScreen**: Renamed the confusingly inverted variable `isWorkRunning` to `isWorkFinished`, clarifying the logic `!isWorkFinished` -> "Syncing".
 
 ## Verification Results
 - **Build**: Successfully passed Kotlin compilation.
 - **Tests**: `PushSyncHardeningTest` and `HydrationCoordinatorTest` passed.
 - **Manual Verification**: Validated logout flow, refresh spinner behavior, and pull-to-refresh reactivity.
+
+---
+
+# Sprint 24: Safe Identity Consolidation (P0 Critical Safety)
+
+## Overview
+This sprint addresses the most critical data safety vulnerability in the application: **Phantom-to-Real Identity transition**. Previously, logging into an account after using the app offline could result in "orphaned" expenses—data that technically existed but belonged to the old "Phantom" ID, making it invisible to the new "Real" ID.
+
+We implemented a **Zero-Tolerance Identity Architecture** where authentication is treated as a transactional merge operation, not just a token swap.
+
+## Key Changes
+
+### 1. The "Nightmare Bug" Fix (Safe Identity Consolidation)
+- **Problem**: Changing `userId` in `LocalUserManager` without reassigning foreign keys leaves data stranded.
+- **Fix**: Implemented `IdentityRepository.consolidateIdentity()`, which effectively "re-parents" all data from the Phantom ID to the Real ID **before** the session is marked active.
+
+### 2. Atomic Verification & Invariant Enforcement
+- **`IdentityAuditDao`**: A neutral, cross-table auditor that counts references (`payerId`, `createdBy`, `group_members`, etc.).
+- **Atomic Guard**: The merge logic inside `AppDatabase.mergeAndVerify` is transactional.
+    1.  **Merge**: Update all FKs.
+    2.  **Audit**: Count remaining references to Phantom ID.
+    3.  **EXPLODE**: If `count > 0`, throw `IdentityInvariantViolationException`.
+- **Terminal Failure**: If the invariant fails, authentication is **ABORTED**. The app refuses to log in rather than corrupt data.
+
+### 3. Architecture components
+- **`IdentityRepository`**: New repository to encapsulate identity operations.
+- **`IdentityInvariantViolationException`**: Specific exception for forensic crash logging.
+- **`AuthManager` Integration**: Authentication flow now MUST pass the consolidation step to succeed.
+
+## Verification Results
+- **Mandatory E2E Test**: `OfflineDataSurvivalTest` (PASSED).
+    - Verified that an offline user creating expenses, splits, and settlements retains 100% of that data after logging in.
+    - Verified that the "Phantom" user is completely expunged from the database (0 references).
+- **Safety Guarantee**: The system now mathematically guarantees that a logged-in user never sees partial data.
+
+---
