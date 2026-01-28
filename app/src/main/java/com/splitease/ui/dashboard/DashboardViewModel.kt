@@ -8,12 +8,14 @@ import com.splitease.data.local.entities.Group
 import com.splitease.data.repository.BalanceSummaryRepository
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.repository.UserRepository
+import com.splitease.data.sync.SyncConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
@@ -35,7 +37,8 @@ data class DashboardUiState(
     val ledgerBalances: List<FriendBalanceUi> = emptyList(), // Balances derived from expenses/settlements
     val knownUserCount: Int = 0, // Total known users (excluding self), derived from users table
     val isLoading: Boolean = true,
-    val isSyncing: Boolean = false
+    val isSyncing: Boolean = false,
+    val isRefreshing: Boolean = false
 )
 
 @HiltViewModel
@@ -55,27 +58,21 @@ class DashboardViewModel @Inject constructor(
     }
 
     /**
-     * Start a manual synchronization and update the UI syncing state until the work completes.
-     *
-     * Sets `isSyncing` to `true`, triggers a manual sync, and sets `isSyncing` to `false` when the observed sync work finishes.
+     * Start a manual synchronization with a cosmetic UI acknowledgment delay.
      */
-    fun triggerSync() {
-        if (_uiState.value.isSyncing) return // Prevent double-tap
+    fun refresh() {
+        if (_uiState.value.isRefreshing) return
         
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSyncing = true)
+            _uiState.update { it.copy(isRefreshing = true) }
             
-            // Trigger the sync work
+            // Trigger the sync work (fire-and-forget)
             syncRepository.triggerManualSync()
             
-            // Observe the work completion
-            syncRepository.observeManualSyncWork()
-                .collect { isFinished ->
-                    if (isFinished) {
-                        _uiState.value = _uiState.value.copy(isSyncing = false)
-                        return@collect
-                    }
-                }
+            // Artificial delay for UI acknowledgement
+            kotlinx.coroutines.delay(SyncConstants.REFRESH_ACK_UI_DELAY_MS)
+            
+            _uiState.update { it.copy(isRefreshing = false) }
         }
     }
 
@@ -142,10 +139,18 @@ class DashboardViewModel @Inject constructor(
                     ledgerBalances = ledgerBalancesUi,
                     knownUserCount = knownUserCount,
                     isLoading = false,
-                    isSyncing = _uiState.value.isSyncing
+                    isSyncing = false, // Default, will be merged
+                    isRefreshing = false // Default, will be merged
                 )
-            }.collectLatest { state ->
-                _uiState.value = state
+            }.collectLatest { repoState ->
+                // Atomic update to merge Repository data with transient UI flags
+                _uiState.update { currentState ->
+                    repoState.copy(
+                        // Preserve transient flags from current state
+                        isRefreshing = currentState.isRefreshing,
+                        isSyncing = currentState.isSyncing
+                    )
+                }
             }
         }
     }

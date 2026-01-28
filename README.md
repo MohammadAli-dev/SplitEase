@@ -95,8 +95,11 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Explicit Resolution** | ✅ Complete | User-driven resolution operations supported by derivation-layer filtering |
 | **Derivation Integrity** | ✅ Complete | "Loser" history remains in DB for audit but is hidden from UI/Effective State |
 | **Order Independence** | ✅ Complete | Results are consistent regardless of whether resolution arrives before or after data |
-| **Supabase Mirror (Push)** | ✅ Complete | Append-only mirroring of local ledger to Supabase `ledger_operations` |
-| **Dumb Courier Architecture** | ✅ Design | Supabase serves as durable exchange layer; local app maintains logic/authority |
+| **Supabase Mirror (Push)** | ✅ Internal | Upload stream feeding the deterministic **Supabase Mirror (Pull)** workflow |
+| **Supabase Mirror (Pull)** | ✅ Complete | Incremental pull and deterministic replay of remote ledger operations |
+| **Dumb Courier Architecture** | ✅ Complete | Supabase serves as durable exchange layer; local app maintains logic/authority |
+| **Audit & Hardening** | ✅ Complete | **Sprint 23.1**: Verified concurrency safety, correct attribution, and role semantics via CodeRabbit audit. |
+| **CodeRabbit Fixes** | ✅ Complete | **Sprint 23.2**: Fixed race conditions, auth errors, and sync logic bugs. |
 
 
 ### 🎯 Sync Status Indicators

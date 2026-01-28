@@ -100,6 +100,18 @@ data class RemoteExpenseSplit(
     val amount: String // BigDecimal as string
 )
 
+/**
+ * Remote user profile DTO from Supabase (public.users/profiles).
+ */
+data class RemoteUser(
+    val id: String,
+    val name: String,
+    val email: String?,
+    val phone: String?,
+    val avatar_url: String?,
+    val updated_at: String?
+)
+
 // ===============================
 // WRITE / UPLOAD DTOs (Outbound)
 // ===============================
@@ -181,7 +193,7 @@ data class RemoteLedgerOperation(
     val logicalClock: Long,
 
     @SerializedName("created_at")
-    val createdAt: Long? = null
+    val createdAt: String? = null
 )
 
 /**
@@ -341,6 +353,21 @@ interface SplitEaseApi {
         @Header("Range") rangeHeader: String? = null
     ): Response<List<RemoteExpenseSplit>>
 
+    // --- User Profile Sync ---
+
+    /**
+     * Fetch user profiles for a set of UIDs.
+     * Table: public.users (or profiles view)
+     *
+     * @param idFilter PostgREST filter: "in.(id1,id2,id3)"
+     */
+    @GET("rest/v1/profiles")
+    suspend fun getUsers(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("id") idFilter: String
+    ): Response<List<RemoteUser>>
+
     // --- Push-Phase Freshness Check (Metadata-Only) ---
 
     /**
@@ -373,6 +400,16 @@ interface SplitEaseApi {
      */
     @GET("rest/v1/settlements")
     suspend fun getSettlementTimestamp(
+        @Header("Authorization") authHeader: String,
+        @Header("apikey") apiKey: String,
+        @Query("id") idFilter: String,
+        @Query("select") select: String = "updated_at"
+    ): Response<List<RemoteTimestampResponse>>
+    /**
+     * Fetch only the updated_at timestamp for a user (metadata-only).
+     */
+    @GET("rest/v1/profiles")
+    suspend fun getUserTimestamp(
         @Header("Authorization") authHeader: String,
         @Header("apikey") apiKey: String,
         @Query("id") idFilter: String,

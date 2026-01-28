@@ -34,6 +34,11 @@ interface LedgerPullService {
      * @return Result.success with sorted operations, or Result.failure on error.
      */
     suspend fun fetchAllOperations(): Result<List<LedgerOperation>>
+
+    /**
+     * Fetch user profiles for the given list of user IDs.
+     */
+    suspend fun fetchUserProfiles(userIds: List<String>): Result<List<com.splitease.data.local.entities.User>>
 }
 
 @Singleton
@@ -50,11 +55,9 @@ class LedgerPullServiceImpl @Inject constructor(
 
     override suspend fun fetchAllOperations(): Result<List<LedgerOperation>> = withContext(Dispatchers.IO) {
         try {
-            // Verify authentication
-            val authState = authManager.authState.first()
-            if (authState !is AuthState.Authenticated) {
-                return@withContext Result.failure(IllegalStateException("Not authenticated"))
-            }
+            // NOTE: We do NOT check AuthState here because hydration may be called BEFORE
+            // AuthState.Authenticated is emitted (Sprint 23). Instead, we rely on TokenManager.
+            // If called without valid tokens, it will fail gracefully below.
 
             if (!AuthConfig.isConfigured) {
                 return@withContext Result.failure(IllegalStateException("Auth not configured"))
@@ -64,9 +67,14 @@ class LedgerPullServiceImpl @Inject constructor(
             // CRITICAL: We must use the user's JWT access token, NOT the static anon/public key.
             // Supabase RLS (Row Level Security) relies on the JWT claims to determine row ownership.
             // Using the anon key as a Bearer token would treat the request as unauthenticated.
-            val accessToken = tokenManager.getAccessToken() ?: return@withContext Result.failure(
-                IllegalStateException("Zombie Session: Authenticated state detected but Access Token is missing")
-            )
+            val accessToken = tokenManager.getAccessToken()
+            
+            // DEBUG: Distinguish Null Token vs Rejection
+            if (accessToken == null) {
+                Log.e(TAG, "DIAG: accessToken is NULL. TokenManager did not return a token.")
+                return@withContext Result.failure(IllegalStateException("No access token available for pull"))
+            }
+            Log.d(TAG, "DIAG: accessToken retrieved successfully (length=${accessToken.length})")
 
             val allOperations = mutableListOf<RemoteLedgerOperation>()
             var offset = 0
@@ -119,12 +127,24 @@ class LedgerPullServiceImpl @Inject constructor(
      * @throws HydrationInvariantException if createdAt is null.
      */
     private fun RemoteLedgerOperation.toDomain(): LedgerOperation {
-        val resolvedCreatedAt = this.createdAt ?: throw HydrationInvariantException(
+        // Parse ISO String to Long, or throw invariant violation
+        val parsedCreatedAt = try {
+            if (this.createdAt != null) {
+                java.time.Instant.parse(this.createdAt).toEpochMilli()
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse createdAt: ${this.createdAt}", e)
+            null
+        }
+
+        val resolvedCreatedAt = parsedCreatedAt ?: throw HydrationInvariantException(
             HydrationFailureReport(
                 invariant = HydrationInvariant.LEDGER_CREATED_AT_PRESENT,
                 location = HydrationFailureLocation.LEDGER_PULL_SERVICE,
                 operationId = this.operationId,
-                details = "deviceId=${this.deviceId}, logicalClock=${this.logicalClock}"
+                details = "deviceId=${this.deviceId}, logicalClock=${this.logicalClock}, rawCreatedAt=${this.createdAt}"
             )
         )
 
@@ -139,5 +159,64 @@ class LedgerPullServiceImpl @Inject constructor(
             logicalClock = this.logicalClock,
             createdAt = resolvedCreatedAt
         )
+    }
+
+    override suspend fun fetchUserProfiles(userIds: List<String>): Result<List<com.splitease.data.local.entities.User>> = withContext(Dispatchers.IO) {
+        if (userIds.isEmpty()) return@withContext Result.success(emptyList())
+        
+        try {
+            val accessToken = tokenManager.getAccessToken() ?: return@withContext Result.failure(
+                IllegalStateException("No access token available for user fetch")
+            )
+            
+            // POSTGREST SYNTAX FIX:
+            // 1. Filter out non-UUIDs (legacy/phantom IDs like "22fe") to avoid 400 Bad Request
+            // 2. Wrap valid UUIDs in quotes for "in" operator: in.("uuid1","uuid2")
+            val validUuids = userIds.filter { id ->
+                try {
+                    java.util.UUID.fromString(id)
+                    true
+                } catch (e: IllegalArgumentException) {
+                    false
+                }
+            }
+            
+            if (validUuids.isEmpty()) {
+                Log.d(TAG, "No valid UUIDs found to hydrate (skipped ${userIds.size} non-UUIDs)")
+                return@withContext Result.success(emptyList())
+            }
+
+            // Format filter: in.("id1","id2")
+            val idFilter = "in.(${validUuids.joinToString(",") { "\"$it\"" }})"
+            
+            Log.d(TAG, "Fetching profiles for ${validUuids.size} UUIDs.")
+
+            val response = api.getUsers(
+                authHeader = "Bearer $accessToken",
+                apiKey = AuthConfig.supabasePublicKey,
+                idFilter = idFilter
+            )
+            
+            if (!response.isSuccessful) {
+                 val errorBody = response.errorBody()?.string()
+                 Log.e(TAG, "Failed to fetch users: ${response.code()} - $errorBody")
+                 return@withContext Result.failure(RuntimeException("Failed to fetch users: ${response.code()}"))
+            }
+            
+            val remoteUsers = response.body() ?: emptyList()
+            val localUsers = remoteUsers.map { remote ->
+                com.splitease.data.local.entities.User(
+                    id = remote.id,
+                    name = remote.name,
+                    email = remote.email,
+                    phone = remote.phone,
+                    profileUrl = remote.avatar_url
+                )
+            }
+            Result.success(localUsers)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching user profiles", e)
+            Result.failure(e)
+        }
     }
 }

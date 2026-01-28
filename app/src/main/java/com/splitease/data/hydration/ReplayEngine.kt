@@ -7,10 +7,10 @@ import com.splitease.data.conflict.ConflictDetector
 import com.splitease.data.conflict.ConflictMapper
 import com.splitease.data.conflict.LedgerPrefix
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_EXPENSE
-
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_GROUP
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_MEMBER
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_SETTLEMENT
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_USER
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_CREATE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_DELETE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_UPDATE
@@ -18,6 +18,7 @@ import com.splitease.data.ledger.model.ExpenseSnapshot
 import com.splitease.data.ledger.model.GroupSnapshot
 import com.splitease.data.ledger.model.MemberSnapshot
 import com.splitease.data.ledger.model.SettlementSnapshot
+import com.splitease.data.ledger.model.UserSnapshot
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.ConflictResolutionEntity
 import com.splitease.data.local.entities.Expense
@@ -38,6 +39,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.util.Date
+import com.splitease.data.local.entities.User
 import javax.inject.Inject
 import javax.inject.Singleton
 /**
@@ -351,6 +353,7 @@ class ReplayEngineImpl @Inject constructor(
                 // Member operations require group to exist
                 db.groupDao().getGroupById(snapshot.groupId) != null
             }
+            ENTITY_USER -> true // User creation has no dependencies
             OP_RESOLVE_CONFLICT -> true // Metadata, always applicable
             else -> {
                 Log.w(TAG, "Unknown entity type: ${op.entityType}")
@@ -370,6 +373,7 @@ class ReplayEngineImpl @Inject constructor(
             ENTITY_EXPENSE -> applyExpenseOperation(op)
             ENTITY_SETTLEMENT -> applySettlementOperation(op)
             ENTITY_MEMBER -> applyMemberOperation(op)
+            ENTITY_USER -> applyUserOperation(op)
             OP_RESOLVE_CONFLICT -> applyResolutionOperation(op)
         }
     }
@@ -551,5 +555,26 @@ class ReplayEngineImpl @Inject constructor(
         )
         // Note: ReplayEngine purely records the resolution.
         // Interpretation and suppression happen in the Derivation Layer.
+    }
+
+    private suspend fun applyUserOperation(op: LedgerOperation) {
+        val snapshot = gson.fromJson(op.payload, UserSnapshot::class.java)
+
+        when (op.operationType) {
+            OP_CREATE, OP_UPDATE -> {
+                val user = User(
+                    id = snapshot.id,
+                    name = snapshot.name,
+                    email = snapshot.email,
+                    phone = snapshot.phone,
+                    profileUrl = snapshot.profileUrl
+                )
+                db.userDao().insertUser(user)
+                Log.d(TAG, "Applied USER ${op.operationType}: ${snapshot.id}")
+            }
+            else -> {
+                Log.w(TAG, "Unexpected USER operation type: ${op.operationType}")
+            }
+        }
     }
 }

@@ -11,6 +11,10 @@ import com.splitease.data.repository.ExpenseRepository
 import com.splitease.data.repository.UserRepository
 import com.splitease.domain.SplitValidationResult
 import com.splitease.domain.SplitValidator
+import com.splitease.data.repository.AddMemberResult
+
+// ... existing imports ...
+
 import com.splitease.domain.PersonalGroupConstants
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.math.BigDecimal
@@ -95,6 +99,7 @@ constructor(
         savedStateHandle: SavedStateHandle,
         private val expenseRepository: ExpenseRepository,
         private val userRepository: UserRepository,
+        private val groupRepository: com.splitease.data.repository.GroupRepository,
         private val userContext: UserContext,
         private val groupDao: GroupDao,
         private val userDao: com.splitease.data.local.dao.UserDao
@@ -319,7 +324,16 @@ constructor(
             try {
                 val userId = userRepository.createPhantomUser(name, email, phone)
                 
-                // No manual state update here.
+                // If in a group context, automatically join them to the group
+                if (groupId != "" && groupId != PersonalGroupConstants.PERSONAL_GROUP_ID) {
+                    val currentUserId = userContext.userId.firstOrNull() ?: throw IllegalStateException("User identity missing")
+                    val result = groupRepository.addMember(groupId, userId, currentUserId)
+                    if (result is com.splitease.data.repository.AddMemberResult.Error) {
+                         _uiState.update { it.copy(errorMessage = "Failed to add to group: ${result.message}") }
+                         return@launch
+                    }
+                }
+                
                 // userRepository.createPhantomUser -> database -> loadGroupMembers() flow triggers -> UI update.
                 // Unblocking UI happens automatically via Flow emission or could be explicitly done if needed, 
                 // but effectively we just wait for the db.

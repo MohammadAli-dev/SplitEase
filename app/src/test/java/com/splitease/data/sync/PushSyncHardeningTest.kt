@@ -43,6 +43,7 @@ class PushSyncHardeningTest {
     private val settlementDao = mockk<SettlementDao>(relaxed = true)
     private val transactionRunner = TestTransactionRunner()
     private val tokenManager = mockk<TokenManager>()
+    private val userDao = mockk<com.splitease.data.local.dao.UserDao>(relaxed = true)
 
     private lateinit var repository: SyncRepositoryImpl
 
@@ -60,7 +61,7 @@ class PushSyncHardeningTest {
         
         repository = SyncRepositoryImpl(
             syncDao, api, gson, workManager, groupDao, expenseDao,
-            settlementDao, transactionRunner, tokenManager
+            settlementDao, userDao, transactionRunner, tokenManager
         )
     }
 

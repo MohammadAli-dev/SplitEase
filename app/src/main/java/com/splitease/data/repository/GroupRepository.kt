@@ -42,6 +42,15 @@ sealed interface RemoveMemberResult {
 }
 
 /**
+ * Result of attempting to add a member to a group.
+ */
+sealed interface AddMemberResult {
+    data object Success : AddMemberResult
+    data object AlreadyMember : AddMemberResult
+    data class Error(val message: String) : AddMemberResult
+}
+
+/**
  * Repository for group operations.
  */
 interface GroupRepository {
@@ -74,7 +83,7 @@ interface GroupRepository {
      * Remove a user from the specified group (self-removal / "Leave Group").
      *
      * This operation is offline-safe, atomic (removal and sync intent persisted together), idempotent,
-     * blocked if the user has a non-zero net balance, and blocked if the user is the last remaining member.
+     * blocked if the user has a non-zero net balance, and blocked if the user is the last member.
      *
      * @param groupId The ID of the group to leave.
      * @param userId The ID of the user to remove from the group.
@@ -104,6 +113,21 @@ interface GroupRepository {
      * @throws ReadOnlyViolationException if device is in read-only mode.
      */
     suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult
+
+
+
+    /**
+     * Adds a member to the specified group.
+     * 
+     * This operation is offline-safe and atomic.
+     * 
+     * @param groupId The ID of the group.
+     * @param userId The ID of the user to add.
+     * @param actorUserId The ID of the user performing the add action (the inviter).
+     * @return [AddMemberResult] indicating outcome.
+     * @throws ReadOnlyViolationException if device is in read-only mode.
+     */
+    suspend fun addMember(groupId: String, userId: String, actorUserId: String): AddMemberResult
 }
 
 @Singleton
@@ -120,21 +144,7 @@ class GroupRepositoryImpl @Inject constructor(
         private const val TAG = "GroupRepository"
     }
 
-    /**
-         * Create a new group with the specified metadata and initial members, persist it locally, and record both sync and ledger operations for backend synchronization.
-         *
-         * The group, its members, and the corresponding sync and ledger operations are persisted together in a single transaction to ensure atomic, offline-safe creation.
-         *
-         * @param name The group's display name.
-         * @param type A string identifying the group's type or category.
-         * @param memberIds List of user IDs to add as the group's initial members.
-         * @param hasTripDates Whether the group includes trip start/end dates.
-         * @param tripStartDate Trip start timestamp in milliseconds since the Unix epoch, or `null` if not set.
-         * @param tripEndDate Trip end timestamp in milliseconds since the Unix epoch, or `null` if not set.
-         * @param creatorUserId The user ID recorded as the group's creator and last modifier.
-         * @throws WritePermissionDeniedException if device cannot write.
-         */
-        override suspend fun createGroup(
+    override suspend fun createGroup(
         id: String,
         name: String,
         type: String,
@@ -187,19 +197,6 @@ class GroupRepositoryImpl @Inject constructor(
         }
     }
 
-    /**
-     * Attempts to remove the specified user from the specified group while enforcing domain rules.
-     *
-     * The operation is idempotent. It prevents removal when the user is the last group member or when the
-     * user's net balance for the group is non-zero. On success, the member removal and associated sync and
-     * ledger operations are recorded atomically.
-     *
-     * @return `LeaveGroupResult.Success` when the user was removed;
-     * `LeaveGroupResult.AlreadyRemoved` if the user is not a current member;
-     * `LeaveGroupResult.BlockedAsLastMember` if removing would leave the group empty;
-     * `LeaveGroupResult.BlockedByBalance` if the user's balance prevents leaving;
-     * `LeaveGroupResult.Error(message)` for unexpected failures with a diagnostic message.
-     */
     override suspend fun leaveGroup(groupId: String, userId: String): LeaveGroupResult = withContext(Dispatchers.IO) {
         ledgerWriteGate.withWriteLock {
             if (!deviceRoleManager.canWrite()) {
@@ -219,7 +216,6 @@ class GroupRepositoryImpl @Inject constructor(
                 }
 
                 // 3. Structural invariant: Cannot remove the last member (group would be orphaned)
-                // This is checked early to avoid expensive balance computation for impossible operations
                 if (memberCount <= 1) {
                     Log.w(TAG, "leaveGroup: BlockedAsLastMember [groupId=$groupId, userId=$userId, memberCount=$memberCount]")
                     return@withWriteLock LeaveGroupResult.BlockedAsLastMember
@@ -229,7 +225,14 @@ class GroupRepositoryImpl @Inject constructor(
                 val expenses = appDatabase.expenseDao().getExpensesForGroup(groupId).first()
                 val splits = appDatabase.expenseDao().getAllExpenseSplitsForGroup(groupId).first()
                 val settlements = appDatabase.settlementDao().getSettlementsForGroup(groupId).first()
-                val balances = BalanceCalculator.calculate(expenses, splits, settlements)
+                val balanceResult = BalanceCalculator.calculate(expenses, splits, settlements)
+                
+                if (!balanceResult.isValid) {
+                    Log.e(TAG, "leaveGroup: Inconsistent state [groupId=$groupId, userId=$userId, sum=${balanceResult.totalSum}]")
+                    return@withWriteLock LeaveGroupResult.Error("System is currently syncing data. Please try again in a moment.")
+                }
+                
+                val balances = balanceResult.balances
 
                 // 5. Run domain validation
                 val eligibility = GroupExitValidator.checkLeaveEligibility(
@@ -268,14 +271,6 @@ class GroupRepositoryImpl @Inject constructor(
         }
     }
 
-    /**
-     * Removes a member from the specified group while enforcing membership and balance rules and persisting the corresponding sync and ledger intents.
-     *
-     * @param groupId The group's ID.
-     * @param actorUserId The ID of the user performing the removal.
-     * @param targetUserId The ID of the member to remove.
-     * @return `RemoveMemberResult` indicating the outcome: `Success` on successful removal; `BlockedByBalance` if the target has a non-zero balance; `BlockedAsLastMember` if the target is the last remaining member; `TargetAlreadyRemoved` if the target is not a current member; `Error(message)` for unexpected failures.
-     */
     override suspend fun removeMember(groupId: String, actorUserId: String, targetUserId: String): RemoveMemberResult = withContext(Dispatchers.IO) {
         ledgerWriteGate.withWriteLock {
             if (!deviceRoleManager.canWrite()) {
@@ -304,7 +299,14 @@ class GroupRepositoryImpl @Inject constructor(
                 val expenses = appDatabase.expenseDao().getExpensesForGroup(groupId).first()
                 val splits = appDatabase.expenseDao().getAllExpenseSplitsForGroup(groupId).first()
                 val settlements = appDatabase.settlementDao().getSettlementsForGroup(groupId).first()
-                val balances = BalanceCalculator.calculate(expenses, splits, settlements)
+                val balanceResult = BalanceCalculator.calculate(expenses, splits, settlements)
+                
+                if (!balanceResult.isValid) {
+                    Log.e(TAG, "REMOVE_MEMBER: Inconsistent state [groupId=$groupId, actor=$actorUserId, target=$targetUserId, sum=${balanceResult.totalSum}]")
+                    return@withWriteLock RemoveMemberResult.Error("System is currently syncing data. Please try again in a moment.")
+                }
+                
+                val balances = balanceResult.balances
 
                 // 5. Run domain validation for TARGET user
                 val eligibility = GroupExitValidator.checkLeaveEligibility(
@@ -320,7 +322,6 @@ class GroupRepositoryImpl @Inject constructor(
                         return@withWriteLock RemoveMemberResult.BlockedByBalance
                     }
                     is GroupExitValidator.LeaveGroupResult.BlockedAsLastMember -> {
-                        // Should be caught by step 3, but defensive double-check
                         Log.w(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=BlockedAsLastMember")
                         return@withWriteLock RemoveMemberResult.BlockedAsLastMember
                     }
@@ -330,7 +331,6 @@ class GroupRepositoryImpl @Inject constructor(
                 }
 
                 // 6. Create sync and ledger operations and execute transaction
-                // Reusing existing sync op type as "leaving" == "being removed" in backend terms
                 val syncOp = syncWriteService.createGroupMemberRemoveSyncOp(groupId, targetUserId)
                 val ledgerOp = ledgerOperationFactory.createMemberRemoveOp(groupId, targetUserId, actorUserId)
                 appDatabase.removeMemberWithLedger(groupId, targetUserId, syncOp, ledgerOp)
@@ -341,6 +341,45 @@ class GroupRepositoryImpl @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "REMOVE_MEMBER groupId=$groupId actor=$actorUserId target=$targetUserId result=Error error=${e.message}", e)
                 RemoveMemberResult.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    override suspend fun addMember(groupId: String, userId: String, actorUserId: String): AddMemberResult = withContext(Dispatchers.IO) {
+        ledgerWriteGate.withWriteLock {
+            if (!deviceRoleManager.canWrite()) {
+                throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
+            }
+
+            try {
+                // 1. Validate Group Existence
+                val group = appDatabase.groupDao().getGroupById(groupId)
+                if (group == null) {
+                    Log.e(TAG, "addMember: Group not found [groupId=$groupId]")
+                    return@withWriteLock AddMemberResult.Error("Group not found")
+                }
+
+                // 2. Validate Membership (Idempotency)
+                val currentMembers = appDatabase.groupDao().getGroupMembers(groupId).first()
+                if (currentMembers.any { it.userId == userId }) {
+                    Log.d(TAG, "addMember: AlreadyMember [groupId=$groupId, userId=$userId]")
+                    return@withWriteLock AddMemberResult.AlreadyMember
+                }
+
+                // 3. Execute Add
+                val member = GroupMember(groupId = groupId, userId = userId)
+                val syncOp = syncWriteService.createGroupMemberAddSyncOp(groupId, userId)
+                // Fix: Attribute action to the ACTOR (inviter), not the generic user being added
+                val ledgerOp = ledgerOperationFactory.createMemberAddOp(groupId, userId, actorUserId)
+
+                appDatabase.insertMemberWithLedger(member, syncOp, ledgerOp)
+                ledgerSyncScheduler.schedulePush()
+                Log.d(TAG, "addMember: Success [groupId=$groupId, userId=$userId]")
+                AddMemberResult.Success
+
+            } catch (e: Exception) {
+                Log.e(TAG, "addMember: Error [groupId=$groupId, userId=$userId, error=${e.message}]", e)
+                AddMemberResult.Error(e.message ?: "Unknown error")
             }
         }
     }

@@ -20,6 +20,12 @@ interface LocalUserManager {
      * Clears the locally persisted user identity (Sprint 22.1 Hard Isolation).
      */
     suspend fun clearIdentity()
+
+    /**
+     * Explicitly sets the local user ID.
+     * Used by AuthManager to enforce "Cloud ID Adoption" (Identity Continuity).
+     */
+    suspend fun setUserId(id: String)
 }
 
 private val Context.dataStore by preferencesDataStore(name = IdentityConstants.PREFS_FILE)
@@ -30,10 +36,19 @@ class LocalUserManagerImpl @Inject constructor(
 ) : LocalUserManager {
 
     private val userIdKey = stringPreferencesKey(IdentityConstants.KEY_LOCAL_USER_ID)
+    
+    // In-memory guard for race condition protection.
+    // AtomicBoolean is sufficient since Singleton persists for process lifetime.
+    // If process dies, memory is cleared, avoiding "stuck" clearing state.
+    private val isClearingIdentity = java.util.concurrent.atomic.AtomicBoolean(false)
 
     override val userId: Flow<String> = context.dataStore.data
         .map { preferences ->
-            preferences[userIdKey] ?: getOrGenerateUserId()
+            if (isClearingIdentity.get()) {
+                "" // Explicitly returning empty/no-op ID during clearing phase
+            } else {
+                preferences[userIdKey] ?: getOrGenerateUserId()
+            }
         }
 
     /**
@@ -64,8 +79,24 @@ class LocalUserManagerImpl @Inject constructor(
      * MUST be called during Hard Logout to ensure the next session gets a fresh ID.
      */
     override suspend fun clearIdentity() {
+        // Set guard BEFORE editing DataStore
+        isClearingIdentity.set(true)
+        try {
+            context.dataStore.edit { preferences ->
+                preferences.remove(userIdKey)
+            }
+        } finally {
+            // Ensure guard is reset even if DataStore edit fails
+            // This prevents "Infinite No ID" bug
+            isClearingIdentity.set(false)
+        }
+    }
+
+    override suspend fun setUserId(id: String) {
+        // Reset guard as we are establishing a valid synchronous ID
+        isClearingIdentity.set(false)
         context.dataStore.edit { preferences ->
-            preferences.remove(userIdKey)
+            preferences[userIdKey] = id
         }
     }
 }

@@ -9,4 +9,7 @@ object SyncConstants {
     
     /** Debounce period for manual sync button (5 seconds) */
     const val MANUAL_SYNC_DEBOUNCE_MS = 5_000L
+    
+    /** Deterministic delay for pull-to-refresh acknowledgment (800ms) - Purely UI/Cosmetic */
+    const val REFRESH_ACK_UI_DELAY_MS = 800L
 }

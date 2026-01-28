@@ -30,8 +30,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import com.splitease.ui.components.AddPersonDialog
@@ -85,23 +85,6 @@ fun DashboardScreen(
     // Add Person Dialog state
     var showAddPersonDialog by remember { mutableStateOf(false) }
 
-    // Pull-to-refresh state
-    val pullRefreshState = rememberPullToRefreshState()
-    
-    // Trigger sync when pull is triggered
-    LaunchedEffect(pullRefreshState.isRefreshing) {
-        if (pullRefreshState.isRefreshing) {
-            viewModel.triggerSync()
-        }
-    }
-    
-    
-    // End refresh when syncing completes
-    LaunchedEffect(uiState.isSyncing) {
-        if (!uiState.isSyncing && pullRefreshState.isRefreshing) {
-            pullRefreshState.endRefresh()
-        }
-    }
 
     // FAB Options Bottom Sheet
     if (showFabOptionsSheet) {
@@ -292,17 +275,17 @@ fun DashboardScreen(
             return@Scaffold
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            LazyColumn(
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = viewModel::refresh,
                 modifier = Modifier
                     .fillMaxSize()
-                    .nestedScroll(pullRefreshState.nestedScrollConnection)
+                    .padding(innerPadding)
                     .padding(horizontal = 16.dp)
             ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize()
+                ) {
                 // Dashboard Title
                 item {
                     Text(
@@ -491,10 +474,6 @@ fun DashboardScreen(
                 }
             }
             
-            PullToRefreshContainer(
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
-        }
+            }
     }
 }

@@ -45,10 +45,10 @@ class ResolutionUseCase @Inject constructor(
     ) {
         // 1. Validate Preconditions (Fail-Fast Checks)
 
-        // Precondition: Device must NOT be READ_ONLY
+        // Precondition: Device must be authorized writer (PRIMARY or PROMOTED)
         val role = deviceRoleManager.getDeviceRole()
-        if (role == com.splitease.data.device.DeviceRole.REPLICA) {
-             throw IllegalStateException("Device is READ_ONLY (REPLICA). Cannot resolve conflicts.")
+        if (role != com.splitease.data.device.DeviceRole.PRIMARY && role != com.splitease.data.device.DeviceRole.PROMOTED) {
+             throw IllegalStateException("Device is READ_ONLY ($role). Cannot resolve conflicts.")
         }
 
         // Precondition: Device must be authorized writer

@@ -160,7 +160,10 @@ class AuthManagerImpl @Inject constructor(
     private val localUserManager: LocalUserManager,
     private val syncMetadataStore: SyncMetadataStore,
     private val appDatabase: AppDatabase,
-    private val identityBootstrapper: IdentityBootstrapper
+    private val identityBootstrapper: IdentityBootstrapper,
+    // LAZY to break DI cycle: AuthManager -> LedgerPullService -> HydrationCoordinator -> AuthManager
+    private val hydrationCoordinatorLazy: dagger.Lazy<com.splitease.data.hydration.HydrationCoordinator>,
+    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager
 ) : AuthManager {
 
     companion object {
@@ -204,21 +207,54 @@ class AuthManagerImpl @Inject constructor(
             if (cloudUserId != null) {
                 // Verify identity exists before restoring session
                 try {
+                    // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
+                    // CRITICAL FIX: Establish ID context BEFORE bootstrapping DB row
+                    // If we bootstrap first, we might create a phantom user if context is stale.
+                    localUserManager.setUserId(cloudUserId)
+                    
                     val bootstrapped = identityBootstrapper.ensureLocalUserRegistered()
                     if (bootstrapped) {
                         Log.d(TAG, "initialize: valid token found, authenticated as $cloudUserId")
+                        
+                        // SPRINT 23: Recovery Hydration Trigger
+                        
+                        // SPRINT 23: Recovery Hydration Trigger
+                        // If we crashed mid-hydration, DB might be empty. Attempt hydration.
+                        // remediateInconsistency() was called BEFORE this (AppStartupInitializer).
+                        val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
+                        when (hydrationResult) {
+                            is com.splitease.data.hydration.HydrationResult.Success -> {
+                                Log.d(TAG, "initialize: Hydration recovered successfully")
+                            }
+                            is com.splitease.data.hydration.HydrationResult.Aborted -> {
+                                Log.d(TAG, "initialize: Hydration aborted - ${hydrationResult.reason}")
+                            }
+                            is com.splitease.data.hydration.HydrationResult.Failed -> {
+                                // FAILURE = HARD LOGOUT
+                                Log.e(TAG, "initialize: Hydration FAILED - forcing hard teardown", hydrationResult.error)
+                                // SPRINT 23: Consolidated Hard Teardown
+                                logoutMutex.withLock {
+                                    performHardTeardown()
+                                }
+                                // Error is silently recoverable by user retrying login
+                                return@withContext
+                            }
+                        }
+                        
                         _authState.value = AuthState.Authenticated(cloudUserId)
                     } else {
                         Log.e(TAG, "initialize: identity bootstrap failed, forcing logout")
-                        tokenManager.clearTokens()
-                        _userProfile.value = null
-                        _authState.value = AuthState.Unauthenticated
+                        // Bootstrap failure is also a data integrity failure
+                        logoutMutex.withLock {
+                             performHardTeardown()
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "initialize: identity bootstrap exception during recovery", e)
-                    tokenManager.clearTokens()
-                    _userProfile.value = null
-                    _authState.value = AuthState.Unauthenticated
+                    // Unexpected exception prevents safe startup
+                    logoutMutex.withLock {
+                         performHardTeardown()
+                    }
                 }
             } else {
                 Log.w(TAG, "initialize: token exists but no cloudUserId, treating as unauthenticated")
@@ -444,6 +480,9 @@ class AuthManagerImpl @Inject constructor(
             )
             tokenManager.saveCloudUserId(cloudUserId)
             
+            // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
+            localUserManager.setUserId(cloudUserId)
+            
             // Populate userProfile from auth response
             val name = authResponse.user?.userMetadata?.name 
                 ?: authResponse.user?.userMetadata?.fullName
@@ -464,19 +503,42 @@ class AuthManagerImpl @Inject constructor(
                 val bootstrapped = identityBootstrapper.ensureLocalUserRegistered()
                 if (!bootstrapped) {
                     Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap failed (no local ID)")
-                    tokenManager.clearTokens() // Rollback
-                    _userProfile.value = null
-                    _authState.value = AuthState.Unauthenticated
+                    logoutMutex.withLock {
+                        performHardTeardown()
+                    }
                     _authError.tryEmit("Failed to initialize account identity")
                     return false
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap exception", e)
-                tokenManager.clearTokens() // Rollback
-                _userProfile.value = null
-                _authState.value = AuthState.Unauthenticated
+                logoutMutex.withLock {
+                    performHardTeardown()
+                }
                 _authError.tryEmit("Failed to initialize account: ${e.message}")
                 return false
+            }
+            
+            // SPRINT 23: Initial Hydration (Authoritative Rebuild from Server)
+            // Hydration runs AFTER identity bootstrap and BEFORE Authenticated emission.
+            // If it fails, we perform a Hard Logout to prevent corrupt session.
+            val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
+            when (hydrationResult) {
+                is com.splitease.data.hydration.HydrationResult.Success -> {
+                    Log.d(TAG, "handleSuccessfulAuth: Hydration completed successfully")
+                }
+                is com.splitease.data.hydration.HydrationResult.Aborted -> {
+                    // Aborted is acceptable (e.g., DB not empty, already replica)
+                    Log.d(TAG, "handleSuccessfulAuth: Hydration aborted - ${hydrationResult.reason}")
+                }
+                is com.splitease.data.hydration.HydrationResult.Failed -> {
+                    // FAILURE = HARD LOGOUT (per Sprint 23 contract)
+                    Log.e(TAG, "handleSuccessfulAuth: Hydration FAILED - forcing hard teardown", hydrationResult.error)
+                    logoutMutex.withLock {
+                        performHardTeardown()
+                    }
+                    _authError.tryEmit("Account setup failed. Please log in again.")
+                    return false
+                }
             }
             
             _authState.value = AuthState.Authenticated(cloudUserId)
@@ -559,32 +621,10 @@ class AuthManagerImpl @Inject constructor(
      * with a network-connected constraint and a unique KEEP policy to avoid duplicate work.
      */
     private suspend fun enqueueIdentityLinkingIfNeeded() {
-        val isLinked = identityLinkStateStore.isLinked().first()
-        if (isLinked) {
-            Log.d(TAG, "Identity already linked, skipping worker enqueue")
-            return
-        }
-
-        val localUserId = localUserManager.userId.first()
-        Log.d(TAG, "Enqueueing identity linking worker for localUserId: $localUserId")
-
-        val workRequest = OneTimeWorkRequestBuilder<IdentityLinkingWorker>()
-            .setInputData(
-                workDataOf(IdentityLinkingWorker.KEY_LOCAL_USER_ID to localUserId)
-            )
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
-            )
-            .build()
-
-        WorkManager.getInstance(context)
-            .enqueueUniqueWork(
-                IdentityLinkingWorker.WORK_NAME,
-                ExistingWorkPolicy.KEEP, // Don't replace if already running
-                workRequest
-            )
+        // Sprint 23: Legacy Worker Disabled.
+        // The backend function 'identity-link' is deprecated and removed.
+        // Local user ID mapping is now handled implicitly by Ledger Operations.
+        Log.d(TAG, "Identity linking worker disabled (legacy)")
     }
 
     /**
@@ -595,63 +635,100 @@ class AuthManagerImpl @Inject constructor(
     override suspend fun logout() {
         // Gap 4 (Final): Wrap entire logout in mutex and NonCancellable scope
         logoutMutex.withLock {
-            withContext(Dispatchers.IO + NonCancellable) {
-                // Invariant: Logout teardown must be non-cancellable to avoid partial identity destruction.
-                Log.d(TAG, "logout: starting hard teardown")
+            performHardTeardown()
+        }
+    }
+    
+    /**
+     * Internal helper to execute hard session teardown.
+     * Must be called under `logoutMutex`.
+     * Shared by logout() and critical initialization failures (e.g. hydration failure).
+     */
+    private suspend fun performHardTeardown() {
+        withContext(Dispatchers.IO + NonCancellable) {
+            // Invariant: Logout teardown must be non-cancellable to avoid partial identity destruction.
+            Log.d(TAG, "performHardTeardown: starting hard teardown")
 
-                // 1. Signal State (Gap 10)
-                _authState.value = AuthState.LoggingOut
+            // 1. Signal State (Gap 10)
+            _authState.value = AuthState.LoggingOut
 
-                // 2. Worker Safety (Gap 1 - Final)
-                // Force stop all background work to prevent race conditions during DB wipe
-                Log.d(TAG, "logout: cancelling all work")
+            // 2. Worker Safety (Gap 1 - Final)
+            // Force stop all background work to prevent race conditions during DB wipe
+            Log.d(TAG, "performHardTeardown: cancelling all work")
+            try {
                 WorkManager.getInstance(context).cancelAllWork()
                 
                 // Busy-wait for up to 5 seconds for ALL workers to actually stop
                 val timeout = 5000L
                 val start = System.currentTimeMillis()
                 while (System.currentTimeMillis() - start < timeout) {
-                    // Query ALL work in RUNNING or ENQUEUED state (not just IdentityLinkingWorker)
+                    val remainingMillis = java.lang.Math.max(0L, timeout - (System.currentTimeMillis() - start))
+                    if (remainingMillis == 0L) break
+
+                    // Query ALL work in RUNNING or ENQUEUED state
                     val query = androidx.work.WorkQuery.Builder
                         .fromStates(listOf(
                             androidx.work.WorkInfo.State.RUNNING,
                             androidx.work.WorkInfo.State.ENQUEUED
                         ))
                         .build()
-                    val allWorkInfos = WorkManager.getInstance(context).getWorkInfos(query).get()
                     
-                    if (allWorkInfos.isEmpty()) break
+                    try {
+                        // SPRINT 23 LIVENESS FIX: Use bounded wait to prevent loop hang
+                        val allWorkInfos = WorkManager.getInstance(context)
+                            .getWorkInfos(query)
+                            .get(remainingMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        
+                        if (allWorkInfos.isEmpty()) break
+                    } catch (e: java.util.concurrent.TimeoutException) {
+                        Log.w(TAG, "performHardTeardown: WorkManager query timed out")
+                        break // Time budget exhausted
+                    } catch (e: Exception) {
+                         // ExecutionException or InterruptedException
+                         Log.w(TAG, "performHardTeardown: WorkManager query failed", e)
+                         // Don't break immediately, might be transient, but don't hang
+                    }
+                    
                     delay(100)
                 }
-
-                // 3. Clear DB (Gap 8)
-                Log.d(TAG, "logout: clearing database")
-                try {
-                    appDatabase.clearAllTables()
-                } catch (e: Exception) {
-                    Log.e(TAG, "FATAL: Failed to clear database during logout", e)
-                    // Gap 5 (Final): Fatal error state handling
-                    _authState.value = AuthState.Error("Logout failed: potentially unsafe state. Please restart app.", isFatal = true)
-                    // We STOP here. We do NOT clear identity if DB wipe failed, to prevent orphan data access?
-                    // OR do we crash? 
-                    // Plan says: "Log Fatal. Set Error. STOP."
-                    return@withContext
-                }
-
-                // 4. Clear Identity (gap 13, gap 4)
-                Log.d(TAG, "logout: clearing identity state")
-                tokenManager.clearTokens() // Clears cloud identity
-                localUserManager.clearIdentity() // Clears phantom ID (generates new one next time)
-                identityLinkStateStore.reset() // Clears link state
-                syncMetadataStore.clear() // Clears sync cursors
-
-                // 5. Finalize
-                _userProfile.value = null
-                Log.d(TAG, "logout: teardown complete")
-                
-                // Invariant: Unauthenticated must be emitted only after teardown fully completes.
-                _authState.value = AuthState.Unauthenticated
+            } catch (e: Exception) {
+                // Non-fatal error: If WorkManager fails (e.g. DB corrupt), we MUST proceed 
+                // to wipe the app database and tokens regardless.
+                Log.e(TAG, "performHardTeardown: WorkManager cleanup failed (proceeding to DB wipe)", e)
             }
+
+            // 3. Clear DB (Gap 8) - Best Effort
+            Log.d(TAG, "performHardTeardown: clearing database")
+            var dbCleanupErrorMsg: String? = null
+            try {
+                appDatabase.clearAllTables()
+            } catch (e: Exception) {
+                Log.e(TAG, "performHardTeardown: Failed to clear database (proceeding to clear identity)", e)
+                // Non-fatal for session termination: Surface high-priority warning, but MUST continue to revoke credentials.
+                dbCleanupErrorMsg = "Database cleanup failed. Some local data might remain. Tokens were still revoked."
+            }
+
+            // 4. Clear Identity (gap 13, gap 4)
+            Log.d(TAG, "performHardTeardown: clearing identity state")
+            tokenManager.clearTokens() // Clears cloud identity
+
+            // Emit postponed error now that tokens are actually revoked
+            if (dbCleanupErrorMsg != null) {
+                _authError.tryEmit(dbCleanupErrorMsg)
+            }
+
+            localUserManager.clearIdentity() // Clears phantom ID (generates new one next time)
+            identityLinkStateStore.reset() // Clears link state
+            // Sprint 23: Reset Device Role to avoid zombie PROMOTED state on next login
+            deviceRoleManager.reset() 
+            syncMetadataStore.clear() // Clears sync cursors
+
+            // 5. Finalize
+            _userProfile.value = null
+            Log.d(TAG, "performHardTeardown: teardown complete")
+            
+            // Invariant: Unauthenticated must be emitted only after teardown fully completes.
+            _authState.value = AuthState.Unauthenticated
         }
     }
 

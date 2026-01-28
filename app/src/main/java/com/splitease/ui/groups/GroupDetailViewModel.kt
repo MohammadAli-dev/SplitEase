@@ -62,7 +62,9 @@ sealed interface GroupDetailUiState {
         val groupSyncState: SyncState = SyncState.IDLE,
         val settlementMode: SettlementMode = SettlementMode.SIMPLIFIED,
         val canLeaveGroup: Boolean = false, // Derived, checks balances
-        val currentUserId: String = "" // Default empty, populated by VM
+        val currentUserId: String = "", // Default empty, populated by VM
+        val balancesValid: Boolean = true, // True if balances sum to zero
+        val isRefreshing: Boolean = false
     ) : GroupDetailUiState
     data class Error(val message: String) : GroupDetailUiState
 }
@@ -106,6 +108,7 @@ class GroupDetailViewModel @Inject constructor(
 
     private val _retryTrigger = MutableStateFlow(0)
     private val _executingSettlements = MutableStateFlow<Set<String>>(emptySet())
+    private val _isRefreshing = MutableStateFlow(false)
 
     private val _eventChannel = Channel<GroupDetailEvent>()
     val events = _eventChannel.receiveAsFlow()
@@ -188,6 +191,7 @@ class GroupDetailViewModel @Inject constructor(
         _executingSettlements,
         _retryTrigger,
         _settlementMode,
+        _isRefreshing,
         syncDao.getOldestPendingTimestamp(),
         userContext.userId
     ) { values ->
@@ -198,6 +202,7 @@ class GroupDetailViewModel @Inject constructor(
         val settlementMode = values[4] as SettlementMode
         val oldestTimestamp = values[5] as Long?
         val currentUserId = values[6] as String
+        val isRefreshing = values[7] as Boolean
         val group = data.group
         val members = data.members
         val expenses = data.expenses
@@ -214,15 +219,25 @@ class GroupDetailViewModel @Inject constructor(
 
             // Compute balances as derived state (no caching)
             // Includes persisted settlements in calculation
-            val balances = if (expenses.isEmpty() && persistedSettlements.isEmpty()) {
-                emptyMap()
+            val balanceResult = if (expenses.isEmpty() && persistedSettlements.isEmpty()) {
+                com.splitease.domain.BalanceResult(emptyMap(), true, BigDecimal.ZERO)
             } else {
-                BalanceCalculator.calculate(expenses, splits, persistedSettlements)
+                val result = BalanceCalculator.calculate(expenses, splits, persistedSettlements)
+                if (!result.isValid) {
+                     Log.w("GroupDetailViewModel", "Balance invariant violated: sum=${result.totalSum} for group ${group.id}. Expected during sync.")
+                }
+                result
             }
+            val balances = balanceResult.balances
+            val balancesValid = balanceResult.isValid
 
             // Compute settlements as derived state from balances
             // Uses current settlement mode (UI-only, defaults to SIMPLIFIED)
-            val settlements = SettlementCalculator.calculate(balances, settlementMode)
+            val settlements = if (balancesValid) {
+                SettlementCalculator.calculate(balances, settlementMode)
+            } else {
+                emptyList()
+            }
 
             // Compute group-scoped pending count
             val groupExpenseIds = expenses.map { it.id }.toSet()
@@ -237,6 +252,7 @@ class GroupDetailViewModel @Inject constructor(
                      SyncEntityType.GROUP -> op.entityId == group.id
                      SyncEntityType.EXPENSE -> groupExpenseIds.contains(op.entityId)
                      SyncEntityType.SETTLEMENT -> groupSettlementIds.contains(op.entityId)
+                     SyncEntityType.USER -> false // User creation is global
                  }
             }
 
@@ -252,23 +268,25 @@ class GroupDetailViewModel @Inject constructor(
                 group = group,
                 members = sortedMembers,
                 expenses = expenses,
-                balances = balances,
-                settlements = settlements,
-                executingSettlements = executingSettlements,
-                pendingExpenseIds = sync.pendingExpenseIds,
-                pendingSettlementIds = sync.pendingSettlementIds,
-                pendingGroupSyncCount = pendingGroupSyncCount,
-                groupFailedSyncCount = groupFailedSyncCount,
-                groupSyncState = groupSyncState,
-                settlementMode = settlementMode,
-
-                currentUserId = currentUserId,
-                canLeaveGroup = com.splitease.domain.GroupExitValidator.checkLeaveEligibility(
-                    userId = currentUserId,
                     balances = balances,
-                    memberCount = sortedMembers.size
-                ) is com.splitease.domain.GroupExitValidator.LeaveGroupResult.Allowed
-            )
+                    settlements = settlements,
+                    executingSettlements = executingSettlements,
+                    pendingExpenseIds = sync.pendingExpenseIds,
+                    pendingSettlementIds = sync.pendingSettlementIds,
+                    pendingGroupSyncCount = pendingGroupSyncCount,
+                    groupFailedSyncCount = groupFailedSyncCount,
+                    groupSyncState = groupSyncState,
+                    settlementMode = settlementMode,
+
+                    currentUserId = currentUserId,
+                    balancesValid = balancesValid,
+                    canLeaveGroup = balancesValid && com.splitease.domain.GroupExitValidator.checkLeaveEligibility(
+                        userId = currentUserId,
+                        balances = balances,
+                        memberCount = sortedMembers.size
+                    ) is com.splitease.domain.GroupExitValidator.LeaveGroupResult.Allowed,
+                    isRefreshing = isRefreshing
+                )
         }
     }.stateIn(
         scope = viewModelScope,
@@ -279,6 +297,19 @@ class GroupDetailViewModel @Inject constructor(
     fun retry() {
         viewModelScope.launch {
             _retryTrigger.value++
+        }
+    }
+
+    fun refresh() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            try {
+                _isRefreshing.value = true
+                syncRepository.triggerManualSync()
+                kotlinx.coroutines.delay(SyncConstants.REFRESH_ACK_UI_DELAY_MS)
+            } finally {
+                _isRefreshing.value = false
+            }
         }
     }
 

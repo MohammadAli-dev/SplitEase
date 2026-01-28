@@ -30,6 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.splitease.R
 import kotlinx.coroutines.launch as coroutineLaunch
@@ -53,22 +56,22 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.lifecycle.viewModelScope
-import com.splitease.ui.common.SyncStatusIcon
-import com.splitease.data.local.dao.SyncDao
-import com.splitease.data.local.entities.SyncFailureType
-import com.splitease.data.repository.SyncRepository
-import com.splitease.data.sync.SyncConstants
-import com.splitease.data.sync.SyncHealth
-import com.splitease.data.sync.SyncState
-import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.splitease.data.sync.SyncConstants
+import com.splitease.data.local.entities.SyncFailureType
+import com.splitease.data.repository.SyncRepository
+import com.splitease.data.sync.SyncHealth
+import com.splitease.data.sync.SyncState
+import android.util.Log
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import com.splitease.ui.common.SyncStatusIcon
 
 @HiltViewModel
 class GroupListViewModel @Inject constructor(
@@ -84,7 +87,9 @@ class GroupListViewModel @Inject constructor(
             initialValue = SyncHealth(0, 0, null)
         )
 
-    // Derive SyncState from SyncHealth (FAILED > PAUSED > SYNCING > IDLE)
+    private val _isRefreshing = MutableStateFlow(false)
+
+    // Derived SyncState from SyncHealth (FAILED > PAUSED > SYNCING > IDLE)
     val syncState: StateFlow<SyncState> = syncHealth
         .map { health -> deriveSyncState(health) }
         .distinctUntilChanged()
@@ -124,26 +129,53 @@ class GroupListViewModel @Inject constructor(
     // Combined UI state
     val uiState: StateFlow<GroupListUiState> = combine(
         groupDao.getAllGroups(),
-        syncHealth
-    ) { groups, health ->
+        syncHealth,
+        syncRepository.observeManualSyncWork(),
+        _isRefreshing
+    ) { groups, health, isWorkFinished, isRefreshing ->
+        val derivedSyncState = deriveSyncState(health)
+        // If work manager says work is running (not finished), override IDLE state to SYNCING for UI
+        val finalSyncState = if (derivedSyncState == SyncState.IDLE && !isWorkFinished) {
+             SyncState.SYNCING 
+        } else {
+             derivedSyncState
+        }
+        
         GroupListUiState(
             groups = groups,
             failedSyncCount = health.failedCount,
             pendingSyncCount = health.pendingCount,
-            syncState = deriveSyncState(health)
+            syncState = finalSyncState,
+            // Expose explicit running flag for pull-to-refresh
+            isManualSyncRunning = !isWorkFinished,
+            isRefreshing = isRefreshing
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = GroupListUiState()
     )
+
+
+
+    fun refresh() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            syncRepository.triggerManualSync()
+            kotlinx.coroutines.delay(SyncConstants.REFRESH_ACK_UI_DELAY_MS)
+            _isRefreshing.value = false
+        }
+    }
 }
 
 data class GroupListUiState(
     val groups: List<Group> = emptyList(),
     val failedSyncCount: Int = 0,
     val pendingSyncCount: Int = 0,
-    val syncState: SyncState = SyncState.IDLE
+    val syncState: SyncState = SyncState.IDLE,
+    val isManualSyncRunning: Boolean = false,
+    val isRefreshing: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -185,7 +217,7 @@ fun GroupListScreen(
                                 text = { Text("Sync Now") },
                                 onClick = {
                                     showMenu = false
-                                    viewModel.triggerManualSync()
+                                    viewModel.refresh()
                                     scope.coroutineLaunch {
                                         snackbarHostState.showSnackbar(syncStartedMessage)
                                     }
@@ -202,57 +234,64 @@ fun GroupListScreen(
             }
         }
     ) { innerPadding ->
-        Column(
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = viewModel::refresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp)
         ) {
-            Text(
-                text = "Groups",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Groups",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
 
-            if (groups.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "No groups yet",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "Create a group to start splitting!",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                if (groups.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "No groups yet",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Create a group to start splitting!",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(groups) { group ->
-                        GroupItem(
-                            group = group,
-                            onClick = { onNavigateToGroupDetail(group.id) }
-                        )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(groups) { group ->
+                            GroupItem(
+                                group = group,
+                                onClick = { onNavigateToGroupDetail(group.id) }
+                            )
+                        }
                     }
-                    // Sprint 12C: Removed "Non-Group Expenses" virtual entry
-                    // Direct expenses are now visible via Friends flow, not Groups tab
                 }
             }
+
         }
     }
 }

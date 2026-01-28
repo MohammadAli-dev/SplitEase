@@ -388,3 +388,91 @@ This stabilization sprint addresses a critical regression where the local user i
 ## Verification Results
 - **Build**: Passed `assembleDebug`.
 - **Manual Verification**: Confirmed that logging out and logging back in (User A -> User B) correctly shows the new user as "me" in groups, and that the previous user's data is completely gone.
+
+---
+
+# Sprint 23: Incremental Ledger Pull & Convergence (Pull-to-Refresh)
+
+## Overview
+This sprint implements the "Pull" half of the synchronization architecture. Devices can now incrementally pull new ledger operations from Supabase and replay them into their local state, enabling full cross-device convergence. This also introduces a user-facing swipe-to-refresh mechanism for on-demand synchronization.
+
+## Key Changes
+
+### 1. Synchronization Layer (Pull Path)
+- **LedgerSyncCoordinator**: Orchestrates the incremental synchronization flow:
+    - Fetches all available remote operations from Supabase.
+    - Persists new operations to the local ledger (idempotent INSERT OR IGNORE).
+    - Triggers `ReplayEngine` for a full history replay to ensure deterministic state convergence.
+    - Automatically hydrates missing user profiles for any newly discovered users in the ledger.
+- **SyncWorker Integration**: Updated the background `SyncWorker` to use `LedgerSyncCoordinator` during its "Phase 2 (Pull)" stage, replacing the legacy no-op stub.
+
+### 2. UI & Experience
+- **Swipe-to-Refresh**: Integrated `PullToRefreshContainer` into `GroupListScreen` and `GroupDetailScreen`.
+- **Manual Trigger**: Added `triggerManualSync()` to `GroupListViewModel` and `GroupDetailViewModel` to allow users to force a ledger reconciliation.
+- **Visual Feedback**: Sync status icons and spinners now accurately reflect ledger pull/replay progress.
+
+### 3. Identity & Hydration Hardening
+- **Convergence Deadlock Fix**: Resolved a critical deadlock where the `ReplayEngine` would fail if the user's "Personal Group" was not yet hydrated.
+- **IdentityBootstrapper**: Enhanced to ensure the current user's identity row and personal group exist before the first replay cycle starts.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation and Hilt/KSP processing.
+- **Deterministic Convergence**: Verified that swiping to refresh on a secondary device correctly pulls and displays expenses created on a primary device.
+- **Manual Verification**:
+    - [x] Swipe-to-refresh on Groups list triggers full sync.
+    - [x] Swipe-to-refresh on Group Detail list triggers full sync.
+    - [x] New member profiles are automatically fetched during pull sync.
+
+# Sprint 23.1: CodeRabbit Audit & Hydration Hardening
+
+## Overview
+This sprint addresses all issues raised during the CodeRabbit architectural audit and hardens the hydration/role promotion logic to explicit validation standards. It confirms the system creates a "Grand Unified Theory" of device roles where hydration determines authority.
+
+## Key Changes
+
+### 1. UI Architecture Modernization
+- **Pull-to-Refresh**: Replaced the legacy `SwipeRefreshLayout` with the modern Material 3 `PullToRefreshBox` in `GroupDetailScreen`. This resolves standard Material design compliance warnings and improves gesture handling.
+
+### 2. Concurrency & Safety
+- **LocalUserManager**: Fixed a race condition in `clearIdentity` by adding an `AtomicBoolean` guard (`KEY_CLEARING_IDENTITY`). This prevents the `clearIdentity` flow from triggering a re-login loop via the `isLoggedIn` flow during the teardown phase.
+- **LedgerPushWorker**: Verified the "infinite loop" warning was a False Positive (loop condition depends on `processNextOperation` returning `false` on transient failure, which is correct).
+
+### 3. Data Integrity & Attribution
+- **GroupRepository**: Fixed an attribution bug in `addMember`. The function now accepts an explicit `actorUserId` to ensure that `GroupMember` creates are attributed to the inviter, not the invitee.
+- **Resolution UseCase**: Explicitly permitted `DeviceRole.PROMOTED` to perform conflict resolution, replacing the implicit "not replica" check with a positive allow-list (`PRIMARY` or `PROMOTED`).
+
+### 4. Hydration & Role Semantics
+- **DeviceRole Documentation**: Updated KDoc to reflect that `REPLICA` is a transitional state during hydration, and successful hydration permanently upgrades the device to `PROMOTED` (writable).
+- **HydrationCoordinator**: Updated internal logic and comments to align with the "Promotion on Success" contract.
+- **Verification**: Added `HydrationCoordinatorTest.hydrate should promote device to PROMOTED` to assert this lifecycle transition and prevent regression.
+
+## Verification Results
+- **Build**: Successfully passed `assembleDebug`.
+- **Tests**: All unit tests passed, including the new hydration promotion test.
+
+---
+
+# Sprint 23.2: CodeRabbit Stability & Audit Fixes
+
+## Overview
+This sprint addresses 8 specific issues flagged by CodeRabbit, focusing on race conditions in UI state, error message factuality in Auth, and logic corrections in Sync and Identity management. These fixes ensure the application is robust against edge cases like rapid refresh toggling, zombie identity states, and correct user profile syncing.
+
+## Key Changes
+
+### 1. Concurrency & Race Conditions
+- **DashboardViewModel**: Fixed a race condition where the "Refreshing" spinner could disappear prematurely due to non-atomic state updates. Implemented `_uiState.update {}` for atomic mutations and added `_isRefreshing` to the `combine` logic to ensuring reactive UI updates.
+- **GroupDetailViewModel**: Wrapped the manual refresh logic in a `try/finally` block to guarantee the loading indicator is reset even if the sync operation throws an exception.
+- **GroupListScreen**: Fixed a similar reactivity bug by adding `_isRefreshing` to the state combination logic, ensuring the pull-to-refresh indicator behaves correctly.
+
+### 2. Identity & Auth Integrity
+- **AuthManager**: Corrected a misleading error message ("Tokens were revoked") that was emitted *before* the tokens were actually cleared. The error is now emitted strictly after the `clearTokens()` call.
+- **LocalUserManager**: Fixed a potential "infinite no-ID" loop by ensuring the `isClearingIdentity` guard is reset in a `finally` block, preventing the app from getting stuck in a state where it refuses to generate a guest ID.
+
+### 3. Sync Logic Correctness
+- **SyncRepository**: Fixed a bug where `SyncEntityType.USER` returned `0L` as its local timestamp, causing legitimate remote updates (timestamp > 0) to be rejected as "stale". It now returns `null`, correctly treating local state as having "no timestamp" to allow remote overwrites.
+- **GroupListScreen**: Renamed the confusingly inverted variable `isWorkRunning` to `isWorkFinished`, clarifying the logic `!isWorkFinished` -> "Syncing".
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation.
+- **Tests**: `PushSyncHardeningTest` and `HydrationCoordinatorTest` passed.
+- **Manual Verification**: Validated logout flow, refresh spinner behavior, and pull-to-refresh reactivity.

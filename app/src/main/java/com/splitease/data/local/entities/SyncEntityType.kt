@@ -7,5 +7,6 @@ package com.splitease.data.local.entities
 enum class SyncEntityType {
     EXPENSE,
     GROUP,
-    SETTLEMENT
+    SETTLEMENT,
+    USER
 }

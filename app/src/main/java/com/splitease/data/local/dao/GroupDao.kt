@@ -100,4 +100,11 @@ interface GroupDao {
      */
     @Query("SELECT COUNT(*) FROM group_members WHERE groupId = :groupId")
     suspend fun getMemberCount(groupId: String): Int
+
+    /**
+     * Get all unique distinct User IDs that are members of any group.
+     * Used for initial hydration to identify missing user profiles.
+     */
+    @Query("SELECT DISTINCT userId FROM group_members")
+    suspend fun getAllMemberUserIds(): List<String>
 }

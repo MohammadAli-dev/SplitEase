@@ -11,6 +11,7 @@ import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
+import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.SyncEntityType
 import com.splitease.data.local.entities.SyncFailureType
 import com.splitease.data.local.entities.SyncOperation
@@ -126,6 +127,7 @@ class SyncRepositoryImpl @Inject constructor(
     private val groupDao: GroupDao,
     private val expenseDao: ExpenseDao,
     private val settlementDao: SettlementDao,
+    private val userDao: UserDao,
     private val transactionRunner: TransactionRunner,
     private val tokenManager: TokenManager
 ) : SyncRepository {
@@ -221,6 +223,7 @@ class SyncRepositoryImpl @Inject constructor(
                     SyncEntityType.EXPENSE -> expenseDao.deleteExpense(operation.entityId)
                     SyncEntityType.GROUP -> groupDao.deleteGroup(operation.entityId)
                     SyncEntityType.SETTLEMENT -> settlementDao.deleteSettlement(operation.entityId)
+                    SyncEntityType.USER -> userDao.deleteUser(operation.entityId)
                 }
             } else if (operation.operationType == "UPDATE") {
                 // UPDATE reconciliation: Attempt to fetch fresh data from server
@@ -392,6 +395,7 @@ class SyncRepositoryImpl @Inject constructor(
             SyncEntityType.EXPENSE -> expenseDao.getExpenseById(entityId)?.updatedAt
             SyncEntityType.GROUP -> groupDao.getGroupById(entityId)?.updatedAt
             SyncEntityType.SETTLEMENT -> settlementDao.getSettlementById(entityId)?.updatedAt
+            SyncEntityType.USER -> null // Users don't have updatedAt locally, so treat as "no timestamp" to allow remote overwrite
         }
     }
 
@@ -415,6 +419,7 @@ class SyncRepositoryImpl @Inject constructor(
                 SyncEntityType.EXPENSE -> api.getExpenseTimestamp(authHeader, apiKey, "eq.$entityId")
                 SyncEntityType.GROUP -> api.getGroupTimestamp(authHeader, apiKey, "eq.$entityId")
                 SyncEntityType.SETTLEMENT -> api.getSettlementTimestamp(authHeader, apiKey, "eq.$entityId")
+                SyncEntityType.USER -> api.getUserTimestamp(authHeader, apiKey, "eq.$entityId")
             }
             
             if (response.isSuccessful) {

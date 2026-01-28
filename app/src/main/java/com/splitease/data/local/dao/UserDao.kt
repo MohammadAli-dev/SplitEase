@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.splitease.data.local.entities.User
+import com.splitease.data.local.entities.IdValuePair
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -43,4 +44,16 @@ interface UserDao {
      */
     @Query("DELETE FROM users WHERE id = :userId")
     suspend fun deleteUser(userId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUsers(users: List<User>)
+
+    @Query("SELECT id FROM users")
+    suspend fun getAllUserIdsSync(): List<String>
+
+    @Query("SELECT id, name AS value FROM users WHERE id IN (:ids)")
+    suspend fun getNamesByIds(ids: List<String>): List<IdValuePair>
+
+    @Query("SELECT * FROM users WHERE id = :id")
+    suspend fun getUserById(id: String): User?
 }
