@@ -163,7 +163,8 @@ class AuthManagerImpl @Inject constructor(
     private val identityBootstrapper: IdentityBootstrapper,
     // LAZY to break DI cycle: AuthManager -> LedgerPullService -> HydrationCoordinator -> AuthManager
     private val hydrationCoordinatorLazy: dagger.Lazy<com.splitease.data.hydration.HydrationCoordinator>,
-    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager
+    private val deviceRoleManager: com.splitease.data.device.DeviceRoleManager,
+    private val identityRepository: com.splitease.data.repository.IdentityRepository
 ) : AuthManager {
 
     companion object {
@@ -481,7 +482,28 @@ class AuthManagerImpl @Inject constructor(
             tokenManager.saveCloudUserId(cloudUserId)
             
             // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
-            localUserManager.setUserId(cloudUserId)
+            // P0 FIX: Safe Identity Consolidation (Sprint 24)
+            // We must merge any existing phantom data BEFORE swapping the ID.
+            try {
+                val currentLocalId = localUserManager.userId.first()
+                val canonicalId = identityRepository.consolidateIdentity(
+                    localId = currentLocalId,
+                    cloudId = cloudUserId,
+                    profile = com.splitease.data.auth.UserProfile(
+                        cloudUserId = cloudUserId,
+                        name = authResponse.user?.userMetadata?.name ?: authResponse.user?.userMetadata?.fullName,
+                        email = authResponse.user?.email
+                    )
+                )
+                localUserManager.setUserId(canonicalId)
+            } catch (e: com.splitease.data.identity.IdentityInvariantViolationException) {
+                Log.e(TAG, "CRITICAL: Auth aborted due to identity invariant violation", e)
+                tokenManager.clearTokens() // Hard logout
+                _authState.value = AuthState.Unauthenticated // Or a specific Failed state if available, falling back to Unauth with error
+                // Force error emission
+                _authError.tryEmit("Critical Error: Account security check failed. Please contact support.")
+                return false
+            }
             
             // Populate userProfile from auth response
             val name = authResponse.user?.userMetadata?.name 

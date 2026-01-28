@@ -367,4 +367,12 @@ object DatabaseModule {
     fun provideConflictResolutionDao(db: AppDatabase): com.splitease.data.local.dao.ConflictResolutionDao {
         return db.conflictResolutionDao()
     }
+
+    /**
+     * Provides the IdentityAuditDao for verifying critical identity invariants.
+     */
+    @Provides
+    fun provideIdentityAuditDao(db: AppDatabase): com.splitease.data.local.dao.IdentityAuditDao {
+        return db.identityAuditDao()
+    }
 }

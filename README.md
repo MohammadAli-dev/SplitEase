@@ -54,9 +54,10 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | Guarantee | Description |
 |-----------|-------------|
 | **Offline-First** | Add expenses even without internet. Data syncs when you're back online. |
-| **No Data Loss** | All changes are saved locally first. The app never loses your data. |
+| **No Data Loss** | **Sprint 24 Update**: Atomic "Identity Consolidation" guarantees strict offline-to-online data survival. |
 | **Reliable Sync** | Background sync retries automatically until successful. |
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
+| **Zero Orphans** | Authentication intentionally aborts if even one data row cannot be safely merged. |
 
 ---
 
@@ -66,7 +67,8 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **Authentication** | ✅ Mocked | Login/Signup screens with mock backend |
+| **Authentication** | ✅ **Real** | Strict Identity Consolidation & JWT Auth (Supabase) |
+| **Safe Merge** | ✅ **Complete** | **Sprint 24**: Atomic merge of offline (phantom) data to cloud account |
 | **Groups** | ✅ Complete | Create, view, and manage expense groups |
 | **Group Creation** | ✅ Complete | Create new groups with name, type, and member selection |
 | **Expenses** | ✅ Complete | Add expenses with title, amount, payer, date |
@@ -114,14 +116,11 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 ### ⚠️ Intentionally Mocked & Partially Integrated
 | Component | Status | Why |
 |-----------|---|-----|
-| **Authentication Backend** | ⚠️ Partially Real | JWT support implemented for Supabase; Mock UI Login remains for Dev speed. |
 | **Remote API (Entity Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
 | **Ledger Mirror** | ✅ **Real (Supabase)** | **Sprint 21**: Real PostgREST integration for durable ledger mirroring. |
 | **User Data Fetch** | ⚠️ Mocked | Seed data used for local users not yet linked to Supabase profiles. |
 
 ### 🚧 Future Features (Not Implemented)
-
-- Real authentication (OAuth, JWT)
 - Push notifications for expense updates
 - Currency conversion
 - Receipt image attachments
@@ -142,9 +141,13 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
     - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
     - **Tier 3: Explicit Conflict Resolution (Derivation)**: Repositories join resolution "facts" with raw state to project the Effective State (hiding Zombies/Losers) without corrupting the historical record.
 
-3. **Atomic Identity Linking**:
-    - **`ClaimManager`**: Orchestrates secure invite claiming and inviter discovery.
-    - **`AppDatabase.mergePhantomToReal`**: Atomic transaction that reassigns all foreign-key references from a local phantom user to a real cloud user without data loss.
+3. **Atomic Identity Linking (Sprint 24)**:
+    - **`IdentityRepository`**: The authority on user identity state.
+    - **`AppDatabase.mergeAndVerify`**: **Atomic Transaction** that:
+        1.  Reassigns all specific foreign-key references (Expenses, Settlements, Groups) from Phantom -> Real.
+        2.  **Audits** the database for any remaining "Orphan" references to the Phantom ID.
+        3.  **Aborts** the transaction if strict Zero-Reference invariant is violated.
+    - **Terminal Failure**: If identity consolidation fails, `AuthManager` **clears tokens and refuses login**. We favor crash-safety over data corruption.
 
 4. **Unidirectional Data Flow**: Data flows in one direction:
    ```
@@ -469,14 +472,16 @@ Each `SyncOperation` has a unique `operationId`. The (mocked) API accepts duplic
 
 ### Mock Interceptor
 
-The app uses a `MockAuthInterceptor` that intercepts HTTP requests and returns fake responses without hitting a real server.
+The app uses a `MockAuthInterceptor` **only for the Legacy Entity Sync API**. 
+
+> **Important**: The **Ledger Mirror** and **Identity** systems use **Real Supabase Auth (JWT)**. The mock interceptor does NOT intercept Supabase calls.
 
 ```kotlin
-// Fake login always succeeds
-POST /auth/login → {"userId": "mock-123", "token": "fake-token", ...}
-
-// Fake sync always succeeds
+// Legacy Entity Sync (Mocked)
 POST /sync → {"success": true}
+
+// Ledger/Identity (Real)
+POST /v1/ledger_operations → 201 Created (Authorized via JWT)
 ```
 
 ### API Contract

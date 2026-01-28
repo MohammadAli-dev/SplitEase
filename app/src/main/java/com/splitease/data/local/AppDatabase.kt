@@ -489,6 +489,12 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
+     * Provides access to the DAO responsible for auditing user references.
+     * Used for critical invariant checks during identity merging.
+     */
+    abstract fun identityAuditDao(): com.splitease.data.local.dao.IdentityAuditDao
+
+    /**
      * Inserts a user and commits the associated sync and ledger operations atomically.
      * Used for creating Phantom Users that need to be synced via both Legacy Sync and the Ledger.
      */
@@ -501,5 +507,35 @@ abstract fun connectionStateDao(): ConnectionStateDao
         userDao().insertUser(user)
         syncDao().insertSyncOp(syncOp)
         commitLedgerOp(ledgerOp)
+    }
+
+    /**
+     * Atomic Merge and Verify Transaction.
+     *
+     * 1. Performs the standard phantom -> real merge.
+     * 2. Audit: Verifies absolutely zero references remain for the phantom ID.
+     * 3. Throw: If references remain, aborts the entire transaction (Rollback).
+     *
+     * @throws com.splitease.data.identity.IdentityInvariantViolationException if verification fails.
+     */
+    @androidx.room.Transaction
+    open suspend fun mergeAndVerify(
+        phantomUserId: String,
+        realUserId: String,
+        realUserName: String,
+        realUserEmail: String? = null
+    ) {
+        // 1. Execute Merge
+        mergePhantomToReal(phantomUserId, realUserId, realUserName, realUserEmail)
+
+        // 2. Atomic Guard: Verify zero references
+        val refs = identityAuditDao().countAllUserReferences(phantomUserId)
+        
+        // 3. Fail Loudly
+        if (refs > 0) {
+            throw com.splitease.data.identity.IdentityInvariantViolationException(
+                "CRITICAL: Identity consolidation failed. phantom=$phantomUserId real=$realUserId refs=$refs"
+            )
+        }
     }
 }

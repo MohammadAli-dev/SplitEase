@@ -92,6 +92,7 @@ class SyncIdempotencyTest {
         fromUserId = fromUserId,
         toUserId = toUserId,
         amount = amount,
+        currency = "INR", // Added mandatory field
         date = Date()
     )
 
@@ -126,7 +127,7 @@ class SyncIdempotencyTest {
     /**
      * Test: Expense inserted twice -> single row
      * 
-     * Verifies that REPLACE strategy ensures idempotency for expenses.
+     * Verifies that logic ensures idempotency for expenses.
      */
     @Test
     fun expenseReplay_insertsOnce() = runBlocking {
@@ -202,8 +203,8 @@ class SyncIdempotencyTest {
         assertEquals(1, finalSettlements.size)
 
         // Verify zero-sum balance invariant
-        val balances = BalanceCalculator.calculate(finalExpenses, finalSplits, finalSettlements)
-        val sum = balances.values.fold(BigDecimal.ZERO, BigDecimal::add)
+        val balanceResult = BalanceCalculator.calculate(finalExpenses, finalSplits, finalSettlements)
+        val sum = balanceResult.totalSum // Use the pre-calculated totalSum from result
         assertEquals(
             "Balances must sum to zero after replay",
             0,
