@@ -592,6 +592,13 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
     - Standardized all new strings in `strings.xml`.
 - **Financial Correctness**: Updated `BalanceRow` to accept an explicit `currencyCode`. Balances now infer the display currency from the group's expenses (defaulting to "₹") rather than hardcoding the symbol, preparing the UI for multi-currency support.
 
+### 7. Sprint 26: Currency Correctness & ISO Normalization
+- **Core Refactor**: Replaced "₹" fallback with "INR" (ISO-4217) across the entire app.
+- **Architectural Lock**: Updated `BalanceCalculator` to explicitly accept a `currencyCode` parameter, enforced via "Architecture Lock" comments in code.
+- **Formatting Standardization**: Refactored all currency string interpolations (e.g., `₹${amount}`) to use `Formatters.formatMoney(amount, "INR")`. Symbols are now exclusively managed in `Formatters.kt`.
+- **Domain Hardening**: Deprecated and neutralized `MoneyFormatter` (Domain) to prevent symbol leakage.
+- **Verification**: Verified zero matches for raw "₹"/"$" in non-UI files (via grep).
+
 ## Verification Results
 - **Build**: Successfully passed `./gradlew assembleDebug`.
 - **Manual Verification**:
@@ -600,3 +607,53 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
     - [x] Offline mode shows neutral/calm indicators.
     - [x] Currency and Date headers are consistent.
     - [x] TalkBack correctly identifies "Syncing changes..." state.
+    - [x] All currency amounts display "₹" correctly via ISO mapping.
+
+---
+
+# Sprint 26.1: CodeRabbit Hardening (Currency Finalization)
+
+## Overview
+This stabilization sprint addresses 4 specific architectural issues flagged by CodeRabbit to strictly enforce ISO-4217 correctness. It eliminates the last residual hardcoded "INR" strings and legacy formatter dependencies, ensuring that all currency formatting is driven dynamically by the underlying financial entities.
+
+## Key Changes
+
+### 1. Domain Hardening
+- **Deprecated MoneyFormatter**: The domain-layer `MoneyFormatter.format` function has been annotated with `@Deprecated`, redirecting developers to the UI-layer `Formatters.formatMoney(amount, currencyCode)` which enforces explicit currency.
+
+### 2. ISO Currency Threading
+- **FriendLedgerItem Update**: Updated the `FriendLedgerItem` sealed class hierarchy to include a mandatory `currency` field.
+- **Repository Derivation**: Updated `FriendTransactionsRepository` to populate this field:
+    - **Group Expenses**: Derived from the underlying `Expense` entity (as `Group` has no currency).
+    - **Settlements**: Derived strictly from `Settlement.currency`.
+- **UI Remediation**: `FriendDetailScreen` and `PersonalLedgerScreen` now use this threaded currency instead of hardcoded "INR".
+
+### 3. Sync Issues Correctness
+- **SettlementAmount DTO**: Created a new DTO `SettlementAmount` to fetch both amount and currency for sync issue display.
+- **Localized Labels**: `SyncIssuesViewModel` now uses a properly localized string resource (`R.string.settlement_label`) and dynamic currency formatting, removing the last hardcoded strings in the codebase.
+
+## Verification Results
+- **Build**: Successfully passed `assembleDebug` (verified deprecation warning visibility).
+- **Manual Verification**: Confirmed that all transaction screens and sync issue dialogues correctly display currency symbols derived from the database state.
+
+---
+
+# Sprint 26.2: CodeRabbit Hardening (Fail-Closed Currency Threading)
+
+## Overview
+This stabilization sprint enforces a strict "Fail-Closed" architecture for currency operations. It removes all implicit defaults (such as assuming "INR" for new data) and blocks any write operation (Add Expense, Settle Up) if the currency context cannot be deterministically derived from the ledger history.
+
+## Key Changes
+
+### 1. Fail-Closed Write Paths
+- **Settlement Blocking**: `SettleUpViewModel` and `GroupDetailViewModel` now explicitly **BLOCK** settlement attempts if the group/friend has no transaction history.
+- **Genesis Block**: `AddExpenseViewModel` blocks the creation of the very first expense in a group if currency cannot be inherited (waiting for Sprint 28 explicit currency selection).
+- **Explicit Error Messages**: Replaced silent defaults with user-facing errors requesting currency context (e.g., "Cannot determine currency. Add an expense first.").
+
+### 2. Read-Only Derivation
+- **No Preference Injection**: Removed `UserPreferencesManager` from all ViewModels to prevent preference-based data corruption.
+- **Transaction-Based Display**: `FriendDetailViewModel` and `PersonalLedgerViewModel` now derive their display currency strictly from the transaction history (`FriendTransactionsRepository`).
+
+## Verification Results
+- **Build**: Successfully passed `assembleDebug`.
+- **Manual Verification**: Verified that creation of a genesis expense in a fresh group fails with the expected error, ensuring no invented "INR" data enters the ledger.

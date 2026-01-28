@@ -368,11 +368,23 @@ class GroupDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _executingSettlements.value = _executingSettlements.value + key
             try {
-                // Idiomatic: firstOrNull() with early return if identity unavailable
                 val creatorUserId = userContext.userId.firstOrNull()
                 if (creatorUserId == null) {
                     _eventChannel.send(GroupDetailEvent.ShowSnackbar("Unable to verify user identity"))
                     return@launch
+                }
+
+                // FAIL-CLOSED: Determine currency from existing expenses.
+                // If group has no expenses, we cannot determine currency context -> BLOCK.
+                val contextCurrency = uiState.value.let { state ->
+                    if (state is GroupDetailUiState.Success) {
+                        state.expenses.firstOrNull()?.currency
+                    } else null
+                }
+
+                if (contextCurrency == null) {
+                   _eventChannel.send(GroupDetailEvent.ShowSnackbar("Cannot settle: No transaction history to determine currency."))
+                   return@launch
                 }
                 
                 // Normalize amount to 2 decimals (defensive against weird inputs)
@@ -383,7 +395,7 @@ class GroupDetailViewModel @Inject constructor(
                     fromUserId = suggestion.fromUserId,
                     toUserId = suggestion.toUserId,
                     amount = normalized,
-                    currency = "INR", // TODO: Derive from group context when multi-currency is implemented
+                    currency = contextCurrency,
                     creatorUserId = creatorUserId
                 )
                 _eventChannel.send(GroupDetailEvent.ShowSnackbar("Settlement recorded"))

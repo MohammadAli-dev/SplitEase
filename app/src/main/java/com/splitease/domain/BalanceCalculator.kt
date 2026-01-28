@@ -35,7 +35,11 @@ object BalanceCalculator {
     fun calculate(
         expenses: List<Expense>,
         splits: List<ExpenseSplit>,
-        settlements: List<com.splitease.data.local.entities.Settlement> = emptyList()
+        settlements: List<com.splitease.data.local.entities.Settlement> = emptyList(),
+        // Intentional: Architecture lock.
+        // We accept currencyCode to enforce the contract that all calculations must happen
+        // within a single currency context. Multi-currency math is strictly forbidden here.
+        currencyCode: String = "INR"
     ): BalanceResult {
         val balances = mutableMapOf<String, BigDecimal>()
 

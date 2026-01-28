@@ -116,7 +116,7 @@ class SyncIssuesViewModel @Inject constructor(
                 data class BatchResult(
                     val expenseNames: Map<String, String>,
                     val groupNames: Map<String, String>,
-                    val settlementAmounts: Map<String, java.math.BigDecimal>,
+                    val settlementAmounts: Map<String, com.splitease.data.local.entities.SettlementAmount>,
                     val userNames: Map<String, String>
                 )
 
@@ -128,7 +128,7 @@ class SyncIssuesViewModel @Inject constructor(
                         if (groupIds.isNotEmpty()) groupDao.getNamesByIds(groupIds).associate { it.id to it.value } else emptyMap() 
                     }
                     val settlementDeferred = async { 
-                        if (settlementIds.isNotEmpty()) settlementDao.getAmountsByIds(settlementIds).associate { it.id to it.value } else emptyMap() 
+                        if (settlementIds.isNotEmpty()) settlementDao.getAmountsByIds(settlementIds).associate { it.id to it } else emptyMap() 
                     }
                     val userDeferred = async {
                         if (userIds.isNotEmpty()) userDao.getNamesByIds(userIds).associate { it.id to it.value } else emptyMap()
@@ -137,7 +137,7 @@ class SyncIssuesViewModel @Inject constructor(
                     BatchResult(
                         expenseNames = expenseDeferred.await(),
                         groupNames = groupDeferred.await(),
-                        settlementAmounts = settlementDeferred.await().mapValues { java.math.BigDecimal(it.value) },
+                        settlementAmounts = settlementDeferred.await(),
                         userNames = userDeferred.await()
                     )
                 }
@@ -150,7 +150,9 @@ class SyncIssuesViewModel @Inject constructor(
                         SyncEntityType.GROUP -> batch.groupNames[op.entityId]?.let { DisplayName.Text(it) }
                             ?: DisplayName.Resource(R.string.deleted_group)
                         SyncEntityType.SETTLEMENT -> batch.settlementAmounts[op.entityId]?.let { 
-                            DisplayName.Text("Settlement (₹$it)") 
+                            val amount = java.math.BigDecimal(it.value)
+                            val formatted = com.splitease.ui.common.Formatters.formatMoney(amount, it.currency)
+                            DisplayName.Resource(R.string.settlement_label, formatted) 
                         } ?: DisplayName.Resource(R.string.deleted_settlement)
                         SyncEntityType.USER -> batch.userNames[op.entityId]?.let { DisplayName.Text("User: $it") }
                             ?: DisplayName.Resource(R.string.deleted_user)

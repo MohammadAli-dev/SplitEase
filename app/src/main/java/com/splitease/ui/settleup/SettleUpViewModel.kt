@@ -49,7 +49,8 @@ class SettleUpViewModel @Inject constructor(
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val settlementRepository: SettlementRepository,
     private val userDao: UserDao,
-    private val userContext: UserContext
+    private val userContext: UserContext,
+    private val friendTransactionsRepository: com.splitease.data.repository.FriendTransactionsRepository
 ) : ViewModel() {
 
     private val friendId: String = checkNotNull(savedStateHandle["friendId"])
@@ -122,10 +123,17 @@ class SettleUpViewModel @Inject constructor(
                      return@launch
                 }
                 
+                // FAIL-CLOSED: Check balance/history for currency context
+                // We fetch the most recent transaction to determine currency.
+                val transactions = friendTransactionsRepository.getTransactionsForFriend(friendId).first()
+                val contextCurrency = transactions.firstOrNull()?.currency
+                
+                if (contextCurrency == null) {
+                    _uiState.update { it.copy(isLoading = false, errorMessage = "Cannot settle: No transaction history to determine currency.") }
+                    return@launch
+                }
+                
                 // Determine direction
-                // If balance is positive (> 0), Friend owes Me. Friend pays Me.
-                // If balance is negative (< 0), I owe Friend. I pay Friend.
-                // If balance is zero, there's nothing to settle.
                 when {
                     balance.signum() == 0 -> {
                         // Zero balance - nothing to settle
@@ -138,7 +146,7 @@ class SettleUpViewModel @Inject constructor(
                             fromUserId = currentUserId,
                             toUserId = friendId,
                             amount = amount,
-                            currency = "INR" // TODO: Derive from group context when multi-currency is implemented
+                            currency = contextCurrency
                         )
                     }
                     else -> {
@@ -147,7 +155,7 @@ class SettleUpViewModel @Inject constructor(
                             fromUserId = friendId,
                             toUserId = currentUserId,
                             amount = amount,
-                            currency = "INR" // TODO: Derive from group context when multi-currency is implemented
+                            currency = contextCurrency
                         )
                     }
                 }

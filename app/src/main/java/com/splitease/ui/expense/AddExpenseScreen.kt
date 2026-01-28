@@ -231,7 +231,7 @@ fun AddExpenseScreen(
             OutlinedTextField(
                     value = uiState.amountText,
                     onValueChange = { viewModel.updateAmount(it) },
-                    label = { Text("Amount (₹)") },
+                    label = { Text("Amount") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { 
                         // Optional: Hide keyboard or move focus 
