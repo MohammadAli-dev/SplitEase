@@ -116,20 +116,10 @@ class OfflineDataSurvivalTest {
         val orphanedRefs = identityAuditDao.countAllUserReferences(phantomId)
         assertEquals("Phantom ID must have zero references", 0, orphanedRefs)
         
-        // D. Phantom User Row should be gone (Deleted by merge transaction logic is implicit in mergePhantomToReal if implemented? 
-        // mergePhantomToReal usually deletes the phantom user. Let's verify.)
-        // Note: UserDao only returns Flow for getUser. Need a suspend variant or use first().
-        // Actually I can just check existence.
-        val phantomUserExists = userDao.getUserCount(phantomId) // Wait, do I have getUserCount?
-        // I will trust the audit count (group_members and others) and assume user row is handled.
+        // D. Phantom User Row should be gone (Deleted by merge transaction logic)
+        val phantomCount = userDao.getUserCount(phantomId)
+        assertEquals("Phantom user row must be deleted", 0, phantomCount)
     }
 }
 
-// Extension to help testing if needed, or just rely on existing DAO methods.
-private suspend fun UserDao.getUserCount(userId: String): Int {
-    // This is not real, I can't extend interface within test easily to call SQL.
-    // I'll skip explicit user row check if not exposed, relying on audit.
-    // Actually the audit query doesn't check 'users' table content, only references TO it.
-    // But mergePhantomToReal method in AppDatabase explicitly deletes the user at step 5.
-    return 0
-}
+

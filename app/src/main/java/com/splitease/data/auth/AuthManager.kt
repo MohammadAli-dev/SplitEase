@@ -473,18 +473,18 @@ class AuthManagerImpl @Inject constructor(
         Log.d(TAG, "handleSuccessfulAuth check: userId=$cloudUserId, access=${accessToken?.take(5)}..., refresh=${refreshToken?.take(5)}..., expires=$expiresIn")
 
         if (!accessToken.isNullOrBlank() && !refreshToken.isNullOrBlank() && expiresIn != null && cloudUserId != null) {
-            // Full session available -> Authenticate
-            tokenManager.saveTokens(
-                accessToken = accessToken,
-                refreshToken = refreshToken,
-                expiresInSeconds = expiresIn
-            )
-            tokenManager.saveCloudUserId(cloudUserId)
-            
-            // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
-            // P0 FIX: Safe Identity Consolidation (Sprint 24)
-            // We must merge any existing phantom data BEFORE swapping the ID.
             try {
+                // Full session available -> Authenticate
+                tokenManager.saveTokens(
+                    accessToken = accessToken,
+                    refreshToken = refreshToken,
+                    expiresInSeconds = expiresIn
+                )
+                tokenManager.saveCloudUserId(cloudUserId)
+                
+                // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
+                // P0 FIX: Safe Identity Consolidation (Sprint 24)
+                // We must merge any existing phantom data BEFORE swapping the ID.
                 val currentLocalId = localUserManager.userId.first()
                 val canonicalId = identityRepository.consolidateIdentity(
                     localId = currentLocalId,
@@ -496,76 +496,71 @@ class AuthManagerImpl @Inject constructor(
                     )
                 )
                 localUserManager.setUserId(canonicalId)
-            } catch (e: com.splitease.data.identity.IdentityInvariantViolationException) {
-                Log.e(TAG, "CRITICAL: Auth aborted due to identity invariant violation", e)
-                tokenManager.clearTokens() // Hard logout
-                _authState.value = AuthState.Unauthenticated // Or a specific Failed state if available, falling back to Unauth with error
-                // Force error emission
-                _authError.tryEmit("Critical Error: Account security check failed. Please contact support.")
-                return false
-            }
-            
-            // Populate userProfile from auth response
-            val name = authResponse.user?.userMetadata?.name 
-                ?: authResponse.user?.userMetadata?.fullName
-            val email = authResponse.user?.email
-            
-            val profile = UserProfile(
-                cloudUserId = cloudUserId,
-                name = name,
-                email = email
-            )
-            
-            _userProfile.value = profile
-            tokenManager.saveUserProfile(profile)
-            
-            // CRITICAL: Bootstrap local identity before emitting Authenticated state
-            // Model A: Auth-Coupled Identity Bootstrap
-            try {
+                
+                // Populate userProfile from auth response
+                val name = authResponse.user?.userMetadata?.name 
+                    ?: authResponse.user?.userMetadata?.fullName
+                val email = authResponse.user?.email
+                
+                val profile = UserProfile(
+                    cloudUserId = cloudUserId,
+                    name = name,
+                    email = email
+                )
+                
+                _userProfile.value = profile
+                tokenManager.saveUserProfile(profile)
+                
+                // CRITICAL: Bootstrap local identity before emitting Authenticated state
+                // Model A: Auth-Coupled Identity Bootstrap
                 val bootstrapped = identityBootstrapper.ensureLocalUserRegistered()
                 if (!bootstrapped) {
                     Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap failed (no local ID)")
-                    logoutMutex.withLock {
-                        performHardTeardown()
-                    }
+                    // Bootstrap failure - revert login
+                    tokenManager.clearTokens()
                     _authError.tryEmit("Failed to initialize account identity")
                     return false
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap exception", e)
-                logoutMutex.withLock {
-                    performHardTeardown()
+                
+                // SPRINT 23: Initial Hydration (Authoritative Rebuild from Server)
+                // Hydration runs AFTER identity bootstrap and BEFORE Authenticated emission.
+                val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
+                when (hydrationResult) {
+                    is com.splitease.data.hydration.HydrationResult.Success -> {
+                        Log.d(TAG, "handleSuccessfulAuth: Hydration completed successfully")
+                    }
+                    is com.splitease.data.hydration.HydrationResult.Aborted -> {
+                        // Aborted is acceptable (e.g., DB not empty, already replica)
+                        Log.d(TAG, "handleSuccessfulAuth: Hydration aborted - ${hydrationResult.reason}")
+                    }
+                    is com.splitease.data.hydration.HydrationResult.Failed -> {
+                        // FAILURE = ABORT LOGIN (Sprint 23 contract refined: Safer teardown)
+                        Log.e(TAG, "handleSuccessfulAuth: Hydration FAILED - aborting login", hydrationResult.error)
+                        tokenManager.clearTokens()
+                        _authError.tryEmit("Account setup failed. Please log in again.")
+                        return false
+                    }
                 }
-                _authError.tryEmit("Failed to initialize account: ${e.message}")
+                
+                _authState.value = AuthState.Authenticated(cloudUserId)
+                enqueueIdentityLinkingIfNeeded()
+                return true
+
+            } catch (e: com.splitease.data.identity.IdentityInvariantViolationException) {
+                // Specific P0 Handler: Abort WITHOUT wiping DB (preserve offline data)
+                Log.e(TAG, "CRITICAL: Auth aborted due to identity invariant violation", e)
+                tokenManager.clearTokens() 
+                _authState.value = AuthState.Unauthenticated 
+                _authError.tryEmit("Critical Error: Account security check failed. Please contact support.")
+                return false
+            } catch (e: Exception) {
+                // Generic Safety Net: prevent "stuck token" state
+                Log.e(TAG, "handleSuccessfulAuth: Unexpected exception during login sequence", e)
+                tokenManager.clearTokens()
+                _authState.value = AuthState.Unauthenticated
+                _authError.tryEmit("Login failed: ${e.message}")
                 return false
             }
-            
-            // SPRINT 23: Initial Hydration (Authoritative Rebuild from Server)
-            // Hydration runs AFTER identity bootstrap and BEFORE Authenticated emission.
-            // If it fails, we perform a Hard Logout to prevent corrupt session.
-            val hydrationResult = hydrationCoordinatorLazy.get().hydrate()
-            when (hydrationResult) {
-                is com.splitease.data.hydration.HydrationResult.Success -> {
-                    Log.d(TAG, "handleSuccessfulAuth: Hydration completed successfully")
-                }
-                is com.splitease.data.hydration.HydrationResult.Aborted -> {
-                    // Aborted is acceptable (e.g., DB not empty, already replica)
-                    Log.d(TAG, "handleSuccessfulAuth: Hydration aborted - ${hydrationResult.reason}")
-                }
-                is com.splitease.data.hydration.HydrationResult.Failed -> {
-                    // FAILURE = HARD LOGOUT (per Sprint 23 contract)
-                    Log.e(TAG, "handleSuccessfulAuth: Hydration FAILED - forcing hard teardown", hydrationResult.error)
-                    logoutMutex.withLock {
-                        performHardTeardown()
-                    }
-                    _authError.tryEmit("Account setup failed. Please log in again.")
-                    return false
-                }
-            }
-            
-            _authState.value = AuthState.Authenticated(cloudUserId)
-            enqueueIdentityLinkingIfNeeded()
-            return true
         } else if (cloudUserId != null && accessToken.isNullOrBlank()) {
             // User created/exists but no session -> Likely pending email verification
             _authState.value = AuthState.Unauthenticated
