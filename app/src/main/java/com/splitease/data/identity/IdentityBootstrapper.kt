@@ -30,7 +30,6 @@ class IdentityBootstrapper @Inject constructor(
         }
         
         try {
-            // 1. Idempotent User Bootstrap
             userDao.insertUser(
                 User(
                     id = userId,
@@ -41,9 +40,8 @@ class IdentityBootstrapper @Inject constructor(
             )
             Log.d("IdentityBootstrapper", "Bootstrapped local user identity: $userId")
 
-            // 2. Idempotent Personal Group Bootstrap
-            // Required for hydration: expenses referencing non-group container need this row to exist
-            // to pass the dependency check in ReplayEngine.
+            // Personal Group is required for hydration: expenses referencing non-group container 
+            // need this row to exist to pass the dependency check in ReplayEngine.
             groupDao.insertGroup(
                 com.splitease.data.local.entities.Group(
                     id = com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID,

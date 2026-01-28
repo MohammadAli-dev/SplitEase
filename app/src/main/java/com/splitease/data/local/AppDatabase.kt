@@ -510,13 +510,21 @@ abstract fun connectionStateDao(): ConnectionStateDao
     }
 
     /**
-     * Atomic Merge and Verify Transaction.
-     *
-     * 1. Performs the standard phantom -> real merge.
-     * 2. Audit: Verifies absolutely zero references remain for the phantom ID.
-     * 3. Throw: If references remain, aborts the entire transaction (Rollback).
+     * ## Identity Consolidation (P0 Transaction Boundary)
+     * 
+     * This is the authoritative entry point for merging a phantom local identity 
+     * into a canonical cloud identity.
+     * 
+     * ### Atomic Sequence:
+     * 1. **Reassignment**: Updates all FK references from `phantomUserId` to `realUserId` 
+     *    across all business tables (Expenses, Settlements, Groups).
+     * 2. **Audit Verification**: Queries the `IdentityAuditDao` to ensure **absolutely zero** 
+     *    orphaned references remain for the phantom ID.
+     * 3. **Rollback Safety**: If any reference is found, this method throws [IdentityInvariantViolationException], 
+     *    triggering a full Room transaction rollback to prevent data corruption.
      *
      * @throws com.splitease.data.identity.IdentityInvariantViolationException if verification fails.
+     * @see mergePhantomToReal For the low-level SQL execution.
      */
     @androidx.room.Transaction
     open suspend fun mergeAndVerify(

@@ -521,7 +521,6 @@ class AuthManagerImpl @Inject constructor(
                 val bootstrapped = identityBootstrapper.ensureLocalUserRegistered()
                 if (!bootstrapped) {
                     Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap failed (no local ID)")
-                    // Bootstrap failure - revert login
                     tokenManager.clearTokens()
                     _authState.value = AuthState.Unauthenticated
                     _authError.tryEmit("Failed to initialize account identity")
@@ -554,14 +553,23 @@ class AuthManagerImpl @Inject constructor(
                 return true
 
             } catch (e: com.splitease.data.identity.IdentityInvariantViolationException) {
-                // Specific P0 Handler: Abort WITHOUT wiping DB (preserve offline data)
+                // TERMINAL AUTH FAILURE (Safety Rule 1):
+                // If the identity consolidation fails verification (e.g. orphaned references found),
+                // we ABORT the login and REVOKE the session tokens.
+                //
+                // P0 DATA CONSERVATION: We do NOT call performHardTeardown() here. 
+                // We must preserve the local database so the user can continue working offline 
+                // or contact support to resolve the conflict without losing their phantom data.
                 Log.e(TAG, "CRITICAL: Auth aborted due to identity invariant violation", e)
                 tokenManager.clearTokens() 
                 _authState.value = AuthState.Unauthenticated 
                 _authError.tryEmit("Critical Error: Account security check failed. Please contact support.")
                 return false
             } catch (e: Exception) {
-                // Generic Safety Net: prevent "stuck token" state
+                // GENERIC SAFETY NET (Safety Rule 2):
+                // If ANY unexpected failure occurs after tokens are saved (DB error, Logic crash), 
+                // we immediately revoke the session to avoid "Stuck Persistence" where the app 
+                // thinks it's logged in but local state is partially initialized.
                 Log.e(TAG, "handleSuccessfulAuth: Unexpected exception during login sequence", e)
                 tokenManager.clearTokens()
                 _authState.value = AuthState.Unauthenticated
@@ -652,9 +660,16 @@ class AuthManagerImpl @Inject constructor(
     }
 
     /**
-     * Signs the current user out by clearing stored authentication tokens, resetting identity-linking state, and setting the authentication state to unauthenticated.
-     *
-     * Local application data is preserved; only authentication-related state and identity-linking status are cleared.
+     * Signs the current user out.
+     * 
+     * ## Destructive Tear-Down (Contract)
+     * This is a **HARD RESET**. Unlike failed login attempts, an explicit logout 
+     * performs a complete destructive cleanup:
+     * 1. Revokes session tokens.
+     * 2. Wipes the local database (`clearAllTables`).
+     * 3. Clears local user/identity preferences.
+     * 
+     * This ensures the device returns to a pristine state for the next user.
      */
     override suspend fun logout() {
         // Gap 4 (Final): Wrap entire logout in mutex and NonCancellable scope
@@ -670,7 +685,8 @@ class AuthManagerImpl @Inject constructor(
      */
     private suspend fun performHardTeardown() {
         withContext(Dispatchers.IO + NonCancellable) {
-            // Invariant: Logout teardown must be non-cancellable to avoid partial identity destruction.
+            // INVARIANT: Logout teardown is NON-CANCELLABLE.
+            // Partial teardown results in "Zombie Identities" (DB remaining but tokens gone).
             Log.d(TAG, "performHardTeardown: starting hard teardown")
 
             // 1. Signal State (Gap 10)

@@ -24,12 +24,54 @@ import javax.inject.Singleton
 
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Authority for Expense objects.
+ * 
+ * ## Effective State Derivation (P0 Guarantee)
+ * Because SplitEase uses a Ledger-first architecture, the "Effective State" of an expense
+ * is NOT merely what is in the `expenses` table. It is dynamically derived:
+ * 1. **Ledger-Authored**: Local table state is a cache of the Ledger.
+ * 2. **Zombie Prevention**: Expenses flagged by `ConflictType.POST_DELETE_MUTATION` 
+ *    are hidden (derived as null/empty) unless a successful resolution exists.
+ * 3. **Conflict Awareness**: The repository merges raw entity state with ongoing 
+ *    conflicts and resolutions to present a "Correct" view to the UI.
+ * 
+ * All mutations (add/update/delete) are guarded by `LedgerWriteGate` and 
+ * `DeviceRoleManager` to ensure logical consistency.
+ */
 interface ExpenseRepository {
+    /**
+     * Adds a new expense with associated splits.
+     * Atomically commits Entity + SyncOp + LedgerOp.
+     */
     suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>)
+    
+    /**
+     * Updates an existing expense and its splits.
+     * Performs a full replacement of splits within the transaction.
+     */
     suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>)
+    
+    /**
+     * Marks an expense as deleted.
+     * This is an intentional "Delete Intent" that will be propagated via the Ledger.
+     */
     suspend fun deleteExpense(expenseId: String)
+    
+    /**
+     * Observes a single expense, applying Effective State derivation.
+     */
     fun getExpense(expenseId: String): Flow<Expense?>
+    
+    /**
+     * Observes splits for a specific expense.
+     */
     fun getSplits(expenseId: String): Flow<List<ExpenseSplit>>
+    
+    /**
+     * Observes all visible expenses, filtering out unresolved zombies.
+     * Use this for primary Dashboard and History views.
+     */
     fun getAllEffectiveExpenses(): Flow<List<Expense>>
 }
 

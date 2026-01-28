@@ -32,13 +32,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Handles pull-based sync: fetching remote data and reconciling it into local database.
+ * **LEGACY / DEPRECATED**
  *
- * Key Architectural Decisions:
- * - Stable UUIDs: Local ID == Remote ID (no mapping tables)
- * - Conflict Resolution: Timestamp-based, unsynced-aware (NOT naive LWW)
- * - Server Authority: updated_at timestamps are server-generated
- * - Global Cursor: Single lastSyncedAt cursor (max of remote timestamps)
+ * This service handles pull-based entity reconciliation which was the primary sync 
+ * mechanism prior to the Ledger-First architecture (Sprint 22).
+ *
+ * ## Current Status: NO-OP
+ * All implementations of this interface are now NO-OPs. Do NOT use this for 
+ * production sync operations. 
+ * 
+ * ### Modern Alternative:
+ * Use `ReplayEngine` and `LedgerPullService` to fetch and apply operations 
+ * from the global ledger.
  */
 interface PullSyncService {
     /**

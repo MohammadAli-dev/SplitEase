@@ -14,16 +14,9 @@ import javax.inject.Singleton
  * Persistent state store for tracking whether the current authenticated cloud user
  * has been linked to the local user identity.
  *
- * NOTE:
+ * ## Context
  * This store tracks linking state only for the *currently authenticated user*.
  * State is reset on logout to avoid cross-user contamination.
- * It is intentionally NOT keyed by cloudUserId in Sprint 13B.
- *
- * TODO (Sprint 13C+): Consider adding linkedCloudUserId: String? to track which
- * cloud user was linked. This enables validation that the current authenticated
- * user matches the linked user, and supports future multi-account scenarios.
- *
- * Future sprints may introduce per-cloudUserId keying if multi-account support is added.
  */
 interface IdentityLinkStateStore {
     /**
