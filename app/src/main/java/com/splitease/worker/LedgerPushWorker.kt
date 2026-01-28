@@ -108,8 +108,8 @@ class LedgerPushWorker @AssistedInject constructor(
 
                 if (unsafeOps.isNotEmpty()) {
                     Log.e(TAG, "SECURITY ALERT: Found ${unsafeOps.size} operations belonging to different local user " +
-                          "(first mismatch: ${unsafeOps.first().authorLocalUserId}). " +
-                          "These will be SKIPPED. Current local user: $currentLocalUserId")
+                          "(first mismatch: <redacted>). " +
+                          "These will be SKIPPED. Current local user: <redacted>")
                     
                     // If ALL ops are unsafe, we must abort to avoid infinite loop (since we can't advance clock).
                     if (safeOps.isEmpty()) {
