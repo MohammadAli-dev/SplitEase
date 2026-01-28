@@ -74,6 +74,7 @@ fun SignupScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var isPasswordVisible by remember { mutableStateOf(false) }
+    var isConfirmPasswordVisible by remember { mutableStateOf(false) }
 
     val name by viewModel.name.collectAsState()
     val email by viewModel.email.collectAsState()
@@ -221,7 +222,7 @@ fun SignupScreen(
                 value = confirmPassword,
                 onValueChange = viewModel::onConfirmPasswordChange,
                 label = { Text("Confirm Password") },
-                visualTransformation = if (isPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+                visualTransformation = if (isConfirmPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
                     imeAction = androidx.compose.ui.text.input.ImeAction.Done
@@ -231,6 +232,15 @@ fun SignupScreen(
                         if (isSignupValid && !isLoading) viewModel.signup() 
                     }
                 ),
+                trailingIcon = {
+                    val image = if (isConfirmPasswordVisible)
+                        androidx.compose.material.icons.Icons.Filled.Visibility
+                    else androidx.compose.material.icons.Icons.Filled.VisibilityOff
+
+                    androidx.compose.material3.IconButton(onClick = { isConfirmPasswordVisible = !isConfirmPasswordVisible }) {
+                        androidx.compose.material3.Icon(imageVector = image, contentDescription = if (isConfirmPasswordVisible) "Hide password" else "Show password")
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isLoading
             )
