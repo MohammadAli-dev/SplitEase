@@ -5,8 +5,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,25 +38,28 @@ fun SyncStatusIcon(
     when (syncState) {
         SyncState.FAILED -> SyncIndicator(
             icon = Icons.Default.Warning,
-            contentDescription = stringResource(R.string.sync_state_failed),
+            contentDescription = "Sync failed - tap to fix",
             tint = MaterialTheme.colorScheme.error,
             badgeText = if (failedCount > 0) "$failedCount" else null,
             onClick = onNavigateToSyncIssues
         )
         SyncState.PAUSED -> SyncIndicator(
-            icon = Icons.Default.Warning, // Using Warning for PAUSED (💤 semantics)
-            contentDescription = stringResource(R.string.sync_state_paused),
-            tint = MaterialTheme.colorScheme.tertiary,
-            badgeText = if (pendingCount > 0) "$pendingCount" else null,
+            icon = Icons.Default.CloudOff,
+            contentDescription = "Offline - changes saved locally",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant, // Neutral color
+            badgeText = if (pendingCount > 0) "• Saved" else null,
             onClick = onNavigateToSyncIssues
         )
-        SyncState.SYNCING -> SyncIndicator(
-            icon = Icons.Default.Warning, // Could use Sync icon if available
-            contentDescription = stringResource(R.string.sync_state_syncing),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            badgeText = if (pendingCount > 0) "$pendingCount" else null,
-            onClick = onNavigateToSyncIssues
-        )
+        SyncState.SYNCING -> Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(12.dp)
+        ) {
+             CircularProgressIndicator(
+                 modifier = Modifier.size(16.dp),
+                 strokeWidth = 2.dp,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant
+             )
+        }
         SyncState.IDLE -> {
             // No indicator shown
         }

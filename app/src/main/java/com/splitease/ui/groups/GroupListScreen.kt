@@ -72,6 +72,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import com.splitease.ui.common.SyncStatusIcon
+import com.splitease.ui.common.EmptyState
 
 @HiltViewModel
 class GroupListViewModel @Inject constructor(
@@ -253,30 +254,13 @@ fun GroupListScreen(
                 )
 
                 if (groups.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(64.dp)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "No groups yet",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "Create a group to start splitting!",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Info, // Or a dedicated "Groups" icon if available like Group/People
+                        title = "No groups yet",
+                        message = "Create a group to start splitting expenses with friends!",
+                        actionLabel = "Create Group",
+                        onActionClick = onNavigateToCreateGroup
+                    )
                 } else {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
