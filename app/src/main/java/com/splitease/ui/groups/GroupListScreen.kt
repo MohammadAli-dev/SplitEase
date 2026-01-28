@@ -87,7 +87,9 @@ class GroupListViewModel @Inject constructor(
             initialValue = SyncHealth(0, 0, null)
         )
 
-    // Derive SyncState from SyncHealth (FAILED > PAUSED > SYNCING > IDLE)
+    private val _isRefreshing = MutableStateFlow(false)
+
+    // Derived SyncState from SyncHealth (FAILED > PAUSED > SYNCING > IDLE)
     val syncState: StateFlow<SyncState> = syncHealth
         .map { health -> deriveSyncState(health) }
         .distinctUntilChanged()
@@ -128,11 +130,12 @@ class GroupListViewModel @Inject constructor(
     val uiState: StateFlow<GroupListUiState> = combine(
         groupDao.getAllGroups(),
         syncHealth,
-        syncRepository.observeManualSyncWork()
-    ) { groups, health, isWorkRunning ->
+        syncRepository.observeManualSyncWork(),
+        _isRefreshing
+    ) { groups, health, isWorkFinished, isRefreshing ->
         val derivedSyncState = deriveSyncState(health)
-        // If work manager says work is running, override IDLE state to SYNCING for UI
-        val finalSyncState = if (derivedSyncState == SyncState.IDLE && !isWorkRunning) {
+        // If work manager says work is running (not finished), override IDLE state to SYNCING for UI
+        val finalSyncState = if (derivedSyncState == SyncState.IDLE && !isWorkFinished) {
              SyncState.SYNCING 
         } else {
              derivedSyncState
@@ -144,8 +147,8 @@ class GroupListViewModel @Inject constructor(
             pendingSyncCount = health.pendingCount,
             syncState = finalSyncState,
             // Expose explicit running flag for pull-to-refresh
-            isManualSyncRunning = !isWorkRunning,
-            isRefreshing = _isRefreshing.value
+            isManualSyncRunning = !isWorkFinished,
+            isRefreshing = isRefreshing
         )
     }.stateIn(
         scope = viewModelScope,
@@ -153,7 +156,7 @@ class GroupListViewModel @Inject constructor(
         initialValue = GroupListUiState()
     )
 
-    private val _isRefreshing = MutableStateFlow(false)
+
 
     fun refresh() {
         if (_isRefreshing.value) return
@@ -189,8 +192,6 @@ fun GroupListScreen(
     val scope = rememberCoroutineScope()
     val syncStartedMessage = stringResource(R.string.sync_started)
     var showMenu by remember { mutableStateOf(false) }
-
-    val isSyncing = uiState.syncState == SyncState.SYNCING || uiState.isManualSyncRunning
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },

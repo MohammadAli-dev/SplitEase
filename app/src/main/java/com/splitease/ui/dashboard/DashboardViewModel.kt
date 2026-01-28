@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import javax.inject.Inject
@@ -63,7 +64,7 @@ class DashboardViewModel @Inject constructor(
         if (_uiState.value.isRefreshing) return
         
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isRefreshing = true)
+            _uiState.update { it.copy(isRefreshing = true) }
             
             // Trigger the sync work (fire-and-forget)
             syncRepository.triggerManualSync()
@@ -71,7 +72,7 @@ class DashboardViewModel @Inject constructor(
             // Artificial delay for UI acknowledgement
             kotlinx.coroutines.delay(SyncConstants.REFRESH_ACK_UI_DELAY_MS)
             
-            _uiState.value = _uiState.value.copy(isRefreshing = false)
+            _uiState.update { it.copy(isRefreshing = false) }
         }
     }
 
@@ -104,8 +105,13 @@ class DashboardViewModel @Inject constructor(
                 balanceSummaryRepository.getDashboardSummary(),
                 groupDao.getAllGroups(),
                 userRepository.getAllUsers(),
-                userContext.userId
-            ) { summary, groups, allUsers, currentUserId ->
+                userContext.userId,
+                // Include _uiState flow to reactively update on refresh/sync state changes
+                _uiState
+            ) { summary, groups, allUsers, currentUserId, currentUiState ->
+                // Extract transient state from current flow emission
+                val isSyncing = currentUiState.isSyncing
+                val isRefreshing = currentUiState.isRefreshing
                 // Explicitly sort users by name for consistent UI display (Repository contract)
                 val sortedUsers = allUsers.sortedBy { it.name }
                 
@@ -138,11 +144,16 @@ class DashboardViewModel @Inject constructor(
                     ledgerBalances = ledgerBalancesUi,
                     knownUserCount = knownUserCount,
                     isLoading = false,
-                    isSyncing = _uiState.value.isSyncing,
-                    isRefreshing = _uiState.value.isRefreshing
+                    isSyncing = isSyncing,
+                    isRefreshing = isRefreshing
                 )
             }.collectLatest { state ->
-                _uiState.value = state
+                // Atomic update to preserve transient flags if they were modified concurrently
+                _uiState.update { currentState ->
+                    // Fusion: Take data from stream, but respect any newer transient flags if needed
+                    // In this case, 'state' already includes the latest transient flags because we included _uiState in combine
+                    state
+                }
             }
         }
     }

@@ -665,17 +665,24 @@ class AuthManagerImpl @Inject constructor(
 
                 // 3. Clear DB (Gap 8) - Best Effort
                 Log.d(TAG, "logout: clearing database")
+                var dbCleanupErrorMsg: String? = null
                 try {
                     appDatabase.clearAllTables()
                 } catch (e: Exception) {
                     Log.e(TAG, "logout: Failed to clear database (proceeding to clear identity)", e)
                     // Non-fatal for session termination: Surface high-priority warning, but MUST continue to revoke credentials.
-                    _authError.tryEmit("Database cleanup failed. Some local data might remain. Tokens were still revoked.")
+                    dbCleanupErrorMsg = "Database cleanup failed. Some local data might remain. Tokens were still revoked."
                 }
 
                 // 4. Clear Identity (gap 13, gap 4)
                 Log.d(TAG, "logout: clearing identity state")
                 tokenManager.clearTokens() // Clears cloud identity
+
+                // Emit postponed error now that tokens are actually revoked
+                if (dbCleanupErrorMsg != null) {
+                    _authError.tryEmit(dbCleanupErrorMsg)
+                }
+
                 localUserManager.clearIdentity() // Clears phantom ID (generates new one next time)
                 identityLinkStateStore.reset() // Clears link state
                 // Sprint 23: Reset Device Role to avoid zombie PROMOTED state on next login

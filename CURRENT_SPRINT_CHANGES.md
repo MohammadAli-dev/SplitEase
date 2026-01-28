@@ -449,3 +449,30 @@ This sprint addresses all issues raised during the CodeRabbit architectural audi
 ## Verification Results
 - **Build**: Successfully passed `assembleDebug`.
 - **Tests**: All unit tests passed, including the new hydration promotion test.
+
+---
+
+# Sprint 23.2: CodeRabbit Stability & Audit Fixes
+
+## Overview
+This sprint addresses 8 specific issues flagged by CodeRabbit, focusing on race conditions in UI state, error message factuality in Auth, and logic corrections in Sync and Identity management. These fixes ensure the application is robust against edge cases like rapid refresh toggling, zombie identity states, and correct user profile syncing.
+
+## Key Changes
+
+### 1. Concurrency & Race Conditions
+- **DashboardViewModel**: Fixed a race condition where the "Refreshing" spinner could disappear prematurely due to non-atomic state updates. Implemented `_uiState.update {}` for atomic mutations and added `_isRefreshing` to the `combine` logic to ensuring reactive UI updates.
+- **GroupDetailViewModel**: Wrapped the manual refresh logic in a `try/finally` block to guarantee the loading indicator is reset even if the sync operation throws an exception.
+- **GroupListScreen**: Fixed a similar reactivity bug by adding `_isRefreshing` to the state combination logic, ensuring the pull-to-refresh indicator behaves correctly.
+
+### 2. Identity & Auth Integrity
+- **AuthManager**: Corrected a misleading error message ("Tokens were revoken") that was emitted *before* the tokens were actually cleared. The error is now emitted strictly after the `clearTokens()` call.
+- **LocalUserManager**: Fixed a potential "infinite no-ID" loop by ensuring the `isClearingIdentity` guard is reset in a `finally` block, preventing the app from getting stuck in a state where it refuses to generate a guest ID.
+
+### 3. Sync Logic Correctness
+- **SyncRepository**: Fixed a bug where `SyncEntityType.USER` returned `0L` as its local timestamp, causing legitimate remote updates (timestamp > 0) to be rejected as "stale". It now returns `null`, correctly treating local state as having "no timestamp" to allow remote overwrites.
+- **GroupListScreen**: Renamed the confusingly inverted variable `isWorkRunning` to `isWorkFinished`, clarifying the logic `!isWorkFinished` -> "Syncing".
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation.
+- **Tests**: `PushSyncHardeningTest` and `HydrationCoordinatorTest` passed.
+- **Manual Verification**: Validated logout flow, refresh spinner behavior, and pull-to-refresh reactivity.

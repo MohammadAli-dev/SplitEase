@@ -99,6 +99,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Supabase Mirror (Pull)** | ✅ Complete | Incremental pull and deterministic replay of remote ledger operations |
 | **Dumb Courier Architecture** | ✅ Complete | Supabase serves as durable exchange layer; local app maintains logic/authority |
 | **Audit & Hardening** | ✅ Complete | **Sprint 23.1**: Verified concurrency safety, correct attribution, and role semantics via CodeRabbit audit. |
+| **CodeRabbit Fixes** | ✅ Complete | **Sprint 23.2**: Fixed race conditions, auth errors, and sync logic bugs. |
 
 
 ### 🎯 Sync Status Indicators

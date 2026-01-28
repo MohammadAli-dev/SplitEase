@@ -303,10 +303,13 @@ class GroupDetailViewModel @Inject constructor(
     fun refresh() {
         if (_isRefreshing.value) return
         viewModelScope.launch {
-            _isRefreshing.value = true
-            syncRepository.triggerManualSync()
-            kotlinx.coroutines.delay(SyncConstants.REFRESH_ACK_UI_DELAY_MS)
-            _isRefreshing.value = false
+            try {
+                _isRefreshing.value = true
+                syncRepository.triggerManualSync()
+                kotlinx.coroutines.delay(SyncConstants.REFRESH_ACK_UI_DELAY_MS)
+            } finally {
+                _isRefreshing.value = false
+            }
         }
     }
 

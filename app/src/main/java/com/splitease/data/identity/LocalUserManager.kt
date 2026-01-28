@@ -81,8 +81,14 @@ class LocalUserManagerImpl @Inject constructor(
     override suspend fun clearIdentity() {
         // Set guard BEFORE editing DataStore
         isClearingIdentity.set(true)
-        context.dataStore.edit { preferences ->
-            preferences.remove(userIdKey)
+        try {
+            context.dataStore.edit { preferences ->
+                preferences.remove(userIdKey)
+            }
+        } finally {
+            // Ensure guard is reset even if DataStore edit fails
+            // This prevents "Infinite No ID" bug
+            isClearingIdentity.set(false)
         }
     }
 

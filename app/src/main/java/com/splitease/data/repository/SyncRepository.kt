@@ -395,7 +395,7 @@ class SyncRepositoryImpl @Inject constructor(
             SyncEntityType.EXPENSE -> expenseDao.getExpenseById(entityId)?.updatedAt
             SyncEntityType.GROUP -> groupDao.getGroupById(entityId)?.updatedAt
             SyncEntityType.SETTLEMENT -> settlementDao.getSettlementById(entityId)?.updatedAt
-            SyncEntityType.USER -> 0L // Users don't have updatedAt yet
+            SyncEntityType.USER -> null // Users don't have updatedAt locally, so treat as "no timestamp" to allow remote overwrite
         }
     }
 
