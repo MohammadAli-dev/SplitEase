@@ -662,16 +662,33 @@ class AuthManagerImpl @Inject constructor(
                 val timeout = 5000L
                 val start = System.currentTimeMillis()
                 while (System.currentTimeMillis() - start < timeout) {
-                    // Query ALL work in RUNNING or ENQUEUED state (not just IdentityLinkingWorker)
+                    val remainingMillis = java.lang.Math.max(0L, timeout - (System.currentTimeMillis() - start))
+                    if (remainingMillis == 0L) break
+
+                    // Query ALL work in RUNNING or ENQUEUED state
                     val query = androidx.work.WorkQuery.Builder
                         .fromStates(listOf(
                             androidx.work.WorkInfo.State.RUNNING,
                             androidx.work.WorkInfo.State.ENQUEUED
                         ))
                         .build()
-                    val allWorkInfos = WorkManager.getInstance(context).getWorkInfos(query).get()
                     
-                    if (allWorkInfos.isEmpty()) break
+                    try {
+                        // SPRINT 23 LIVENESS FIX: Use bounded wait to prevent loop hang
+                        val allWorkInfos = WorkManager.getInstance(context)
+                            .getWorkInfos(query)
+                            .get(remainingMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        
+                        if (allWorkInfos.isEmpty()) break
+                    } catch (e: java.util.concurrent.TimeoutException) {
+                        Log.w(TAG, "performHardTeardown: WorkManager query timed out")
+                        break // Time budget exhausted
+                    } catch (e: Exception) {
+                         // ExecutionException or InterruptedException
+                         Log.w(TAG, "performHardTeardown: WorkManager query failed", e)
+                         // Don't break immediately, might be transient, but don't hang
+                    }
+                    
                     delay(100)
                 }
             } catch (e: Exception) {
