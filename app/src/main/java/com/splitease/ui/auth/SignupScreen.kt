@@ -81,7 +81,6 @@ fun SignupScreen(
     val confirmPassword by viewModel.confirmPassword.collectAsState()
 
     // Derived UI states
-    // Derived UI states
     val isSignupValid by viewModel.isSignupValid.collectAsState()
     val passwordFeedback by viewModel.signupPasswordFeedback.collectAsState()
     val currency = "INR" // Default, not editable yet

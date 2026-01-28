@@ -86,40 +86,58 @@ class AuthViewModel @Inject constructor(
     fun onNameChange(newValue: String) { _name.value = newValue; clearError() }
     fun onConfirmPasswordChange(newValue: String) { _confirmPassword.value = newValue; clearError() }
 
-    // --- Validation Logic ---
+    // --- Validation Logic (Source of Truth) ---
     private val MIN_PASSWORD_LENGTH = 6
 
+    private fun computeLoginPasswordFeedback(pass: String): String? {
+        return if (pass.length < MIN_PASSWORD_LENGTH && pass.isNotEmpty()) {
+            "Password must be at least $MIN_PASSWORD_LENGTH characters"
+        } else null
+    }
+
+    private fun computeSignupPasswordFeedback(pass: String, confirm: String): String? {
+        return if (pass.length < MIN_PASSWORD_LENGTH && pass.isNotEmpty()) {
+            "Password must be at least $MIN_PASSWORD_LENGTH characters"
+        } else if (pass != confirm && confirm.isNotEmpty()) {
+            "Passwords do not match"
+        } else null
+    }
+
+    private fun checkLoginValid(email: String, pass: String): Boolean {
+        return email.isNotBlank() && pass.length >= MIN_PASSWORD_LENGTH
+    }
+
+    private fun checkSignupValid(name: String, email: String, pass: String, confirm: String): Boolean {
+        return name.isNotBlank() && 
+               email.isNotBlank() && 
+               pass.length >= MIN_PASSWORD_LENGTH &&
+               pass == confirm
+    }
+
+    // --- Reactive Flows for UI ---
     val loginPasswordFeedback = combine(_password) { (pass) ->
-        if (pass.length < MIN_PASSWORD_LENGTH && pass.isNotEmpty()) 
-             "Password must be at least $MIN_PASSWORD_LENGTH characters" else null
+        computeLoginPasswordFeedback(pass)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val signupPasswordFeedback = combine(_password, _confirmPassword) { pass, confirm ->
-         if (pass.length < MIN_PASSWORD_LENGTH && pass.isNotEmpty()) {
-             "Password must be at least $MIN_PASSWORD_LENGTH characters"
-         } else if (pass != confirm && confirm.isNotEmpty()) {
-             "Passwords do not match"
-         } else {
-             null
-         }
+        computeSignupPasswordFeedback(pass, confirm)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val isLoginValid = combine(_email, _password) { email, pass ->
-        email.isNotBlank() && pass.length >= MIN_PASSWORD_LENGTH
+        checkLoginValid(email, pass)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val isSignupValid = combine(_name, _email, _password, _confirmPassword) { name, email, pass, confirm ->
-        name.isNotBlank() && 
-        email.isNotBlank() && 
-        pass.length >= MIN_PASSWORD_LENGTH &&
-        pass == confirm
+        checkSignupValid(name, email, pass, confirm)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // --- Command Handlers ---
     fun login() {
         val emailVal = _email.value
         val passVal = _password.value
         
-        if (!isLoginValid.value) {
+        // Imperative check uses latest source-of-truth values directly
+        if (!checkLoginValid(emailVal, passVal)) {
             _uiState.value = AuthUiState.Error("Please check your input")
             return
         }
@@ -137,8 +155,10 @@ class AuthViewModel @Inject constructor(
         val nameVal = _name.value
         val emailVal = _email.value
         val passVal = _password.value
+        val confirmVal = _confirmPassword.value
 
-        if (!isSignupValid.value) {
+        // Imperative check uses latest source-of-truth values directly
+        if (!checkSignupValid(nameVal, emailVal, passVal, confirmVal)) {
             _uiState.value = AuthUiState.Error("Please check your input")
             return
         }
