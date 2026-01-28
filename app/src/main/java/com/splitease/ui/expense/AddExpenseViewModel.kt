@@ -631,12 +631,11 @@ constructor(
                     allExpenses.find { it.groupId == groupId }?.currency
                 }
 
-                val finalCurrency = contextCurrency ?: run {
-                     _uiState.update { 
-                         it.copy(errorMessage = "Cannot determine currency. Add currency context via existing expenses or online group creation.", isLoading = false) 
-                     }
-                     return@launch
-                }
+                val finalCurrency = contextCurrency ?: "INR" // Fallback for Genesis (User Preference Default)
+                
+                // Note: In strict mode we previously blocked here.
+                // We now allow "INR" to bootstrap the group's currency.
+                // Future: Replace "INR" with Group.primaryCurrency from simple schema lookup.
 
                 val expense =
                         Expense(

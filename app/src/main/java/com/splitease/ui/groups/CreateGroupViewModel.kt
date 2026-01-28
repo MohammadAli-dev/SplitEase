@@ -50,6 +50,9 @@ class CreateGroupViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CreateGroupUiState())
     val uiState: StateFlow<CreateGroupUiState> = _uiState.asStateFlow()
 
+    // Reactive selection queue to auto-select users once they appear in the DB stream
+    private val pendingAutoSelectUserIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     init {
         loadUsers()
         addCurrentUserAsDefault()
@@ -59,7 +62,21 @@ class CreateGroupViewModel @Inject constructor(
         viewModelScope.launch {
             userDao.getAllUsers().collect { users ->
                 _uiState.update { state ->
-                    state.copy(availableUsers = users.sortedBy { it.name.ifBlank { it.id } })
+                    val newUsers = users.sortedBy { it.name.ifBlank { it.id } }
+                    
+                    // Reactive Selection: Check if any pending users are now available
+                    // Use intersect to find IDs that are both PENDING and AVAILABLE
+                    val availableIds = newUsers.map { it.id }.toSet()
+                    val idsToAutoSelect = synchronized(pendingAutoSelectUserIds) {
+                        val found = pendingAutoSelectUserIds.intersect(availableIds)
+                        pendingAutoSelectUserIds.removeAll(found)
+                        found
+                    }
+                    
+                    state.copy(
+                        availableUsers = newUsers,
+                        selectedMemberIds = state.selectedMemberIds + idsToAutoSelect // Set handles duplicates naturally
+                    )
                 }
             }
         }
@@ -170,10 +187,10 @@ class CreateGroupViewModel @Inject constructor(
     }
 
     /**
-     * Creates a phantom user, adds it optimistically to the available users, and selects it in the UI state.
+     * Creates a phantom user, writes to DB, and queues it for auto-selection.
      *
-     * If the created user's id is already selected, the UI state is left unchanged. Otherwise the new user is appended
-     * to availableUsers (sorted by name or id) and its id is added to selectedMemberIds to provide immediate UI feedback.
+     * DOES NOT manually mutate the UI list. The observer in loadUsers() will detect the
+     * new user and apply the selection via the pending queue (SSOT).
      *
      * @param name The display name for the phantom user.
      * @param email Optional email address for the phantom user.
@@ -183,22 +200,11 @@ class CreateGroupViewModel @Inject constructor(
         viewModelScope.launch {
             val userId = userRepository.createPhantomUser(name, email, phone)
             
-            // Reconstruct the user object locally for immediate feedback (optimistic)
-            val newUser = User(id = userId, name = name, email = email, phone = phone)
-
-            _uiState.update { state ->
-                // Guard: Avoid duplicates
-                if (userId in state.selectedMemberIds) return@update state
-
-                val updatedSelected = state.selectedMemberIds + userId
-                // Optimistic: Add to available users so chip renders immediately
-                val updatedAvailable = (state.availableUsers + newUser).sortedBy { it.name.ifBlank { it.id } }
-                
-                state.copy(
-                    selectedMemberIds = updatedSelected,
-                    availableUsers = updatedAvailable
-                )
-            }
+            // Queue for auto-selection when DB emits
+            pendingAutoSelectUserIds.add(userId)
+            
+            // Note: We deliberately do NOT update _uiState.availableUsers here.
+            // The DB observer will pick up the new user and apply the selection.
         }
     }
 }
