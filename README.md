@@ -105,6 +105,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Auth UX & Validation** | ✅ Complete | **Sprint 25A**: Password toggle, inline validation, and reactive state hoisting. |
 | **UX & Cosmetic Polish** | ✅ Complete | **Sprint 25B**: "Calm" offline states, standardized formatting, improved empty states, and Code Review hardening (A11y/Thread-Safety). |
 | **Currency Correctness** | ✅ Complete | **Sprint 26.1**: Strict ISO-4217 compliance. No hardcoded symbols in Domain/UI. |
+| **Fail-Closed Currency** | ✅ Complete | **Sprint 26.2**: Strict write-blocking for indeterministic currency (No "INR" invention). |
 
 
 ### 🎯 Sync Status Indicators

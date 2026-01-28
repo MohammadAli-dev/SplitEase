@@ -63,7 +63,7 @@ class PersonalLedgerViewModel @Inject constructor(
                 val friendBalance = dashboardSummary.friendBalances.find { it.friendId == friendId }
                 val balance = friendBalance?.balance ?: BigDecimal.ZERO
                 
-                val currency = "INR" // TEMPORARY assumption
+                val currency = ledgerItems.firstOrNull()?.currency ?: "INR"
                 val formattedBalance = com.splitease.ui.common.Formatters.formatMoney(balance.abs(), currency)
                 
                 val balanceText = when {

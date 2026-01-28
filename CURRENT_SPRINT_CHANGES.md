@@ -635,3 +635,25 @@ This stabilization sprint addresses 4 specific architectural issues flagged by C
 ## Verification Results
 - **Build**: Successfully passed `assembleDebug` (verified deprecation warning visibility).
 - **Manual Verification**: Confirmed that all transaction screens and sync issue dialogues correctly display currency symbols derived from the database state.
+
+---
+
+# Sprint 26.2: CodeRabbit Hardening (Fail-Closed Currency Threading)
+
+## Overview
+This stabilization sprint enforces a strict "Fail-Closed" architecture for currency operations. It removes all implicit defaults (such as assuming "INR" for new data) and blocks any write operation (Add Expense, Settle Up) if the currency context cannot be deterministically derived from the ledger history.
+
+## Key Changes
+
+### 1. Fail-Closed Write Paths
+- **Settlement Blocking**: `SettleUpViewModel` and `GroupDetailViewModel` now explicitly **BLOCK** settlement attempts if the group/friend has no transaction history.
+- **Genesis Block**: `AddExpenseViewModel` blocks the creation of the very first expense in a group if currency cannot be inherited (waiting for Sprint 28 explicit currency selection).
+- **Explicit Error Messages**: Replaced silent defaults with user-facing errors requesting currency context (e.g., "Cannot determine currency. Add an expense first.").
+
+### 2. Read-Only Derivation
+- **No Preference Injection**: Removed `UserPreferencesManager` from all ViewModels to prevent preference-based data corruption.
+- **Transaction-Based Display**: `FriendDetailViewModel` and `PersonalLedgerViewModel` now derive their display currency strictly from the transaction history (`FriendTransactionsRepository`).
+
+## Verification Results
+- **Build**: Successfully passed `assembleDebug`.
+- **Manual Verification**: Verified that creation of a genesis expense in a fresh group fails with the expected error, ensuring no invented "INR" data enters the ledger.

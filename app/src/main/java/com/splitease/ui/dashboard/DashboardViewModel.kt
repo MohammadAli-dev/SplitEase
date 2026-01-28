@@ -119,7 +119,9 @@ class DashboardViewModel @Inject constructor(
                 // Map ledger balances to UI model with resolved names
                 val ledgerBalancesUi = summary.friendBalances.map { fb ->
                     val name = userNameMap[fb.friendId] ?: fb.friendId.take(8)
-                    // TEMPORARY: Assume INR for personal ledger summaries until user preference is available
+                    // TEMPORARY: Assume INR for personal ledger summaries.
+                    // Strictly cosmetic placeholder for empty/mixed states.
+                    // TODO(Sprint 28): Plumb currency through BalanceSummaryRepository.
                     val currency = "INR"
                     val formattedBalance = com.splitease.ui.common.Formatters.formatMoney(fb.balance.abs(), currency)
                     

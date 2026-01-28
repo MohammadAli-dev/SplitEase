@@ -611,13 +611,40 @@ constructor(
 
                 val creatorId = state.createdByUserId ?: currentUserId
 
+                // FAIL-CLOSED: Inherit currency from Group History.
+                // 1. Attempt to find existing currency in this group.
+                // 2. If Personal Group: Safe to use "INR" as we don't support multi-currency personal yet? 
+                //    Actually, Personal Group is also a group.
+                //    The plan says: "Genesis Expense... BLOCK ACTION".
+                                
+                // We need to check history.
+                // expenseRepository.getExpensesForGroup(groupId) returns a Flow.
+                // We need a snapshot.
+                                
+                // Warning: querying DB inside `saveExpense` (which is suspend) is fine.
+                // Use getAllEffectiveExpenses to respect zombie filtering.
+                val contextCurrency = if (state.isPersonalExpense) {
+                    val allExpenses = expenseRepository.getAllEffectiveExpenses().first()
+                    allExpenses.find { it.groupId == PersonalGroupConstants.PERSONAL_GROUP_ID }?.currency
+                } else {
+                    val allExpenses = expenseRepository.getAllEffectiveExpenses().first()
+                    allExpenses.find { it.groupId == groupId }?.currency
+                }
+
+                val finalCurrency = contextCurrency ?: run {
+                     _uiState.update { 
+                         it.copy(errorMessage = "Cannot determine currency. Add currency context via existing expenses or online group creation.", isLoading = false) 
+                     }
+                     return@launch
+                }
+
                 val expense =
                         Expense(
                                 id = finalExpenseId,
                                 groupId = if (state.isPersonalExpense) PersonalGroupConstants.PERSONAL_GROUP_ID else groupId,
                                 title = state.title,
                                 amount = amount,
-                                currency = "INR",
+                                currency = finalCurrency,
                                 date = Date(System.currentTimeMillis()),
                                 payerId = state.payerId,
                                 createdBy = creatorId,
