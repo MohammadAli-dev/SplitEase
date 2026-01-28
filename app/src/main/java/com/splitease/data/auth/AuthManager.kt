@@ -207,12 +207,16 @@ class AuthManagerImpl @Inject constructor(
             if (cloudUserId != null) {
                 // Verify identity exists before restoring session
                 try {
+                    // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
+                    // CRITICAL FIX: Establish ID context BEFORE bootstrapping DB row
+                    // If we bootstrap first, we might create a phantom user if context is stale.
+                    localUserManager.setUserId(cloudUserId)
+                    
                     val bootstrapped = identityBootstrapper.ensureLocalUserRegistered()
                     if (bootstrapped) {
                         Log.d(TAG, "initialize: valid token found, authenticated as $cloudUserId")
                         
-                        // SPRINT 23: Adopt Cloud ID as Local ID for consistent identity
-                        localUserManager.setUserId(cloudUserId)
+                        // SPRINT 23: Recovery Hydration Trigger
                         
                         // SPRINT 23: Recovery Hydration Trigger
                         // If we crashed mid-hydration, DB might be empty. Attempt hydration.
