@@ -578,7 +578,7 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
 ### 4. Interaction Improvements
 - **Loading State**: `AddExpenseScreen` save button now shows `[ ⟳ Saving... ]` with fixed width to prevent layout shift.
 - **Keyboard Handling**: Improved IME actions (Next -> Done) and auto-dismissal.
-- **Touch Targets**: Ensured interactive elements meet 48dp accessibilty standards.
+- **Touch Targets**: Ensured interactive elements meet 48dp accessibility standards.
 
 ### 5. Bug Fix: "Unknown" Members
 - **Problem**: Non-Group (Personal) expenses showed "Unknown" names because participants weren't members of the phantom group context.
