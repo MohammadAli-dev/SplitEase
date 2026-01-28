@@ -518,6 +518,7 @@ class AuthManagerImpl @Inject constructor(
                     Log.e(TAG, "handleSuccessfulAuth: Identity bootstrap failed (no local ID)")
                     // Bootstrap failure - revert login
                     tokenManager.clearTokens()
+                    _authState.value = AuthState.Unauthenticated
                     _authError.tryEmit("Failed to initialize account identity")
                     return false
                 }
@@ -537,6 +538,7 @@ class AuthManagerImpl @Inject constructor(
                         // FAILURE = ABORT LOGIN (Sprint 23 contract refined: Safer teardown)
                         Log.e(TAG, "handleSuccessfulAuth: Hydration FAILED - aborting login", hydrationResult.error)
                         tokenManager.clearTokens()
+                        _authState.value = AuthState.Unauthenticated
                         _authError.tryEmit("Account setup failed. Please log in again.")
                         return false
                     }
