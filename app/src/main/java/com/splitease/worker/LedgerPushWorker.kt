@@ -66,21 +66,24 @@ class LedgerPushWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting ledger push...")
 
-        // 0. Ownership Safety Check (Sprint 22.1 Gap 2)
-        // Guard against cross-user sync (e.g., User B syncing User A's ops)
-        // Since logout forces a new Local ID, any op with a different Local ID belongs to a previous user.
-        val currentLocalUserId = localUserManager.userId.first()
-        // If current ID is somehow null/empty, we can't safely proceed. (Unlikely with DataStore default).
-        if (currentLocalUserId.isEmpty()) {
-             Log.e(TAG, "CRITICAL: Current local user ID is empty. Aborting push to prevent corruption.")
-             return Result.failure()
-        }
-
-        // 1. Check auth
+        // 1. Check auth (Sprint 23 Optimization: Check Token BEFORE ID)
+        // If not authenticated, we simply skip. No need to fail or check ID.
         val accessToken = tokenManager.getAccessToken()
         if (accessToken.isNullOrBlank()) {
             Log.w(TAG, "Not authenticated, skipping push")
             return Result.success() // Non-fatal: will retry on next login
+        }
+
+        // 2. Ownership Safety Check (Sprint 22.1 Gap 2)
+        // Guard against cross-user sync (e.g., User B syncing User A's ops)
+        // Since logout forces a new Local ID, any op with a different Local ID belongs to a previous user.
+        val currentLocalUserId = localUserManager.userId.first()
+        
+        // If current ID is empty but we HAVE a token, it's a transient race (e.g. hydration lag).
+        // We should RETRY, not fail terminal.
+        if (currentLocalUserId.isEmpty()) {
+             Log.w(TAG, "Transient: Authenticated but Local User ID not ready. Retrying...")
+             return Result.retry()
         }
 
         val deviceId = installationIdProvider.getDeviceId()
