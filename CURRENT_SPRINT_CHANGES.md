@@ -584,6 +584,14 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
 - **Problem**: Non-Group (Personal) expenses showed "Unknown" names because participants weren't members of the phantom group context.
 - **Fix**: Updated `GroupDetailViewModel` to enrich the member list by resolving *all* user IDs found in expenses/splits, not just formal group members.
 
+### 6. Code Review Hardening (Post-Audit)
+- **Thread Safety**: Refactored `Formatters.kt` to instantiate `SimpleDateFormat` and `DecimalFormat` locally within functions. This eliminates concurrency risks where multiple threads (e.g., background sync and UI rendering) could corrupt the shared formatter state.
+- **Accessibility & Localization**:
+    - Replaced hardcoded strings in `SyncStatusIcon.kt` with `stringResource()` calls.
+    - Added `semantics` block with `stateDescription` to the `SYNCING` state, ensuring screen readers can correctly identify the active synchronization process.
+    - Standardized all new strings in `strings.xml`.
+- **Financial Correctness**: Updated `BalanceRow` to accept an explicit `currencyCode`. Balances now infer the display currency from the group's expenses (defaulting to "₹") rather than hardcoding the symbol, preparing the UI for multi-currency support.
+
 ## Verification Results
 - **Build**: Successfully passed `./gradlew assembleDebug`.
 - **Manual Verification**:
@@ -591,3 +599,4 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
     - [x] Empty states appear correctly for new users.
     - [x] Offline mode shows neutral/calm indicators.
     - [x] Currency and Date headers are consistent.
+    - [x] TalkBack correctly identifies "Syncing changes..." state.

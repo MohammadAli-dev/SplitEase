@@ -451,10 +451,14 @@ fun GroupDetailScreen(
                                      nonZeroBalances.forEach { (userId, amount) ->
                                          val user = state.members.find { it.id == userId }
                                          val isOwed = amount.signum() > 0
+                                         // Infer currency from first expense or default to INR
+                                         val currencyCode = state.expenses.firstOrNull()?.currency ?: "₹"
+                                         
                                          BalanceRow(
                                              userName = user?.name ?: "Unknown",
                                              amount = amount,
-                                             isOwed = isOwed
+                                             isOwed = isOwed,
+                                             currencyCode = currencyCode
                                          )
                                      }
                                  }
@@ -649,7 +653,6 @@ fun ExpenseItem(
     attributionText: String = "",
     onClick: () -> Unit
 ) {
-    val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
     Card(
         modifier = Modifier
@@ -701,7 +704,8 @@ fun ExpenseItem(
 private fun BalanceRow(
     userName: String,
     amount: java.math.BigDecimal,
-    isOwed: Boolean
+    isOwed: Boolean,
+    currencyCode: String
 ) {
     Row(
         modifier = Modifier
@@ -716,7 +720,7 @@ private fun BalanceRow(
         )
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = Formatters.formatMoney(amount),
+                text = Formatters.formatMoney(amount, currencyCode),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (isOwed) {
                     androidx.compose.ui.graphics.Color(0xFF2E7D32) // Green

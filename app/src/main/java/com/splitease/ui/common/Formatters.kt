@@ -12,15 +12,13 @@ import java.util.concurrent.TimeUnit
  * Logic is strictly display-only.
  */
 object Formatters {
-
-    private val currencyFormat = DecimalFormat("#,##0.00")
-    private val standardDateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-
     /**
      * Formats money with symbol, space, and always 2 decimal places.
      * Example: "₹ 1,200.50"
      */
     fun formatMoney(amount: BigDecimal, currencyCode: String = "₹"): String {
+        // Instantiate per call for thread safety
+        val currencyFormat = DecimalFormat("#,##0.00")
         return "$currencyCode ${currencyFormat.format(amount)}"
     }
 
@@ -29,17 +27,10 @@ object Formatters {
      * No timestamps.
      */
     fun formatDateHeader(timestamp: Long): String {
-        val now = System.currentTimeMillis()
-        val diff = now - timestamp
-
-        // Midnight check would be better, but simple diff is acceptable for UX polish phase
-        // to avoid complex calendar logic deps.
-        // Rule: < 24h is Today, < 48h is Yesterday (approx)
+        // Instantiate per call for thread safety
+        val standardDateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
         
-        // Strict "Day" logic using Calendar/LocalDate is ideal, but sticking to simple rules:
-        // formatting strictly for grouping headers.
-        
-        // Using DateUtils logic roughly:
+        // Using simple relative logic for grouping headers
         return if (android.text.format.DateUtils.isToday(timestamp)) {
             "Today"
         } else if (android.text.format.DateUtils.isToday(timestamp + TimeUnit.DAYS.toMillis(1))) {

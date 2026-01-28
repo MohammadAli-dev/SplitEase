@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.splitease.R
 import com.splitease.data.sync.SyncState
@@ -38,27 +40,35 @@ fun SyncStatusIcon(
     when (syncState) {
         SyncState.FAILED -> SyncIndicator(
             icon = Icons.Default.Warning,
-            contentDescription = "Sync failed - tap to fix",
+            contentDescription = stringResource(R.string.sync_failed_desc),
             tint = MaterialTheme.colorScheme.error,
             badgeText = if (failedCount > 0) "$failedCount" else null,
             onClick = onNavigateToSyncIssues
         )
         SyncState.PAUSED -> SyncIndicator(
             icon = Icons.Default.CloudOff,
-            contentDescription = "Offline - changes saved locally",
+            contentDescription = stringResource(R.string.offline_desc),
             tint = MaterialTheme.colorScheme.onSurfaceVariant, // Neutral color
-            badgeText = if (pendingCount > 0) "• Saved" else null,
+            badgeText = if (pendingCount > 0) "• ${stringResource(R.string.offline_badge)}" else null,
             onClick = onNavigateToSyncIssues
         )
-        SyncState.SYNCING -> Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(12.dp)
-        ) {
-             CircularProgressIndicator(
-                 modifier = Modifier.size(16.dp),
-                 strokeWidth = 2.dp,
-                 color = MaterialTheme.colorScheme.onSurfaceVariant
-             )
+        SyncState.SYNCING -> {
+            val syncingDesc = stringResource(R.string.syncing_desc)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clickable(enabled = false, onClick = {}) // Disabled click but preserves touch target
+                    .padding(12.dp)
+                    .semantics {
+                        stateDescription = syncingDesc
+                    }
+            ) {
+                 CircularProgressIndicator(
+                     modifier = Modifier.size(16.dp),
+                     strokeWidth = 2.dp,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                 )
+            }
         }
         SyncState.IDLE -> {
             // No indicator shown
