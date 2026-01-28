@@ -512,3 +512,41 @@ We implemented a **Zero-Tolerance Identity Architecture** where authentication i
 - **Safety Guarantee**: The system now mathematically guarantees that a logged-in user never sees partial data.
 
 ---
+
+---
+
+# Sprint 25A: Auth UX Improvements & Bug Fixes
+
+## Overview
+This sprint focuses on polishing the authentication user experience by adding standard security UI patterns (password visibility, confirmation) and improving real-time validation feedback. It also includes a critical fix for a casting crash in the Group Detail view.
+
+## Key Changes
+
+### 1. Auth State Hoisting & Reactive Validation
+- **AuthViewModel Refactor**: Migrated all Auth form state (Name, Email, Password, Confirm Password) from local Compose `remember` state to the `AuthViewModel`.
+- **Reactive Validation**: Implemented validation logic using `StateFlow` and `combine`. Properties like `isSignupValid` and `passwordFeedback` now update reactively as the user types.
+- **Error Mapping**: Added presentation-layer mapping for Supabase errors, converting technical codes (e.g., `invalid_grant`) into user-friendly strings like "Incorrect email or password."
+
+### 2. Login & Signup UX
+- **Password Visibility Toggle**: Added an interactive eye icon to password fields in both Login and Signup screens, allowing users to verify their input.
+- **Confirm Password Field**: Introduced a "Confirm Password" field to the Signup flow to prevent typos. This field is validated reactively against the primary password.
+- **Inline Feedback**: Validation messages (e.g., "Password too short", "Passwords do not match") now appear directly below the relevant text fields.
+- **Smart Submit Buttons**: Login and Signup buttons are now automatically disabled until all inputs are valid and no loading is in progress.
+
+### 3. Crash Fix: GroupDetailViewModel
+- **ClassCastException**: Fixed a fatal crash in `GroupDetailViewModel` where a `Boolean` was being incorrectly cast to a `Long`.
+- **Root Cause**: A mismatch in the argument order of the `combine` function across multiple data sources.
+- **Resolution**: Corrected the casting indices to perfectly match the input flow order (`isRefreshing` -> `oldestTimestamp` -> `currentUserId`).
+
+### 4. Dependency Upgrades
+- **Material Icons Extended**: Added `androidx.compose.material:material-icons-extended` to support standard Visibility and VisibilityOff icons without custom assets.
+
+## Verification Results
+- **Build**: Successfully passed with `./gradlew assembleDebug`.
+- **Manual Verification**:
+    - [x] Password toggle works on both screens.
+    - [x] Signup button remains disabled until passwords match.
+    - [x] Group Detail screen no longer crashes (verified by navigating to group expenses).
+    - [x] Incorrect credentials show friendly error messages.
+
+---

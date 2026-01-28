@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 /**
@@ -36,6 +39,19 @@ class AuthViewModel @Inject constructor(
 
     /** One-shot info events (e.g. "Check your email") */
     val authInfo: SharedFlow<String> = authManager.authInfo
+
+    /** form state for Login/Signup */
+    private val _email = MutableStateFlow("")
+    val email: StateFlow<String> = _email.asStateFlow()
+
+    private val _password = MutableStateFlow("")
+    val password: StateFlow<String> = _password.asStateFlow()
+
+    private val _name = MutableStateFlow("")
+    val name: StateFlow<String> = _name.asStateFlow()
+
+    private val _confirmPassword = MutableStateFlow("")
+    val confirmPassword: StateFlow<String> = _confirmPassword.asStateFlow()
 
     /** UI-local state for form validation errors */
     private val _uiState = MutableStateFlow<AuthUiState>(AuthUiState.Idle)
@@ -64,27 +80,66 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun login(email: String, password: String) {
-        if (email.isBlank() || password.isBlank()) {
-            _uiState.value = AuthUiState.Error("Email and password are required")
+    // --- State setters ---
+    fun onEmailChange(newValue: String) { _email.value = newValue; clearError() }
+    fun onPasswordChange(newValue: String) { _password.value = newValue; clearError() }
+    fun onNameChange(newValue: String) { _name.value = newValue; clearError() }
+    fun onConfirmPasswordChange(newValue: String) { _confirmPassword.value = newValue; clearError() }
+
+    // --- Validation Logic ---
+    private val MIN_PASSWORD_LENGTH = 6
+
+    val loginPasswordFeedback = combine(_password) { (pass) ->
+        if (pass.length < MIN_PASSWORD_LENGTH && pass.isNotEmpty()) 
+             "Password must be at least $MIN_PASSWORD_LENGTH characters" else null
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val signupPasswordFeedback = combine(_password, _confirmPassword) { pass, confirm ->
+         if (pass.length < MIN_PASSWORD_LENGTH && pass.isNotEmpty()) {
+             "Password must be at least $MIN_PASSWORD_LENGTH characters"
+         } else if (pass != confirm && confirm.isNotEmpty()) {
+             "Passwords do not match"
+         } else {
+             null
+         }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val isLoginValid = combine(_email, _password) { email, pass ->
+        email.isNotBlank() && pass.length >= MIN_PASSWORD_LENGTH
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val isSignupValid = combine(_name, _email, _password, _confirmPassword) { name, email, pass, confirm ->
+        name.isNotBlank() && 
+        email.isNotBlank() && 
+        pass.length >= MIN_PASSWORD_LENGTH &&
+        pass == confirm
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun login() {
+        val emailVal = _email.value
+        val passVal = _password.value
+        
+        if (!isLoginValid.value) {
+            _uiState.value = AuthUiState.Error("Please check your input")
             return
         }
 
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Idle // Clear any previous error
+            _uiState.value = AuthUiState.Idle 
             Log.d(TAG, "login: starting")
             
-            authManager.loginWithEmail(email, password)
-            // No manual success emission. 
-            // If successful and authenticated, authState flow will trigger navigation.
-            // If verification needed, authInfo will be emitted.
-            // If error, authError will be emitted.
+            val result = authManager.loginWithEmail(emailVal, passVal)
+            handleAuthResult(result)
         }
     }
 
-    fun signup(name: String, email: String, password: String) {
-        if (email.isBlank() || password.isBlank()) {
-            _uiState.value = AuthUiState.Error("Email and password are required")
+    fun signup() {
+        val nameVal = _name.value
+        val emailVal = _email.value
+        val passVal = _password.value
+
+        if (!isSignupValid.value) {
+            _uiState.value = AuthUiState.Error("Please check your input")
             return
         }
 
@@ -92,11 +147,25 @@ class AuthViewModel @Inject constructor(
             _uiState.value = AuthUiState.Idle
             Log.d(TAG, "signup: starting")
             
-            authManager.signupWithEmail(
-                name = name.takeIf { it.isNotBlank() },
-                email = email,
-                password = password
+            val result = authManager.signupWithEmail(
+                name = nameVal,
+                email = emailVal,
+                password = passVal
             )
+            handleAuthResult(result)
+        }
+    }
+    
+    private fun handleAuthResult(result: Result<Unit>) {
+        result.onFailure { error ->
+             // Presentation-layer error mapping
+             val message = when {
+                 error.message?.contains("invalid_grant", ignoreCase = true) == true -> "Incorrect email or password."
+                 error.message?.contains("User already registered", ignoreCase = true) == true -> "Account already exists."
+                 error.message?.contains("Unable to resolve host", ignoreCase = true) == true -> "No internet connection. Please check your network."
+                 else -> error.message ?: "Authentication failed."
+             }
+             _uiState.value = AuthUiState.Error(message)
         }
     }
 
