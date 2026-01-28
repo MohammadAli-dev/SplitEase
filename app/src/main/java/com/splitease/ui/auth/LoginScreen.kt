@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -64,8 +66,14 @@ fun LoginScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var isPasswordVisible by remember { mutableStateOf(false) }
+
+    val email by viewModel.email.collectAsState()
+    val password by viewModel.password.collectAsState()
+
+    // Derived UI states
+    val isLoginValid by viewModel.isLoginValid.collectAsState()
+    val passwordFeedback by viewModel.loginPasswordFeedback.collectAsState()
 
     val isLoading = authState is AuthState.Authenticating
 
@@ -147,7 +155,7 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it; viewModel.clearError() },
+            onValueChange = viewModel::onEmailChange,
             label = { Text("Email") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
@@ -158,10 +166,38 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it; viewModel.clearError() },
+            onValueChange = viewModel::onPasswordChange,
             label = { Text("Password") },
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation = if (isPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+            // DONE Action support
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+            ),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                onDone = { 
+                    if (isLoginValid && !isLoading) viewModel.login() 
+                }
+            ),
+            trailingIcon = {
+                val image = if (isPasswordVisible)
+                    androidx.compose.material.icons.Icons.Filled.Visibility
+                else androidx.compose.material.icons.Icons.Filled.VisibilityOff
+
+                androidx.compose.material3.IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                    androidx.compose.material3.Icon(imageVector = image, contentDescription = if (isPasswordVisible) "Hide password" else "Show password")
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
+            supportingText = {
+                 passwordFeedback?.let {
+                     Text(
+                         text = it,
+                         color = MaterialTheme.colorScheme.error,
+                         style = MaterialTheme.typography.bodySmall
+                     )
+                 }
+            },
             enabled = !isLoading
         )
 
@@ -177,9 +213,9 @@ fun LoginScreen(
         }
 
         Button(
-            onClick = { viewModel.login(email, password) },
+            onClick = { viewModel.login() },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading
+            enabled = isLoginValid && !isLoading
         ) {
             if (isLoading) {
                 CircularProgressIndicator(

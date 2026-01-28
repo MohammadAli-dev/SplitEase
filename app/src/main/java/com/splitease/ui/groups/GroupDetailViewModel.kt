@@ -200,9 +200,9 @@ class GroupDetailViewModel @Inject constructor(
         val executingSettlements = values[2] as Set<String>
         @Suppress("UNUSED_VARIABLE") val retryTrigger = values[3] as Int
         val settlementMode = values[4] as SettlementMode
-        val oldestTimestamp = values[5] as Long?
-        val currentUserId = values[6] as String
-        val isRefreshing = values[7] as Boolean
+        val isRefreshing = values[5] as Boolean
+        val oldestTimestamp = values[6] as Long?
+        val currentUserId = values[7] as String
         val group = data.group
         val members = data.members
         val expenses = data.expenses
