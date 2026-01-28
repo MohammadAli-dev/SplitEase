@@ -486,15 +486,20 @@ class AuthManagerImpl @Inject constructor(
                 // P0 FIX: Safe Identity Consolidation (Sprint 24)
                 // We must merge any existing phantom data BEFORE swapping the ID.
                 val currentLocalId = localUserManager.userId.first()
-                val canonicalId = identityRepository.consolidateIdentity(
-                    localId = currentLocalId,
-                    cloudId = cloudUserId,
-                    profile = com.splitease.data.auth.UserProfile(
-                        cloudUserId = cloudUserId,
-                        name = authResponse.user?.userMetadata?.name ?: authResponse.user?.userMetadata?.fullName,
-                        email = authResponse.user?.email
+                val canonicalId = if (currentLocalId.isNotEmpty()) {
+                    identityRepository.consolidateIdentity(
+                        localId = currentLocalId,
+                        cloudId = cloudUserId,
+                        profile = com.splitease.data.auth.UserProfile(
+                            cloudUserId = cloudUserId,
+                            name = authResponse.user?.userMetadata?.name ?: authResponse.user?.userMetadata?.fullName,
+                            email = authResponse.user?.email
+                        )
                     )
-                )
+                } else {
+                    Log.d(TAG, "handleSuccessfulAuth: No local ID found, skipping consolidation")
+                    cloudUserId
+                }
                 localUserManager.setUserId(canonicalId)
                 
                 // Populate userProfile from auth response
