@@ -4,8 +4,8 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import com.splitease.data.local.entities.IdValuePair
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.local.entities.SettlementAmount
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -52,15 +52,13 @@ interface SettlementDao {
     suspend fun getSettlementCountSync(): Int
 
     /**
-     * Fetches settlement amounts for the given settlement IDs.
+     * Fetches settlement amounts and currencies for the given settlement IDs.
      *
-     * The query returns pairs of settlement `id` and `value` where `value` is the amount stored as a plain decimal string.
-     *
-     * @param ids The settlement IDs to fetch amounts for.
-     * @return A list of `IdValuePair` objects where `id` is the settlement id and `value` is the amount as a plain decimal string (BigDecimal.toPlainString()).
+     * @param ids The settlement IDs to fetch.
+     * @return A list of [SettlementAmount] containing id, amount string, and currency code.
      */
-    @Query("SELECT id, amount AS value FROM settlements WHERE id IN (:ids)")
-    suspend fun getAmountsByIds(ids: List<String>): List<IdValuePair>
+    @Query("SELECT id, amount AS value, currency FROM settlements WHERE id IN (:ids)")
+    suspend fun getAmountsByIds(ids: List<String>): List<SettlementAmount>
 
     // ========== Phantom Merge Operations ==========
 

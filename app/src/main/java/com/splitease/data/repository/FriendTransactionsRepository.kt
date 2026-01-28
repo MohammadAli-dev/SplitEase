@@ -28,6 +28,7 @@ sealed class FriendLedgerItem {
     abstract val groupId: String
     abstract val title: String
     abstract val amount: BigDecimal
+    abstract val currency: String // ISO 4217, e.g., "INR" or "USD"
     abstract val timestamp: Long
     abstract val payerName: String
     abstract val paidByCurrentUser: Boolean
@@ -39,6 +40,7 @@ sealed class FriendLedgerItem {
         val groupName: String,
         override val title: String,
         override val amount: BigDecimal,
+        override val currency: String,
         override val timestamp: Long,
         override val payerName: String,
         override val paidByCurrentUser: Boolean,
@@ -50,6 +52,7 @@ sealed class FriendLedgerItem {
         override val groupId: String,
         override val title: String,
         override val amount: BigDecimal,
+        override val currency: String,
         override val timestamp: Long,
         override val payerName: String,
         override val paidByCurrentUser: Boolean,
@@ -62,6 +65,7 @@ sealed class FriendLedgerItem {
         override val groupId: String = "",
         override val title: String = "Settlement",
         override val amount: BigDecimal,
+        override val currency: String,
         override val timestamp: Long,
         override val payerName: String,
         override val paidByCurrentUser: Boolean,
@@ -126,6 +130,7 @@ class FriendTransactionsRepository @Inject constructor(
                             groupId = expense.groupId,
                             title = expense.title,
                             amount = expense.amount,
+                            currency = expense.currency,
                             timestamp = expense.date.time,
                             payerName = displayPayerName,
                             paidByCurrentUser = paidByCurrentUser,
@@ -138,6 +143,7 @@ class FriendTransactionsRepository @Inject constructor(
                             groupName = groupNameMap[expense.groupId] ?: "Unknown Group",
                             title = expense.title,
                             amount = expense.amount,
+                            currency = expense.currency,
                             timestamp = expense.date.time,
                             payerName = displayPayerName,
                             paidByCurrentUser = paidByCurrentUser,
@@ -154,6 +160,7 @@ class FriendTransactionsRepository @Inject constructor(
                     FriendLedgerItem.SettlementItem(
                         id = settlement.id,
                         amount = settlement.amount,
+                        currency = settlement.currency,
                         timestamp = settlement.date.time,
                         payerName = displayPayerName,
                         paidByCurrentUser = isPayerMe

@@ -226,9 +226,9 @@ private fun LedgerItemRow(
 ) {
     val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
-    val formattedAmount = com.splitease.ui.common.Formatters.formatMoney(item.amount, "INR")
-    val formattedMyShare = com.splitease.ui.common.Formatters.formatMoney(item.myShare, "INR")
-    val formattedDiff = com.splitease.ui.common.Formatters.formatMoney(item.amount - item.myShare, "INR")
+    val formattedAmount = com.splitease.ui.common.Formatters.formatMoney(item.amount, item.currency)
+    val formattedMyShare = com.splitease.ui.common.Formatters.formatMoney(item.myShare, item.currency)
+    val formattedDiff = com.splitease.ui.common.Formatters.formatMoney(item.amount - item.myShare, item.currency)
 
     // Determine subtitle based on expense type
     val subtitle = when (item) {

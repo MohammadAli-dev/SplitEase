@@ -488,7 +488,7 @@ private fun ConnectionStatusBanner(
 @Composable
 private fun TransactionItem(transaction: FriendLedgerItem) {
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
-    val formattedAmount = com.splitease.ui.common.Formatters.formatMoney(transaction.amount, "INR")
+    val formattedAmount = com.splitease.ui.common.Formatters.formatMoney(transaction.amount, transaction.currency)
     
     // Determine icon
     val icon = when (transaction) {

@@ -13,12 +13,13 @@ object MoneyFormatter {
 
     private val formatter = DecimalFormat("#,##0.00")
 
-    /**
-     * Formats amount as X,XXX.XX using absolute value.
-     * 
-     * DEPRECATED: Use UI-layer Formatters.formatMoney(amount, currencyCode) instead.
-     * This domain formatter is stripped of symbol logic to prevent hardcoded "₹" from leaking.
-     */
+    @Deprecated(
+        message = "Use UI-layer Formatters.formatMoney(amount, currencyCode) instead.",
+        replaceWith = ReplaceWith(
+            "com.splitease.ui.common.Formatters.formatMoney(amount, \"INR\")",
+            "com.splitease.ui.common.Formatters"
+        )
+    )
     fun format(amount: BigDecimal): String {
         return formatter.format(amount.abs())
     }

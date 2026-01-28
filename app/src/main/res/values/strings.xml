@@ -6,6 +6,7 @@
     <string name="deleted_group">Deleted group</string>
     <string name="deleted_settlement">Deleted settlement</string>
     <string name="deleted_user">Deleted user</string>
+    <string name="settlement_label">Settlement (%s)</string>
     
     <!-- Sync state strings (used for tooltip, contentDescription, snackbar) -->
     <string name="sync_state_paused">Sync paused — waiting for network</string>

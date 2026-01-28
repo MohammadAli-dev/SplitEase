@@ -608,3 +608,30 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
     - [x] Currency and Date headers are consistent.
     - [x] TalkBack correctly identifies "Syncing changes..." state.
     - [x] All currency amounts display "₹" correctly via ISO mapping.
+
+---
+
+# Sprint 26.1: CodeRabbit Hardening (Currency Finalization)
+
+## Overview
+This stabilization sprint addresses 4 specific architectural issues flagged by CodeRabbit to strictly enforce ISO-4217 correctness. It eliminates the last residual hardcoded "INR" strings and legacy formatter dependencies, ensuring that all currency formatting is driven dynamically by the underlying financial entities.
+
+## Key Changes
+
+### 1. Domain Hardening
+- **Deprecated MoneyFormatter**: The domain-layer `MoneyFormatter.format` function has been annotated with `@Deprecated`, redirecting developers to the UI-layer `Formatters.formatMoney(amount, currencyCode)` which enforces explicit currency.
+
+### 2. ISO Currency Threading
+- **FriendLedgerItem Update**: Updated the `FriendLedgerItem` sealed class hierarchy to include a mandatory `currency` field.
+- **Repository Derivation**: Updated `FriendTransactionsRepository` to populate this field:
+    - **Group Expenses**: Derived from the underlying `Expense` entity (as `Group` has no currency).
+    - **Settlements**: Derived strictly from `Settlement.currency`.
+- **UI Remediation**: `FriendDetailScreen` and `PersonalLedgerScreen` now use this threaded currency instead of hardcoded "INR".
+
+### 3. Sync Issues Correctness
+- **SettlementAmount DTO**: Created a new DTO `SettlementAmount` to fetch both amount and currency for sync issue display.
+- **Localized Labels**: `SyncIssuesViewModel` now uses a properly localized string resource (`R.string.settlement_label`) and dynamic currency formatting, removing the last hardcoded strings in the codebase.
+
+## Verification Results
+- **Build**: Successfully passed `assembleDebug` (verified deprecation warning visibility).
+- **Manual Verification**: Confirmed that all transaction screens and sync issue dialogues correctly display currency symbols derived from the database state.
