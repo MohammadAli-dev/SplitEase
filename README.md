@@ -57,7 +57,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **No Data Loss** | **Sprint 24 Update**: Atomic "Identity Consolidation" guarantees strict offline-to-online data survival. |
 | **Reliable Sync** | Background sync retries automatically until successful. |
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
-| **Zero Orphans** | Authentication intentionally aborts if even one data row cannot be safely merged. |
+| **Zero Orphans** | Identity consolidation aborts if any data row cannot be safely merged, preventing orphaned references. |
 
 ---
 
@@ -113,11 +113,12 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | SYNCING | ⏳ | Syncing changes... |
 | IDLE | — | Everything synced |
 
-### ⚠️ Intentionally Mocked & Partially Integrated
+### ⚠️ Intentionally Simulated & Partially Integrated
 | Component | Status | Why |
 |-----------|---|-----|
-| **Remote API (Entity Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
-| **Ledger Mirror** | ✅ **Real (Supabase)** | **Sprint 21**: Real PostgREST integration for durable ledger mirroring. |
+| **Remote API (Legacy Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
+| **Ledger Mirror** | ✅ **Real** | **Supabase PostgREST** integration for durable ledger mirroring. Uses real JWT authorization. |
+| **Auth Backend** | ⚠️ Simulated | Supabase Auth endpoints are active, but intercepted by `MockAuthInterceptor` to bypass email confirmation during dev. |
 | **User Data Fetch** | ⚠️ Mocked | Seed data used for local users not yet linked to Supabase profiles. |
 
 ### 🚧 Future Features (Not Implemented)
@@ -472,16 +473,17 @@ Each `SyncOperation` has a unique `operationId`. The (mocked) API accepts duplic
 
 ### Mock Interceptor
 
-The app uses a `MockAuthInterceptor` **only for the Legacy Entity Sync API**. 
+The app uses a `MockAuthInterceptor` to simulate legacy endpoints and bypass Supabase authentication friction during local development.
 
-> **Important**: The **Ledger Mirror** and **Identity** systems use **Real Supabase Auth (JWT)**. The mock interceptor does NOT intercept Supabase calls.
+> [!NOTE]
+> **Interception Logic**: The interceptor only catches URLs ending in `auth/login`, `auth/signup`, and `sync`. It **does NOT intercept** real Supabase Ledger calls (`rest/v1/...`) or complex Auth management flows.
 
 ```kotlin
-// Legacy Entity Sync (Mocked)
+// Legacy Entity Sync (ID-less simulation)
 POST /sync → {"success": true}
 
-// Ledger/Identity (Real)
-POST /v1/ledger_operations → 201 Created (Authorized via JWT)
+// Real Ledger Mirror (Production-grade JWT)
+POST /v1/ledger_operations → 201 Created (Requires Real JWT Header)
 ```
 
 ### API Contract
@@ -807,9 +809,9 @@ In Android Studio:
 
 ## 14. Non-Goals & Intentional Omissions
 
-### Why Auth is Mocked
+### Why Auth is Partially Simulated
 
-Building a real auth backend (OAuth, JWT, session management) is outside the scope of this architectural demo. The mock allows testing the full app flow without infrastructure.
+While the app uses **Production-Grade Identity Consolidation** and **JWT Token Management**, the remote authentication server is partially simulated via an OkHttp interceptor. This allows testing the multi-device ledger and identity merge logic (Sprint 24) without the overhead of real email verification or account management infrastructure.
 
 ### Why Backend is Minimal
 
