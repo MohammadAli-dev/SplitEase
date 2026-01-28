@@ -36,6 +36,19 @@ object SettlementCalculator {
     }
 
     /**
+     * Filter settlements to only show those actionable by or relevant to the current user.
+     * Shows settlements where the user is either the payer (from) or receiver (to).
+     */
+    fun filterActionableSettlements(
+        settlements: List<SettlementSuggestion>,
+        currentUserId: String
+    ): List<SettlementSuggestion> {
+        return settlements.filter { 
+            it.fromUserId == currentUserId || it.toUserId == currentUserId 
+        }
+    }
+
+    /**
      * SIMPLIFIED mode: Greedy algorithm to minimize number of transfers.
      * 1. Filter zeros
      * 2. Split into creditors (+) and debtors (−)

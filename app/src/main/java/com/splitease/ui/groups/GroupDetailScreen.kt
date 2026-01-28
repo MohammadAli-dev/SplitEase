@@ -456,9 +456,10 @@ fun GroupDetailScreen(
                                          // Group.primaryCurrency will replace this.
                                          val currencyCode = state.expenses.firstOrNull()?.currency ?: "INR"
                                          
+                                         // Amount sign is represented via color; UI should show absolute value
                                          BalanceRow(
                                              userName = user?.name ?: "Unknown",
-                                             amount = amount,
+                                             amount = amount.abs(),
                                              isOwed = isOwed,
                                              currencyCode = currencyCode
                                          )

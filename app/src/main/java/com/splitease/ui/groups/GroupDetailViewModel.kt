@@ -261,8 +261,10 @@ class GroupDetailViewModel @Inject constructor(
 
             // Compute settlements as derived state from balances
             // Uses current settlement mode (UI-only, defaults to SIMPLIFIED)
+            // Filter: Only show settlements relevant to the current user (Payer or Receiver)
             val settlements = if (balancesValid) {
-                SettlementCalculator.calculate(balances, settlementMode)
+                val allSettlements = SettlementCalculator.calculate(balances, settlementMode)
+                SettlementCalculator.filterActionableSettlements(allSettlements, currentUserId)
             } else {
                 emptyList()
             }

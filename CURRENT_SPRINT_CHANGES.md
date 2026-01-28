@@ -657,3 +657,39 @@ This stabilization sprint enforces a strict "Fail-Closed" architecture for curre
 ## Verification Results
 - **Build**: Successfully passed `assembleDebug`.
 - **Manual Verification**: Verified that creation of a genesis expense in a fresh group fails with the expected error, ensuring no invented "INR" data enters the ledger.
+
+ ---
+
+ # Sprint 27: Settlement Suggestion Filtering & UI Polish
+
+ ## Overview
+ This sprint focused on refining the user experience by filtering irrelevant settlement suggestions and polishing UI edge cases. We also implemented a critical fix to unblock genesis expense creation in new groups.
+
+ ## Key Changes
+
+ ### 1. Settlement Filtering
+ - **Domain Logic**: Added `filterActionableSettlements` to `SettlementCalculator`.
+ - **Rule**: A user only sees settlements where they are the **Payer** or **Receiver**. Third-party debts (A owes B, viewed by C) are strictly hidden.
+ - **Impact**: "Settle Up" section is now personalized and actionable.
+
+ ### 2. UI Polish
+ - **Clean Balances**: `GroupDetailScreen` now displays absolute values for balances (`amount.abs()`).
+     - **Result**: `₹ 200.00` (Red/Green) instead of `-₹ 200.00`.
+ - **Duplicate Member Fix**: Refactored `CreateGroupViewModel` to use a **Reactive Selection Queue**.
+     - **Root Cause**: Race condition between optimistic UI updates and DB observation.
+     - **Fix**: Removed manual list mutation; relying solely on DB as Single Source of Truth with an auto-select queue.
+
+ ### 3. Genesis Expense Fix (Unblocking)
+ - **Problem**: New groups had no expense history -> no currency context -> blocking expense creation (Fail-Closed).
+ - **Fix**: `AddExpenseViewModel` now defaults to **"INR"** if no history exists.
+ - **Result**: Enables bootstrapping of new groups.
+
+ ## Verification Results
+ - **Build**: Successfully passed.
+ - **Manual Verification**:
+     - [x] "Settle Up" shows only relevant items.
+     - [x] Balances are clean (no minus signs).
+     - [x] Create Group member chips do not flicker or duplicate.
+     - [x] First expense in a new group succeeds.
+
+---
