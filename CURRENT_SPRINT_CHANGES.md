@@ -465,7 +465,7 @@ This sprint addresses 8 specific issues flagged by CodeRabbit, focusing on race 
 - **GroupListScreen**: Fixed a similar reactivity bug by adding `_isRefreshing` to the state combination logic, ensuring the pull-to-refresh indicator behaves correctly.
 
 ### 2. Identity & Auth Integrity
-- **AuthManager**: Corrected a misleading error message ("Tokens were revoken") that was emitted *before* the tokens were actually cleared. The error is now emitted strictly after the `clearTokens()` call.
+- **AuthManager**: Corrected a misleading error message ("Tokens were revoked") that was emitted *before* the tokens were actually cleared. The error is now emitted strictly after the `clearTokens()` call.
 - **LocalUserManager**: Fixed a potential "infinite no-ID" loop by ensuring the `isClearingIdentity` guard is reset in a `finally` block, preventing the app from getting stuck in a state where it refuses to generate a guest ID.
 
 ### 3. Sync Logic Correctness

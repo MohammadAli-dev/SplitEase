@@ -146,3 +146,34 @@ These guardrails were introduced/updated after:
 - **Hilt `error.NonExistentClass` failures**.
 
 📌 **These rules prevent 95% of the configuration regressions encountered during the early project phases.**
+
+---
+
+## 8. UI State Management Rules
+
+> **The Core Rule:** A ViewModel’s `_uiState` must **NEVER** be an input to the flow that produces `_uiState`.
+
+### 8.1 Separation of State
+ViewModels must strictly separate **Derived State** (from repositories) and **Transient UI State** (local flags like `isRefreshing`).
+
+- **Derived State**: Produced via `combine(repoA, repoB...)`. Must be PURE and derived ONLY from authoritative data sources.
+- **Transient State**: Held in separate `MutableStateFlow`s or simple variables. Examples: `isRefreshing`, `isDialogOpen`.
+
+### 8.2 The Merge Pattern
+UI State must be produced by merging the Base (Repository) state with the Transient state atomically using `update {}`.
+
+```kotlin
+// ✅ Correct Pattern
+baseState.collectLatest { repoState ->
+    _uiState.update { current ->
+        repoState.copy(
+            isRefreshing = current.isRefreshing // Preserve transient state
+        )
+    }
+}
+```
+
+### 8.3 Anti-Patterns to Avoid
+- ❌ `combine(repoFlow, _uiState) { ... }`: Creates feedback loops and race conditions.
+- ❌ Setting `_uiState.value = ...` directly inside flows (lost updates).
+- ❌ Deriving transient flags from repository data.

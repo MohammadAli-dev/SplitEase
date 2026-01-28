@@ -105,13 +105,8 @@ class DashboardViewModel @Inject constructor(
                 balanceSummaryRepository.getDashboardSummary(),
                 groupDao.getAllGroups(),
                 userRepository.getAllUsers(),
-                userContext.userId,
-                // Include _uiState flow to reactively update on refresh/sync state changes
-                _uiState
-            ) { summary, groups, allUsers, currentUserId, currentUiState ->
-                // Extract transient state from current flow emission
-                val isSyncing = currentUiState.isSyncing
-                val isRefreshing = currentUiState.isRefreshing
+                userContext.userId
+            ) { summary, groups, allUsers, currentUserId ->
                 // Explicitly sort users by name for consistent UI display (Repository contract)
                 val sortedUsers = allUsers.sortedBy { it.name }
                 
@@ -144,15 +139,17 @@ class DashboardViewModel @Inject constructor(
                     ledgerBalances = ledgerBalancesUi,
                     knownUserCount = knownUserCount,
                     isLoading = false,
-                    isSyncing = isSyncing,
-                    isRefreshing = isRefreshing
+                    isSyncing = false, // Default, will be merged
+                    isRefreshing = false // Default, will be merged
                 )
-            }.collectLatest { state ->
-                // Atomic update to preserve transient flags if they were modified concurrently
+            }.collectLatest { repoState ->
+                // Atomic update to merge Repository data with transient UI flags
                 _uiState.update { currentState ->
-                    // Fusion: Take data from stream, but respect any newer transient flags if needed
-                    // In this case, 'state' already includes the latest transient flags because we included _uiState in combine
-                    state
+                    repoState.copy(
+                        // Preserve transient flags from current state
+                        isRefreshing = currentState.isRefreshing,
+                        isSyncing = currentState.isSyncing
+                    )
                 }
             }
         }
