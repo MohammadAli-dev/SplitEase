@@ -60,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.splitease.data.sync.SyncState
@@ -72,6 +73,8 @@ import com.splitease.domain.SettlementSuggestion
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Locale
+import com.splitease.ui.common.EmptyState
+import com.splitease.ui.common.Formatters
 
 /**
  * Renders the Group Detail screen UI, showing group metadata, members, balances, settlements, expenses, and available actions.
@@ -436,124 +439,144 @@ fun GroupDetailScreen(
                                 .toList()
                                 .sortedByDescending { it.second.abs() }
 
-                            if (nonZeroBalances.isEmpty()) {
-                                Text(
-                                    text = "All settled 🎉",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    nonZeroBalances.forEach { (userId, amount) ->
-                                        val user = state.members.find { it.id == userId }
-                                        val isOwed = amount.signum() > 0
-                                        BalanceRow(
-                                            userName = user?.name ?: "Unknown",
-                                            amount = amount,
-                                            isOwed = isOwed
-                                        )
-                                    }
-                                }
-                            }
-                        }
 
-                        // Settle Up Section
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Settle Up",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Simplify",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    Switch(
-                                        checked = state.settlementMode == SettlementMode.SIMPLIFIED,
-                                        onCheckedChange = { viewModel.toggleSettlementMode(it) }
-                                    )
-                                }
-                            }
-                        }
+                             if (nonZeroBalances.isEmpty()) {
+                                 Text(
+                                     text = "All settled 🎉",
+                                     style = MaterialTheme.typography.bodyMedium,
+                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                 )
+                             } else {
+                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                     nonZeroBalances.forEach { (userId, amount) ->
+                                         val user = state.members.find { it.id == userId }
+                                         val isOwed = amount.signum() > 0
+                                         // Infer currency from first expense or default to INR
+                                         val currencyCode = state.expenses.firstOrNull()?.currency ?: "₹"
+                                         
+                                         BalanceRow(
+                                             userName = user?.name ?: "Unknown",
+                                             amount = amount,
+                                             isOwed = isOwed,
+                                             currencyCode = currencyCode
+                                         )
+                                     }
+                                 }
+                             }
+                         }
 
-                        item {
-                            if (state.settlements.isEmpty()) {
-                                Text(
-                                    text = "No settlements needed 🎉",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    state.settlements.forEach { settlement ->
-                                        val fromUser = state.members.find { it.id == settlement.fromUserId }
-                                        val toUser = state.members.find { it.id == settlement.toUserId }
-                                        val isExecuting = state.executingSettlements.contains(settlement.key)
-                                        val isExpanded = expandedSettlementKey == settlement.key
-                                        
-                                        ExpandableSettlementCard(
-                                            suggestion = settlement,
-                                            fromName = fromUser?.name ?: "Unknown",
-                                            toName = toUser?.name ?: "Unknown",
-                                            isExpanded = isExpanded,
-                                            isExecuting = isExecuting,
-                                            onExpandToggle = {
-                                                expandedSettlementKey = if (isExpanded) null else settlement.key
-                                            },
-                                            onSettle = { amount ->
-                                                viewModel.executeSettlement(settlement, amount)
-                                                expandedSettlementKey = null
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                         // Settle Up Section
+                         item {
+                             Row(
+                                 modifier = Modifier
+                                     .fillMaxWidth()
+                                     .padding(top = 16.dp),
+                                 horizontalArrangement = Arrangement.SpaceBetween,
+                                 verticalAlignment = Alignment.CenterVertically
+                             ) {
+                                 Text(
+                                     text = "Settle Up",
+                                     style = MaterialTheme.typography.titleMedium
+                                 )
+                                 Row(
+                                     verticalAlignment = Alignment.CenterVertically
+                                 ) {
+                                     Text(
+                                         text = "Simplify",
+                                         style = MaterialTheme.typography.bodySmall
+                                     )
+                                     Switch(
+                                         checked = state.settlementMode == SettlementMode.SIMPLIFIED,
+                                         onCheckedChange = { viewModel.toggleSettlementMode(it) }
+                                     )
+                                 }
+                             }
+                         }
 
-                        // Expenses Section
-                        item {
-                            Text(
-                                text = "Expenses (${state.expenses.size})",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.padding(top = 16.dp)
-                            )
-                        }
+                         item {
+                             if (state.settlements.isEmpty()) {
+                                 Text(
+                                     text = "No settlements needed 🎉",
+                                     style = MaterialTheme.typography.bodyMedium,
+                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                 )
+                             } else {
+                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                     state.settlements.forEach { settlement ->
+                                         val fromUser = state.members.find { it.id == settlement.fromUserId }
+                                         val toUser = state.members.find { it.id == settlement.toUserId }
+                                         val isExecuting = state.executingSettlements.contains(settlement.key)
+                                         val isExpanded = expandedSettlementKey == settlement.key
+                                         
+                                         ExpandableSettlementCard(
+                                             suggestion = settlement,
+                                             fromName = fromUser?.name ?: "Unknown",
+                                             toName = toUser?.name ?: "Unknown",
+                                             isExpanded = isExpanded,
+                                             isExecuting = isExecuting,
+                                             onExpandToggle = {
+                                                 expandedSettlementKey = if (isExpanded) null else settlement.key
+                                             },
+                                             onSettle = { amount ->
+                                                 viewModel.executeSettlement(settlement, amount)
+                                                 expandedSettlementKey = null
+                                             }
+                                         )
+                                     }
+                                 }
+                             }
+                         }
 
-                        if (state.expenses.isEmpty()) {
-                            item {
-                                Text(
-                                    text = "No expenses yet. Tap + to add one.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        } else {
-                            items(state.expenses) { expense ->
-                                val isPending = expense.id in state.pendingExpenseIds
-                                val creator = state.members.find { it.id == expense.createdByUserId }
-                                val showAttribution = expense.createdByUserId != IdentityConstants.LEGACY_USER_ID
-                                // TODO: In the future, gracefully handle "Added before identity was enabled"
-                                // instead of just hiding (e.g., specific string resource).
-                                val attribution = if (expense.createdByUserId == state.currentUserId) "You" else creator?.name ?: "Unknown"
-                                
-                                ExpenseItem(
-                                    expense = expense,
-                                    isPending = isPending,
-                                    onClick = { onNavigateToEditExpense(state.group.id, expense.id) },
-                                    showAttribution = showAttribution,
-                                    attributionText = "Added by $attribution"
-                                )
-                            }
-                        }
+                         // Expenses Section
+                         item {
+                             Text(
+                                 text = "Expenses (${state.expenses.size})",
+                                 style = MaterialTheme.typography.titleMedium,
+                                 modifier = Modifier.padding(top = 16.dp)
+                             )
+                         }
+
+                         if (state.expenses.isEmpty()) {
+                             item {
+                                 EmptyState(
+                                     icon = Icons.Default.Info, 
+                                     title = "No expenses yet",
+                                     message = "Tap + to add your first expense.", // No generic "nothing here"
+                                     modifier = Modifier.padding(vertical = 32.dp),
+                                     // No explicit button here as FAB covers it, but message is actionable
+                                 )
+                             }
+                         } else {
+                             // Group expenses by date (Non-sticky headers per plan)
+                             val groupedExpenses = state.expenses.groupBy { 
+                                 Formatters.formatDateHeader(it.date.time) 
+                             }
+                             
+                             groupedExpenses.forEach { (header, expenses) ->
+                                 item {
+                                     Text(
+                                         text = header,
+                                         style = MaterialTheme.typography.labelMedium,
+                                         color = MaterialTheme.colorScheme.primary,
+                                         modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                                     )
+                                 }
+                                 items(expenses) { expense ->
+                                     val isPending = expense.id in state.pendingExpenseIds
+                                     val creator = state.members.find { it.id == expense.createdByUserId }
+                                     val showAttribution = expense.createdByUserId != IdentityConstants.LEGACY_USER_ID
+                                     val attribution = if (expense.createdByUserId == state.currentUserId) "You" else creator?.name ?: "Unknown"
+                                     
+                                     ExpenseItem(
+                                         expense = expense,
+                                         isPending = isPending,
+                                         onClick = { onNavigateToEditExpense(state.group.id, expense.id) },
+                                         showAttribution = showAttribution,
+                                         attributionText = "Added by $attribution"
+                                     )
+                                 }
+                             }
+                         }
 
                         item { Spacer(modifier = Modifier.height(80.dp)) } // FAB clearance
                     }
@@ -630,7 +653,6 @@ fun ExpenseItem(
     attributionText: String = "",
     onClick: () -> Unit
 ) {
-    val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
     Card(
         modifier = Modifier
@@ -661,12 +683,6 @@ fun ExpenseItem(
                         )
                     }
                 }
-                Text(
-                    text = dateFormat.format(expense.date),
-                    style = MaterialTheme.typography.bodySmall,
-
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 if (showAttribution) {
                     Text(
                         text = attributionText,
@@ -676,7 +692,7 @@ fun ExpenseItem(
                 }
             }
             Text(
-                text = "${expense.currency} ${expense.amount}",
+                text = Formatters.formatMoney(expense.amount, expense.currency),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -688,7 +704,8 @@ fun ExpenseItem(
 private fun BalanceRow(
     userName: String,
     amount: java.math.BigDecimal,
-    isOwed: Boolean
+    isOwed: Boolean,
+    currencyCode: String
 ) {
     Row(
         modifier = Modifier
@@ -703,7 +720,7 @@ private fun BalanceRow(
         )
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = com.splitease.domain.MoneyFormatter.format(amount),
+                text = Formatters.formatMoney(amount, currencyCode),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (isOwed) {
                     androidx.compose.ui.graphics.Color(0xFF2E7D32) // Green
@@ -775,7 +792,7 @@ private fun ExpandableSettlementCard(
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
                 } else {
                     Text(
-                        text = com.splitease.domain.MoneyFormatter.format(suggestion.amount),
+                        text = Formatters.formatMoney(suggestion.amount),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary
                     )

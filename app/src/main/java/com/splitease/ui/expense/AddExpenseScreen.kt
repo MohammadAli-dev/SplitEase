@@ -11,8 +11,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -219,7 +222,9 @@ fun AddExpenseScreen(
                     value = uiState.title,
                     onValueChange = { viewModel.updateTitle(it) },
                     label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    singleLine = true
             )
 
             // Amount
@@ -227,8 +232,12 @@ fun AddExpenseScreen(
                     value = uiState.amountText,
                     onValueChange = { viewModel.updateAmount(it) },
                     label = { Text("Amount (₹)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { 
+                        // Optional: Hide keyboard or move focus 
+                    }),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
             )
 
             // Expense Type Toggle
@@ -485,17 +494,27 @@ fun AddExpenseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (uiState.isLoading) {
-                CircularProgressIndicator()
-            } else {
-                Button(
-                        onClick = { viewModel.saveExpense() },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled =
-                                uiState.validationResult is SplitValidationResult.Valid &&
-                                        uiState.title.isNotBlank() &&
-                                        uiState.amountText.isNotBlank()
-                ) { Text(text = if (uiState.isEditMode) "Update Expense" else "Save Expense") }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                    onClick = { viewModel.saveExpense() },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    enabled = !uiState.isLoading &&
+                            uiState.validationResult is SplitValidationResult.Valid &&
+                            uiState.title.isNotBlank() &&
+                            uiState.amountText.isNotBlank()
+            ) { 
+                if (uiState.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (uiState.isEditMode) "Updating..." else "Saving...")
+                } else {
+                    Text(text = if (uiState.isEditMode) "Update Expense" else "Save Expense") 
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

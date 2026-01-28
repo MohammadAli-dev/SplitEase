@@ -550,3 +550,53 @@ This sprint focuses on polishing the authentication user experience by adding st
     - [x] Incorrect credentials show friendly error messages.
 
 ---
+
+---
+
+# Sprint 25B: UX & Cosmetic Polish (Calm Offline & Empty States)
+
+## Overview
+This sprint focused on refining the user experience with "Clarity, Confidence, and Calm" principles. We eliminated ambiguity in empty states, standardized formatting, and ensured offline states are reassuring rather than alarming. A critical bug in non-group member resolution was also fixed.
+
+## Key Changes
+
+### 1. Consistent Empty States
+- **New Component**: `EmptyState.kt` provides a standardized, icon-driven empty state.
+- **Implemented**: Applied to `GroupListScreen` ("No groups yet") and `GroupDetailScreen` ("No expenses yet").
+- **Clarity**: Each empty state now explains *why* it's empty and offers a single primary action (e.g., "Create Group").
+
+### 2. "Calm" Offline Experience
+- **Philosophy**: Offline is a normal state, not an error.
+- **Visuals**: Replaced red warning icons with neutral Cloud/Sync icons in `SyncStatusIcon.kt`.
+- **Messaging**: Status now reads "Offline • Changes saved locally" instead of "Sync Failed".
+
+### 3. Formatting Standards
+- **Centralized Logic**: Created `Formatters.kt` to enforce consistent data/money formatting.
+- **Dates**: "Today", "Yesterday", or `12 Jan 2026`.
+- **Currency**: Strict `₹ 1,200.00` format (Symbol + Space + 2 Decimals).
+
+### 4. Interaction Improvements
+- **Loading State**: `AddExpenseScreen` save button now shows `[ ⟳ Saving... ]` with fixed width to prevent layout shift.
+- **Keyboard Handling**: Improved IME actions (Next -> Done) and auto-dismissal.
+- **Touch Targets**: Ensured interactive elements meet 48dp accessibility standards.
+
+### 5. Bug Fix: "Unknown" Members
+- **Problem**: Non-Group (Personal) expenses showed "Unknown" names because participants weren't members of the phantom group context.
+- **Fix**: Updated `GroupDetailViewModel` to enrich the member list by resolving *all* user IDs found in expenses/splits, not just formal group members.
+
+### 6. Code Review Hardening (Post-Audit)
+- **Thread Safety**: Refactored `Formatters.kt` to instantiate `SimpleDateFormat` and `DecimalFormat` locally within functions. This eliminates concurrency risks where multiple threads (e.g., background sync and UI rendering) could corrupt the shared formatter state.
+- **Accessibility & Localization**:
+    - Replaced hardcoded strings in `SyncStatusIcon.kt` with `stringResource()` calls.
+    - Added `semantics` block with `stateDescription` to the `SYNCING` state, ensuring screen readers can correctly identify the active synchronization process.
+    - Standardized all new strings in `strings.xml`.
+- **Financial Correctness**: Updated `BalanceRow` to accept an explicit `currencyCode`. Balances now infer the display currency from the group's expenses (defaulting to "₹") rather than hardcoding the symbol, preparing the UI for multi-currency support.
+
+## Verification Results
+- **Build**: Successfully passed `./gradlew assembleDebug`.
+- **Manual Verification**:
+    - [x] "Unknown" names resolved in personal expenses.
+    - [x] Empty states appear correctly for new users.
+    - [x] Offline mode shows neutral/calm indicators.
+    - [x] Currency and Date headers are consistent.
+    - [x] TalkBack correctly identifies "Syncing changes..." state.

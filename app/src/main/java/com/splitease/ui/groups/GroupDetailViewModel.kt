@@ -9,6 +9,7 @@ import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
+import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
@@ -99,6 +100,7 @@ class GroupDetailViewModel @Inject constructor(
     private val settlementDao: SettlementDao,
     private val settlementRepository: SettlementRepository,
     private val groupRepository: GroupRepository,
+    private val userDao: UserDao,
     private val syncDao: SyncDao,
     private val syncRepository: SyncRepository,
     private val userContext: UserContext
@@ -142,9 +144,35 @@ class GroupDetailViewModel @Inject constructor(
         groupDao.getGroupMembersWithDetails(groupId),
         expenseDao.getExpensesForGroup(groupId),
         expenseDao.getAllExpenseSplitsForGroup(groupId),
-        settlementDao.getSettlementsForGroup(groupId)
-    ) { group: Group?, members: List<User>, expenses: List<Expense>, splits: List<ExpenseSplit>, settlements: List<com.splitease.data.local.entities.Settlement> ->
-        GroupData(group, members, expenses, splits, settlements)
+        settlementDao.getSettlementsForGroup(groupId),
+        userDao.getAllUsers()
+    ) { args: Array<Any?> ->
+        val group = args[0] as Group?
+        val members = args[1] as List<User>
+        val expenses = args[2] as List<Expense>
+        val splits = args[3] as List<ExpenseSplit>
+        val settlements = args[4] as List<com.splitease.data.local.entities.Settlement>
+        val allUsers = args[5] as List<User>
+
+        // Enrich members: Start with group members, add any other user found in expenses/splits/settlements
+        val memberIds = members.map { it.id }.toSet()
+        val participantIds = mutableSetOf<String>()
+        
+        expenses.forEach { participantIds.add(it.createdByUserId) }
+        splits.forEach { participantIds.add(it.userId) }
+        settlements.forEach { 
+            participantIds.add(it.fromUserId)
+            participantIds.add(it.toUserId) 
+        }
+        
+        // Find users who are participants but NOT in the group member list
+        val missingUserIds = participantIds - memberIds
+        val missingUsers = allUsers.filter { it.id in missingUserIds }
+        
+        // Final list: Group members + detected extra participants
+        val enrichedMembers = members + missingUsers
+        
+        GroupData(group, enrichedMembers.distinctBy { it.id }, expenses, splits, settlements)
     }
 
     // Combine sync context (renamed to avoid conflict with SyncState enum)
