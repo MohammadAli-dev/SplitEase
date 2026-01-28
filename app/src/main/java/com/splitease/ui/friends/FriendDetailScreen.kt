@@ -481,13 +481,14 @@ private fun ConnectionStatusBanner(
  * - DirectExpense: person icon and "Direct Expense" as subtitle.
  * - SettlementItem: check-circle icon, "Settlement" as subtitle, and teal tint for title, icon, and amount.
  *
- * The amount is shown with a "₹" currency symbol and the date is formatted as "MMM dd, yyyy".
+ * The amount is shown formatted via `Formatters.formatMoney` and the date is formatted as "MMM dd, yyyy".
  *
  * @param transaction The ledger item to render; supported subtypes are `GroupExpense`, `DirectExpense`, and `SettlementItem`.
  */
 @Composable
 private fun TransactionItem(transaction: FriendLedgerItem) {
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    val formattedAmount = com.splitease.ui.common.Formatters.formatMoney(transaction.amount, "INR")
     
     // Determine icon
     val icon = when (transaction) {
@@ -548,7 +549,7 @@ private fun TransactionItem(transaction: FriendLedgerItem) {
         }
         
         Text(
-            text = "₹${transaction.amount}",
+            text = formattedAmount,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             color = if (isSettlement) Color(0xFF009688) else MaterialTheme.colorScheme.primary

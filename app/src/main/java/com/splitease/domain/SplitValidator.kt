@@ -40,7 +40,7 @@ object SplitValidator {
         return if (sum.compareTo(total) == 0) {
             SplitValidationResult.Valid
         } else {
-            SplitValidationResult.Invalid("Sum (₹$sum) must equal total (₹$total)")
+            SplitValidationResult.Invalid("Sum ($sum) must equal total ($total)")
         }
     }
 

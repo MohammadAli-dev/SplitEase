@@ -452,7 +452,9 @@ fun GroupDetailScreen(
                                          val user = state.members.find { it.id == userId }
                                          val isOwed = amount.signum() > 0
                                          // Infer currency from first expense or default to INR
-                                         val currencyCode = state.expenses.firstOrNull()?.currency ?: "₹"
+                                         // TEMPORARY: Currency inferred from first expense.
+                                         // Group.primaryCurrency will replace this.
+                                         val currencyCode = state.expenses.firstOrNull()?.currency ?: "INR"
                                          
                                          BalanceRow(
                                              userName = user?.name ?: "Unknown",

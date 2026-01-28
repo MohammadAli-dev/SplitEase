@@ -63,9 +63,12 @@ class PersonalLedgerViewModel @Inject constructor(
                 val friendBalance = dashboardSummary.friendBalances.find { it.friendId == friendId }
                 val balance = friendBalance?.balance ?: BigDecimal.ZERO
                 
+                val currency = "INR" // TEMPORARY assumption
+                val formattedBalance = com.splitease.ui.common.Formatters.formatMoney(balance.abs(), currency)
+                
                 val balanceText = when {
-                    balance > BigDecimal.ZERO -> "owes you ₹${balance}"
-                    balance < BigDecimal.ZERO -> "you owe ₹${balance.abs()}"
+                    balance > BigDecimal.ZERO -> "owes you $formattedBalance"
+                    balance < BigDecimal.ZERO -> "you owe $formattedBalance"
                     else -> "settled up"
                 }
                 

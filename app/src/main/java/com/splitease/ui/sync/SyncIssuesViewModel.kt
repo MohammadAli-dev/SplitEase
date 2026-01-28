@@ -150,7 +150,8 @@ class SyncIssuesViewModel @Inject constructor(
                         SyncEntityType.GROUP -> batch.groupNames[op.entityId]?.let { DisplayName.Text(it) }
                             ?: DisplayName.Resource(R.string.deleted_group)
                         SyncEntityType.SETTLEMENT -> batch.settlementAmounts[op.entityId]?.let { 
-                            DisplayName.Text("Settlement (₹$it)") 
+                            val formatted = com.splitease.ui.common.Formatters.formatMoney(it, "INR")
+                            DisplayName.Text("Settlement ($formatted)") 
                         } ?: DisplayName.Resource(R.string.deleted_settlement)
                         SyncEntityType.USER -> batch.userNames[op.entityId]?.let { DisplayName.Text("User: $it") }
                             ?: DisplayName.Resource(R.string.deleted_user)

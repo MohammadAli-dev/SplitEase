@@ -226,11 +226,15 @@ private fun LedgerItemRow(
 ) {
     val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     
+    val formattedAmount = com.splitease.ui.common.Formatters.formatMoney(item.amount, "INR")
+    val formattedMyShare = com.splitease.ui.common.Formatters.formatMoney(item.myShare, "INR")
+    val formattedDiff = com.splitease.ui.common.Formatters.formatMoney(item.amount - item.myShare, "INR")
+
     // Determine subtitle based on expense type
     val subtitle = when (item) {
         is FriendLedgerItem.GroupExpense -> item.groupName
-        is FriendLedgerItem.DirectExpense -> "${item.payerName} paid ₹${item.amount}"
-        is FriendLedgerItem.SettlementItem -> "${item.payerName} paid ₹${item.amount}"
+        is FriendLedgerItem.DirectExpense -> "${item.payerName} paid $formattedAmount"
+        is FriendLedgerItem.SettlementItem -> "${item.payerName} paid $formattedAmount"
     }
     
     // Determine icon
@@ -261,9 +265,9 @@ private fun LedgerItemRow(
         if (item.paidByCurrentUser) "you paid" else "${item.payerName} paid"
     } else {
         if (item.paidByCurrentUser) {
-            "you lent ₹${item.amount - item.myShare}"
+            "you lent $formattedDiff"
         } else {
-            "you borrowed ₹${item.myShare}"
+            "you borrowed $formattedMyShare"
         }
     }
     
@@ -310,7 +314,7 @@ private fun LedgerItemRow(
         // Amount + Share info
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = "₹${item.amount}",
+                text = formattedAmount,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = if (isSettlement) Color(0xFF009688) else Color.Unspecified

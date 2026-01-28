@@ -592,6 +592,13 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
     - Standardized all new strings in `strings.xml`.
 - **Financial Correctness**: Updated `BalanceRow` to accept an explicit `currencyCode`. Balances now infer the display currency from the group's expenses (defaulting to "₹") rather than hardcoding the symbol, preparing the UI for multi-currency support.
 
+### 7. Sprint 26: Currency Correctness & ISO Normalization
+- **Core Refactor**: Replaced "₹" fallback with "INR" (ISO-4217) across the entire app.
+- **Architectural Lock**: Updated `BalanceCalculator` to explicitly accept a `currencyCode` parameter, enforced via "Architecture Lock" comments in code.
+- **Formatting Standardization**: Refactored all currency string interpolations (e.g., `₹${amount}`) to use `Formatters.formatMoney(amount, "INR")`. Symbols are now exclusively managed in `Formatters.kt`.
+- **Domain Hardening**: Deprecated and neutralized `MoneyFormatter` (Domain) to prevent symbol leakage.
+- **Verification**: Verified zero matches for raw "₹"/"$" in non-UI files (via grep).
+
 ## Verification Results
 - **Build**: Successfully passed `./gradlew assembleDebug`.
 - **Manual Verification**:
@@ -600,3 +607,4 @@ This sprint focused on refining the user experience with "Clarity, Confidence, a
     - [x] Offline mode shows neutral/calm indicators.
     - [x] Currency and Date headers are consistent.
     - [x] TalkBack correctly identifies "Syncing changes..." state.
+    - [x] All currency amounts display "₹" correctly via ISO mapping.
