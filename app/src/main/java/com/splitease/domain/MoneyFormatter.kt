@@ -16,7 +16,7 @@ object MoneyFormatter {
     @Deprecated(
         message = "Use UI-layer Formatters.formatMoney(amount, currencyCode) instead.",
         replaceWith = ReplaceWith(
-            "com.splitease.ui.common.Formatters.formatMoney(amount, \"INR\")",
+            "Formatters.formatMoney(amount, \"INR\")",
             "com.splitease.ui.common.Formatters"
         )
     )
