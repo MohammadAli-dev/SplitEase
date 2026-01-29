@@ -725,6 +725,11 @@ This sprint addressed a critical correctness issue where the synchronization pip
 - **Explicit States**: Success, AuthPaused, and Error.
 - **Consumer Alignment**: Updated `LedgerSyncCoordinator` and `HydrationCoordinator` to handle `AuthPaused` as a graceful partial-success, eliminating "liar success" patterns (masking auth pauses as empty data).
 
+### 5. Hydration State Machine Correction
+- **Issue**: `hydrationAttempted` flag was leaking as `true` if hydration aborted during the network pull phase.
+- **Impact**: Could trigger incorrect database remediation (full wipe) on subsequent app launches.
+- **Fix**: Added explicit resets (`setHydrationAttempted(false)`) in the `AuthPaused` and `Error` branches of `HydrationCoordinator` to ensure the flag only remains `true` if the database has entered a potentially "dirty" write-capable state.
+
 ## Verification Results
 - **Build**: Successfully passed.
 - **Correctness**: The app now stays silent regarding sync until the user actually logs in.
