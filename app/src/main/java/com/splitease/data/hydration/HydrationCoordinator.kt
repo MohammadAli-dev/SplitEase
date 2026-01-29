@@ -144,10 +144,12 @@ class HydrationCoordinatorImpl @Inject constructor(
                 is PullResult.AuthPaused -> {
                     Log.i(TAG, "Hydration paused: missing auth context")
                     // If auth is paused DURING hydration, we MUST abort because we can't get data.
+                    deviceRoleManager.setHydrationAttempted(false)
                     return@withContext HydrationResult.Aborted("Authentication paused during hydration")
                 }
                 is PullResult.Error -> {
                     Log.e(TAG, "Failed to pull ledger operations", pullResult.throwable)
+                    deviceRoleManager.setHydrationAttempted(false)
                     return@withContext HydrationResult.Failed(pullResult.throwable)
                 }
             }
