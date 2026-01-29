@@ -58,6 +58,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Reliable Sync** | Background sync retries automatically until successful. |
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
 | **Zero Orphans** | Identity consolidation aborts if any data row cannot be safely merged, preventing orphaned references. |
+| **Auth-Gated Sync** | Prevents sync attempts until a cloud identity is established. No pre-login noise. |
 
 ---
 
@@ -106,6 +107,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **UX & Cosmetic Polish** | ✅ Complete | **Sprint 25B**: "Calm" offline states, standardized formatting, improved empty states, and Code Review hardening (A11y/Thread-Safety). |
 | **Currency Correctness** | ✅ Complete | **Sprint 26.1**: Strict ISO-4217 compliance. No hardcoded symbols in Domain/UI. |
 | **Fail-Closed Currency** | ✅ Complete | **Sprint 26.2**: Strict write-blocking for indeterministic currency (No "INR" invention). |
+| **Auth-Gated Sync** | ✅ Complete | **Sprint 28**: Pipeline gated on Cloud Identity to prevent pre-login errors. |
 
 
 ### 🎯 Sync Status Indicators

@@ -69,10 +69,12 @@ class LedgerPullServiceImpl @Inject constructor(
             // Using the anon key as a Bearer token would treat the request as unauthenticated.
             val accessToken = tokenManager.getAccessToken()
             
-            // DEBUG: Distinguish Null Token vs Rejection
+            // FAIL-SOFT CHECK (Sprint 28):
+            // If token is missing, we are "Logged In but Offline/Expired".
+            // Do NOT throw exception. Just return empty list to pause sync gracefully.
             if (accessToken == null) {
-                Log.e(TAG, "DIAG: accessToken is NULL. TokenManager did not return a token.")
-                return@withContext Result.failure(IllegalStateException("No access token available for pull"))
+                Log.i(TAG, "Skipping pull: No access token (Offline/Expired)")
+                return@withContext Result.success(emptyList<LedgerOperation>())
             }
             Log.d(TAG, "DIAG: accessToken retrieved successfully (length=${accessToken.length})")
 

@@ -41,6 +41,7 @@ class LedgerSyncCoordinatorImpl @Inject constructor(
     private val db: AppDatabase,
     private val ledgerPullService: LedgerPullService,
     private val replayEngine: ReplayEngine,
+    private val tokenManager: com.splitease.data.auth.TokenManager,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : LedgerSyncCoordinator {
 
@@ -50,6 +51,13 @@ class LedgerSyncCoordinatorImpl @Inject constructor(
 
     override suspend fun sync(): LedgerSyncResult = withContext(ioDispatcher) {
         try {
+            // Secondary Gate: Ensure we still have a bound identity before attempting expensive pull.
+            // This mirrors SyncWorker's gate but protects against direct calls or race conditions.
+            if (tokenManager.getCloudUserId() == null) {
+                 Log.i(TAG, "Skipping sync: No bound identity")
+                 return@withContext LedgerSyncResult.Success
+            }
+
             Log.d(TAG, "Starting ledger pull sync...")
 
             // 1. Pull all operations from Supabase

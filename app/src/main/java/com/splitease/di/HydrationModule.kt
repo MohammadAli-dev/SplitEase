@@ -70,8 +70,9 @@ object HydrationModule {
         db: AppDatabase,
         ledgerPullService: LedgerPullService,
         replayEngine: ReplayEngine,
+        tokenManager: TokenManager,
         @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): LedgerSyncCoordinator {
-        return LedgerSyncCoordinatorImpl(db, ledgerPullService, replayEngine, ioDispatcher)
+        return LedgerSyncCoordinatorImpl(db, ledgerPullService, replayEngine, tokenManager, ioDispatcher)
     }
 }

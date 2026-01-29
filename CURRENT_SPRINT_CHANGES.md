@@ -693,3 +693,33 @@ This stabilization sprint enforces a strict "Fail-Closed" architecture for curre
      - [x] First expense in a new group succeeds.
 
 ---
+
+---
+
+# Sprint 28: Auth-Gated Sync Correction
+
+## Overview
+This sprint addressed a critical correctness issue where the synchronization pipeline (Push/Pull) would attempt to run on fresh installs or unauthenticated states, leading to confusing error logs (`IllegalStateException`) and violating the offline-first architecture.
+
+## Key Changes
+
+### 1. Authentic Identity Gating
+- **Invariant**: Sync eligibility is now strictly determined by the presence of a **Bound Cloud Identity** (`tokenManager.getCloudUserId()`).
+- **Gate Implementation in `SyncWorker`**:
+    - Before any work begins, the worker checks if a Cloud Identity exists.
+    - If missing (guest/fresh install), it logs `INFO` "Skipping sync: No bound cloud identity" and returns `Success`.
+    - This prevents both Push and Pull phases from executing in invalid states.
+
+### 2. Secondary Safety Gates
+- **`LedgerSyncCoordinator`**: Added a secondary check for Cloud Identity at the start of `sync()` to protect against direct calls or race conditions.
+- **`LedgerPullService`**: Implemented **Fail-Soft** token retrieval.
+    - Old: Threw `IllegalStateException` if token was null.
+    - New: Returns `Result.success(emptyList<LedgerOperation>())` with an Info log.
+    - Benefit: Distinguishes "Gate Violation" (handled by Worker) from "Transient Offline/Expiry" (handled by Service).
+
+### 3. Dependency Injection Update
+- Updated `HydrationModule` to inject `TokenManager` into `LedgerSyncCoordinator`, ensuring the new gating logic has access to the authoritative identity state.
+
+## Verification Results
+- **Build**: Successfully passed.
+- **Correctness**: The app now stays silent regarding sync until the user actually logs in.
