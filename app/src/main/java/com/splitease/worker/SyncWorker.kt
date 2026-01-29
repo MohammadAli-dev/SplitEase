@@ -29,7 +29,8 @@ class SyncWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val syncRepository: SyncRepository,
     private val pullSyncService: PullSyncService,
-    private val ledgerSyncCoordinator: LedgerSyncCoordinator
+    private val ledgerSyncCoordinator: LedgerSyncCoordinator,
+    private val tokenManager: com.splitease.data.auth.TokenManager
 ) : CoroutineWorker(context, params) {
 
     companion object {
@@ -48,6 +49,14 @@ class SyncWorker @AssistedInject constructor(
      */
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting sync work...")
+
+        // GATE: Sync eligibility (Sprint 28)
+        // Strictly require a bound Cloud Identity. Guest users (local-only) or fresh installs MUST NOT sync.
+        // This is the primary gate preventing "Auth-before-Sync" violations.
+        if (tokenManager.getCloudUserId() == null) {
+            Log.i(TAG, "Skipping sync: No bound cloud identity (Fresh/Guest)")
+            return Result.success()
+        }
         
         return try {
             // 1️⃣ PUSH FIRST: Process all pending operations (FIFO order)

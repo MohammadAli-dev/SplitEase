@@ -31,14 +31,16 @@ interface LedgerPullService {
      * - Sorting is performed locally, NOT trusting Supabase ordering.
      * - Payloads are passed through opaquely.
      *
-     * @return Result.success with sorted operations, or Result.failure on error.
+     * @return [PullResult.Success] with sorted operations, [PullResult.AuthPaused] if offline, or [PullResult.Error] on error.
      */
-    suspend fun fetchAllOperations(): Result<List<LedgerOperation>>
+    suspend fun fetchAllOperations(): PullResult<List<LedgerOperation>>
 
     /**
      * Fetch user profiles for the given list of user IDs.
+     *
+     * @return [PullResult.Success] with user profiles, [PullResult.AuthPaused] if offline, or [PullResult.Error] on error.
      */
-    suspend fun fetchUserProfiles(userIds: List<String>): Result<List<com.splitease.data.local.entities.User>>
+    suspend fun fetchUserProfiles(userIds: List<String>): PullResult<List<com.splitease.data.local.entities.User>>
 }
 
 @Singleton
@@ -53,26 +55,25 @@ class LedgerPullServiceImpl @Inject constructor(
         private const val PAGE_SIZE = 1000
     }
 
-    override suspend fun fetchAllOperations(): Result<List<LedgerOperation>> = withContext(Dispatchers.IO) {
+    override suspend fun fetchAllOperations(): PullResult<List<LedgerOperation>> = withContext(Dispatchers.IO) {
         try {
             // NOTE: We do NOT check AuthState here because hydration may be called BEFORE
             // AuthState.Authenticated is emitted (Sprint 23). Instead, we rely on TokenManager.
             // If called without valid tokens, it will fail gracefully below.
 
             if (!AuthConfig.isConfigured) {
-                return@withContext Result.failure(IllegalStateException("Auth not configured"))
+                return@withContext PullResult.Error(IllegalStateException("Auth not configured"))
             }
 
             // ATOMIC CREDENTIAL RETRIEVAL
-            // CRITICAL: We must use the user's JWT access token, NOT the static anon/public key.
-            // Supabase RLS (Row Level Security) relies on the JWT claims to determine row ownership.
-            // Using the anon key as a Bearer token would treat the request as unauthenticated.
             val accessToken = tokenManager.getAccessToken()
             
-            // DEBUG: Distinguish Null Token vs Rejection
+            // AUTH GATE (Sprint 28 Refined):
+            // If token is missing, we are "Logged In but Offline/Expired".
+            // Return AuthPaused to signal the coordinator to defer sync gracefully.
             if (accessToken == null) {
-                Log.e(TAG, "DIAG: accessToken is NULL. TokenManager did not return a token.")
-                return@withContext Result.failure(IllegalStateException("No access token available for pull"))
+                Log.i(TAG, "Skipping pull: No access token (AuthPaused)")
+                return@withContext PullResult.AuthPaused
             }
             Log.d(TAG, "DIAG: accessToken retrieved successfully (length=${accessToken.length})")
 
@@ -93,7 +94,7 @@ class LedgerPullServiceImpl @Inject constructor(
                 if (!response.isSuccessful) {
                     val errorBody = response.errorBody()?.string()
                     Log.e(TAG, "Failed to fetch ledger operations: ${response.code()} - $errorBody")
-                    return@withContext Result.failure(
+                    return@withContext PullResult.Error(
                         RuntimeException("Failed to fetch ledger operations: ${response.code()}")
                     )
                 }
@@ -111,10 +112,10 @@ class LedgerPullServiceImpl @Inject constructor(
                 .sortedWith(compareBy({ it.deviceId }, { it.logicalClock }))
 
             Log.d(TAG, "Total operations fetched and sorted: ${sortedOperations.size}")
-            Result.success(sortedOperations)
+            PullResult.Success(sortedOperations)
         } catch (e: Exception) {
             Log.e(TAG, "Exception fetching ledger operations", e)
-            Result.failure(e)
+            PullResult.Error(e)
         }
     }
 
@@ -161,13 +162,18 @@ class LedgerPullServiceImpl @Inject constructor(
         )
     }
 
-    override suspend fun fetchUserProfiles(userIds: List<String>): Result<List<com.splitease.data.local.entities.User>> = withContext(Dispatchers.IO) {
-        if (userIds.isEmpty()) return@withContext Result.success(emptyList())
+    override suspend fun fetchUserProfiles(userIds: List<String>): PullResult<List<com.splitease.data.local.entities.User>> = withContext(Dispatchers.IO) {
+        if (userIds.isEmpty()) return@withContext PullResult.Success(emptyList())
         
         try {
-            val accessToken = tokenManager.getAccessToken() ?: return@withContext Result.failure(
-                IllegalStateException("No access token available for user fetch")
-            )
+            val accessToken = tokenManager.getAccessToken() 
+            
+            // AUTH GATE (Sprint 28 Refined):
+            // Consistent with fetchAllOperations.
+            if (accessToken == null) {
+                Log.i(TAG, "Skipping user fetch: No access token (AuthPaused)")
+                return@withContext PullResult.AuthPaused
+            }
             
             // POSTGREST SYNTAX FIX:
             // 1. Filter out non-UUIDs (legacy/phantom IDs like "22fe") to avoid 400 Bad Request
@@ -183,7 +189,7 @@ class LedgerPullServiceImpl @Inject constructor(
             
             if (validUuids.isEmpty()) {
                 Log.d(TAG, "No valid UUIDs found to hydrate (skipped ${userIds.size} non-UUIDs)")
-                return@withContext Result.success(emptyList())
+                return@withContext PullResult.Success(emptyList())
             }
 
             // Format filter: in.("id1","id2")
@@ -200,7 +206,7 @@ class LedgerPullServiceImpl @Inject constructor(
             if (!response.isSuccessful) {
                  val errorBody = response.errorBody()?.string()
                  Log.e(TAG, "Failed to fetch users: ${response.code()} - $errorBody")
-                 return@withContext Result.failure(RuntimeException("Failed to fetch users: ${response.code()}"))
+                 return@withContext PullResult.Error(RuntimeException("Failed to fetch users: ${response.code()}"))
             }
             
             val remoteUsers = response.body() ?: emptyList()
@@ -213,10 +219,10 @@ class LedgerPullServiceImpl @Inject constructor(
                     profileUrl = remote.avatar_url
                 )
             }
-            Result.success(localUsers)
+            PullResult.Success(localUsers)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching user profiles", e)
-            Result.failure(e)
+            PullResult.Error(e)
         }
     }
 }
