@@ -62,13 +62,19 @@ class LedgerSyncCoordinatorImpl @Inject constructor(
 
             // 1. Pull all operations from Supabase
             val pullResult = ledgerPullService.fetchAllOperations()
-            if (pullResult.isFailure) {
-                val error = pullResult.exceptionOrNull() ?: RuntimeException("Unknown pull error")
-                Log.e(TAG, "Failed to pull ledger operations", error)
-                return@withContext LedgerSyncResult.Failed(error)
+            
+            val remoteOps = when (pullResult) {
+                is PullResult.Success -> pullResult.data
+                is PullResult.AuthPaused -> {
+                    Log.i(TAG, "Ledger pull paused: missing auth context")
+                    return@withContext LedgerSyncResult.Success // Graceful pause
+                }
+                is PullResult.Error -> {
+                    Log.e(TAG, "Failed to pull ledger operations", pullResult.throwable)
+                    return@withContext LedgerSyncResult.Failed(pullResult.throwable)
+                }
             }
 
-            val remoteOps = pullResult.getOrNull() ?: emptyList()
             Log.d(TAG, "Pulled ${remoteOps.size} ledger operations from server")
 
             // TRANSACTIONALITY FIX:
@@ -117,12 +123,18 @@ class LedgerSyncCoordinatorImpl @Inject constructor(
                 Log.d(TAG, "Hydrating ${missingUserIds.size} missing user profiles...")
                 val userFetchResult = ledgerPullService.fetchUserProfiles(missingUserIds)
 
-                if (userFetchResult.isSuccess) {
-                    val profiles = userFetchResult.getOrThrow()
-                    db.userDao().insertUsers(profiles)
-                    Log.d(TAG, "Successfully hydrated ${profiles.size} user profiles")
-                } else {
-                    Log.w(TAG, "Failed to hydrate user profiles: ${userFetchResult.exceptionOrNull()?.message}")
+                when (userFetchResult) {
+                    is PullResult.Success -> {
+                        val profiles = userFetchResult.data
+                        db.userDao().insertUsers(profiles)
+                        Log.d(TAG, "Successfully hydrated ${profiles.size} user profiles")
+                    }
+                    is PullResult.AuthPaused -> {
+                        Log.i(TAG, "User profile hydration paused: missing auth")
+                    }
+                    is PullResult.Error -> {
+                        Log.w(TAG, "Failed to hydrate user profiles: ${userFetchResult.throwable.message}")
+                    }
                 }
             }
         } catch (e: Exception) {

@@ -712,13 +712,18 @@ This sprint addressed a critical correctness issue where the synchronization pip
 
 ### 2. Secondary Safety Gates
 - **`LedgerSyncCoordinator`**: Added a secondary check for Cloud Identity at the start of `sync()` to protect against direct calls or race conditions.
-- **`LedgerPullService`**: Implemented **Fail-Soft** token retrieval.
-    - Old: Threw `IllegalStateException` if token was null.
-    - New: Returns `Result.success(emptyList<LedgerOperation>())` with an Info log.
-    - Benefit: Distinguishes "Gate Violation" (handled by Worker) from "Transient Offline/Expiry" (handled by Service).
+- **`LedgerPullService`**: Implemented **Explicit Auth-Gating** via `AuthPaused`.
+    - Old: Threw `IllegalStateException` or returned ambiguous `Result.success(emptyList())`.
+    - New: Returns `PullResult.AuthPaused`.
+    - Benefit: Distinguishes "Gate Violation" (handled by Worker) from "Transient Offline/Expiry" (handled by Service) using a typed contract.
 
 ### 3. Dependency Injection Update
 - Updated `HydrationModule` to inject `TokenManager` into `LedgerSyncCoordinator`, ensuring the new gating logic has access to the authoritative identity state.
+
+### 4. Contract Standardization (`PullResult`)
+- **Sealed Result Type**: Introduced `PullResult<T>` to replace binary `Result<T>` in the sync pipeline.
+- **Explicit States**: Success, AuthPaused, and Error.
+- **Consumer Alignment**: Updated `LedgerSyncCoordinator` and `HydrationCoordinator` to handle `AuthPaused` as a graceful partial-success, eliminating "liar success" patterns (masking auth pauses as empty data).
 
 ## Verification Results
 - **Build**: Successfully passed.
