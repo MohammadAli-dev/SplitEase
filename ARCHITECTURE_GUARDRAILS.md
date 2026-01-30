@@ -177,3 +177,17 @@ baseState.collectLatest { repoState ->
 - ❌ `combine(repoFlow, _uiState) { ... }`: Creates feedback loops and race conditions.
 - ❌ Setting `_uiState.value = ...` directly inside flows (lost updates).
 - ❌ Deriving transient flags from repository data.
+
+---
+
+## 9. Identity & Replay Guardrails (Sprint 28.5)
+
+### 9.1 Ledger-First Identity
+User creation must be ledger-driven.
+- **Rule**: Never insert a `User` row without a corresponding `USER.CREATE` `LedgerOperation`.
+- **Enforcement**: Always use `db.insertUserWithLedger()` for the current user and `ReplayEngine` for remote users.
+
+### 9.2 Dependency Deferral
+The `ReplayEngine` is the authoritative owner of entity lifecycle.
+- **Rule**: Operations referencing an entity (Expense -> User, Member -> Group) must wait for the parent/dependency entity to exist.
+- **Implementation**: Handled via `canApplyOperation()` deferral logic. No "dummy" or "placeholder" entities should be created to satisfy FK constraints.

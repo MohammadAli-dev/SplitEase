@@ -92,3 +92,24 @@ ChatGPT argued we should "move transactions to the repository level." This is:
 - **Introduces inconsistency** (some ops atomic, some not)
 
 Our entity-specific pattern is the correct design given Room's constraints.
+
+---
+
+## 3. Extension: User Registration (Sprint 28.5)
+
+Following the same pattern, `IdentityBootstrapper` was refactored to use a new atomic method in `AppDatabase` to ensure the local user is correctly registered in the ledger:
+
+```kotlin
+@androidx.room.Transaction
+open suspend fun insertUserWithLedger(
+    user: User,
+    syncOp: SyncOperation,
+    ledgerOp: LedgerOperation
+) {
+    userDao().insertUser(user)
+    syncDao().insertSyncOp(syncOp)
+    commitLedgerOp(ledgerOp)
+}
+```
+
+This ensures that the "Me" user is never missing from the ledger, preventing orphaned references even if the initial sync fails or is interrupted.

@@ -57,7 +57,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **No Data Loss** | **Sprint 24 Update**: Atomic "Identity Consolidation" guarantees strict offline-to-online data survival. |
 | **Reliable Sync** | Background sync retries automatically until successful. |
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
-| **Zero Orphans** | Identity consolidation aborts if any data row cannot be safely merged, preventing orphaned references. |
+| **Zero Orphans** | **Sprint 28.5 Update**: Replay Engine strictly defers operations (Expenses/Settlements) until their owner identity exists in the ledger, guaranteeing referential integrity. |
 | **Auth-Gated Sync** | Prevents sync attempts until a cloud identity is established. No pre-login noise. |
 
 ---
