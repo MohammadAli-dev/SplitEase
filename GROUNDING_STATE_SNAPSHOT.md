@@ -11,6 +11,7 @@
 | **Resolution Logic**| **Ledger History** | `ReplayEngine` (Ingest) | Choice is a ledger fact, not transient metadata |
 | **Derivation Layer** | **Read-Path Filter** | `Repository` layer | Effective state projection (Zombies Hidden) |
 | **Sync Layer** | **Auth-Gated** | `SyncWorker.kt` | No sync until cloud identity is bound (Sprint 28) |
+| **Replay Performance** | **O(N*M) Debt** | `ReplayEngine.kt` | Known bottleneck for large ledgers; Cache planned for Sprint 30 |
 | **Supabase Status** | **Authoritative Mirror** | `SplitEaseApi.kt` | Durable exchange layer; PII (Profiles) + Ops |
 
 ---

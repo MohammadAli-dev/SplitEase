@@ -98,7 +98,8 @@ import com.splitease.data.local.entities.User
  * - `insertExpenseWithLedger` (CREATE)
  * - `updateExpenseWithLedger` (UPDATE)
  * - `deleteExpenseWithLedger` (DELETE)
- * - `insertGroupWithMembersAndLedger` (CREATE)
+ * - `insertGroupWithLedger` (CREATE - Simple)
+ * - `insertGroupWithMembersAndLedger` (CREATE - Full)
  * - `removeMemberWithLedger` (DELETE)
  * - `insertSettlementWithLedger` (CREATE)
  *
@@ -339,6 +340,24 @@ abstract fun connectionStateDao(): ConnectionStateDao
     ) {
         groupDao().insertGroup(group)
         groupDao().insertMembers(members)
+        syncDao().insertSyncOp(syncOp)
+        commitLedgerOp(ledgerOp)
+    }
+
+    /**
+     * Atomically inserts a group and records the corresponding sync operation and ledger operation.
+     *
+     * @param group The group to insert.
+     * @param syncOp The SyncOperation that records this change for synchronization.
+     * @param ledgerOp The LedgerOperation to be committed alongside the group.
+     */
+    @androidx.room.Transaction
+    open suspend fun insertGroupWithLedger(
+        group: Group,
+        syncOp: SyncOperation,
+        ledgerOp: LedgerOperation
+    ) {
+        groupDao().insertGroup(group)
         syncDao().insertSyncOp(syncOp)
         commitLedgerOp(ledgerOp)
     }

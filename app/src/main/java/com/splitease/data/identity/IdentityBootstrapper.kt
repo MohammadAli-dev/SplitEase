@@ -20,7 +20,8 @@ class IdentityBootstrapper @Inject constructor(
     private val userDao: UserDao,
     private val groupDao: GroupDao,
     private val db: AppDatabase,
-    private val ledgerOperationFactory: LedgerOperationFactory
+    private val ledgerOperationFactory: LedgerOperationFactory,
+    private val syncWriteService: com.splitease.data.sync.SyncWriteService
 ) {
     /**
      * Ensures the local user identity and virtual containers are registered in the database.
@@ -75,25 +76,35 @@ class IdentityBootstrapper @Inject constructor(
             }
 
             // Verify/Bootstrap Personal Group Container
-            // We use simple INSERT OR IGNORE via DAO here because group creation 
-            // is less sensitive to replay ordering than the User identity itself
-            // in this specific bootstrapping context.
-            // Ideally should be ledgered too, but scope of this task is Identity Integrity.
-            // However, to pass ReplayEngine checks, if we create an expense in Personal Group,
-            // the Personal Group must exist.
+            // We use a check-then-insert pattern here to ensure the core container
+            // is present and durable in the ledger.
             val personalGroupExists = groupDao.getGroupById(com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID) != null
             if (!personalGroupExists) {
-                groupDao.insertGroup(
-                    com.splitease.data.local.entities.Group(
-                        id = com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID,
-                        name = com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_NAME,
-                        type = "OTHER",
-                        createdBy = userId,
-                        createdByUserId = userId,
-                        lastModifiedByUserId = userId
+                val group = com.splitease.data.local.entities.Group(
+                    id = com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID,
+                    name = com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_NAME,
+                    type = "OTHER",
+                    createdBy = userId,
+                    createdByUserId = userId,
+                    lastModifiedByUserId = userId
+                )
+
+                // Every group must have at least one member (the creator) to satisfy UI invariants
+                val members = listOf(
+                    com.splitease.data.local.entities.GroupMember(
+                        groupId = group.id,
+                        userId = userId,
+                        joinedAt = Date()
                     )
                 )
-                  Log.d("IdentityBootstrapper", "Bootstrapped personal group container")
+
+                // Create sync and ledger facts
+                val syncOp = syncWriteService.createGroupCreateSyncOp(group, members)
+                val ledgerOp = ledgerOperationFactory.createGroupCreateOp(group, members, userId)
+
+                // Atomic Commit: Group + Members + Sync + Ledger
+                db.insertGroupWithMembersAndLedger(group, members, syncOp, ledgerOp)
+                Log.d("IdentityBootstrapper", "Bootstrapped personal group container with ledger: ${group.id}")
             } else {
                  Log.d("IdentityBootstrapper", "Personal group container already exists")
             }

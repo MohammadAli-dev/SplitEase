@@ -758,8 +758,8 @@ This sprint bridges the gap between the "Phantom-to-Real" merge logic (Sprint 24
 
 ### 3. Verification & Safety
 - **`ReplayUserDependencyTest`**: Created a new instrumented test suite to verify:
-    - **Partial Ordering**: An expense arriving before its user is deferred and then correctly applied.
-    - **Data Cleanliness**: SQL-level audit confirming zero orphaned references in the database.
+  - **Partial Ordering**: An expense arriving before its user is deferred and then correctly applied.
+  - **Data Cleanliness**: SQL-level audit confirming zero orphaned references in the database.
 - **Zero-Orphan Invariant**: Hardened the system against the "Ghost User" race condition where an offline expense could be created before the local user was formally registered in the ledger.
 
 ## Verification Results

@@ -297,6 +297,18 @@ class ReplayEngineImpl @Inject constructor(
      * - SETTLEMENT CREATE: group must exist
      * - MEMBER DELETE: group must exist
      */
+    /**
+     * Determines if an operation's dependencies (referenced users, groups) exist in the database.
+     *
+     * ⚠️ **PERFORMANCE NOTE (Sprint 28.5 Debt):**
+     * This method currently performs synchronous, per-operation database hits to verify existence.
+     * While correct for v1.0 small-scale ledgers, this WILL become a bottleneck as user data grows.
+     *
+     * **TODO: Session-Scoped Identity Cache**
+     * Instead of per-op DB checks, the parent [replay] session should pre-fetch all known User and Group IDs
+     * into a Memory Cache (HashSet) before the loop starts.
+     * See ARCHITECTURE_GUARDRAILS.md -> Section 10: Replay Performance.
+     */
     private suspend fun canApplyOperation(op: LedgerOperation): Boolean {
         return when (op.entityType) {
             ENTITY_GROUP -> {

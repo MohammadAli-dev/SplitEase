@@ -13,10 +13,14 @@ import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.LedgerOperation
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,6 +32,7 @@ class ReplayUserDependencyTest {
     private lateinit var db: AppDatabase
     private lateinit var replayEngine: ReplayEngine
     private val gson = Gson()
+    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun init() {
@@ -39,7 +44,7 @@ class ReplayUserDependencyTest {
         replayEngine = ReplayEngineImpl(
             db = db,
             gson = gson,
-            ioDispatcher = Dispatchers.Unconfined
+            ioDispatcher = testDispatcher
         )
     }
 
@@ -54,7 +59,7 @@ class ReplayUserDependencyTest {
      * and applies it *only after* the user op arrives.
      */
     @Test
-    fun testReplayDeferral_ExpenseBeforeUser() = runBlocking {
+    fun testReplayDeferral_ExpenseBeforeUser() = runTest(testDispatcher) {
         // Setup: Payer ID and Group ID
         val payerId = "user_payer"
         val groupId = "group_1"
@@ -118,14 +123,16 @@ class ReplayUserDependencyTest {
 
         // 3. Execution: Feed ONLY Expense Op (User missing)
         val result1 = replayEngine.replay(listOf(expenseOp))
-        assert(result1 is ReplayResult.Failed) { "Replay should fail when dependency (User) is missing" }
+        advanceUntilIdle()
+        assertTrue("Replay should fail when dependency (User) is missing", result1 is ReplayResult.Failed)
         
         // Verify Expense NOT in DB
         val expenseInDb = db.expenseDao().getExpenseById("exp_1")
-        assertEquals(null, expenseInDb)
+        assertNull("Expense should not be in DB before its user is created", expenseInDb)
 
         // 4. Execution: Feed Both (Correct Order via Sort)
         val result2 = replayEngine.replay(listOf(expenseOp, userOp))
+        advanceUntilIdle()
         assertEquals(ReplayResult.Success, result2)
 
         // 5. Verify Both Applied
@@ -140,7 +147,7 @@ class ReplayUserDependencyTest {
      * Test Case 2: Data Cleanliness (Sanity Check)
      */
     @Test
-    fun verifyNoOrphanedReferences() = runBlocking {
+    fun verifyNoOrphanedReferences() = runTest(testDispatcher) {
          // Populate valid data
          val userId = "u1"
          db.userDao().insertUser(com.splitease.data.local.entities.User(userId, "Test", null, null))
@@ -153,12 +160,14 @@ class ReplayUserDependencyTest {
              )
          )
          
+         advanceUntilIdle()
+
          // Run diagnostic queries
-         val orphans = db.query(androidx.sqlite.db.SimpleSQLiteQuery(
+         val count = db.query(androidx.sqlite.db.SimpleSQLiteQuery(
              "SELECT count(*) FROM expenses WHERE payerId NOT IN (SELECT id FROM users)"
-         ))
-         orphans.moveToFirst()
-         val count = orphans.getInt(0)
+         )).use { cursor ->
+             if (cursor.moveToFirst()) cursor.getInt(0) else 0
+         }
          assertEquals("Should have zero orphaned expenses", 0, count)
     }
 }
