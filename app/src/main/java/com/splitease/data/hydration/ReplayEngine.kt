@@ -289,16 +289,13 @@ class ReplayEngineImpl @Inject constructor(
 
 
     /**
-     * Check if an operation's dependencies are satisfied.
+     * Determines if an operation's dependencies (referenced users, groups) exist in the database.
      *
      * Dependencies:
      * - UPDATE/DELETE for entity: entity must exist (from prior CREATE)
      * - EXPENSE CREATE: group must exist
      * - SETTLEMENT CREATE: group must exist
      * - MEMBER DELETE: group must exist
-     */
-    /**
-     * Determines if an operation's dependencies (referenced users, groups) exist in the database.
      *
      * ⚠️ **PERFORMANCE NOTE (Sprint 28.5 Debt):**
      * This method currently performs synchronous, per-operation database hits to verify existence.

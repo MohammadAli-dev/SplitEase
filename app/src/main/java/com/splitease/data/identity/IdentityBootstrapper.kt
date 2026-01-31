@@ -12,6 +12,11 @@ import kotlinx.coroutines.flow.firstOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.entities.Group
+import com.splitease.data.local.entities.GroupMember
+import com.splitease.domain.PersonalGroupConstants
+import com.splitease.domain.GroupType
+import com.splitease.data.sync.SyncWriteService
 import java.util.Date
 
 @Singleton
@@ -21,7 +26,7 @@ class IdentityBootstrapper @Inject constructor(
     private val groupDao: GroupDao,
     private val db: AppDatabase,
     private val ledgerOperationFactory: LedgerOperationFactory,
-    private val syncWriteService: com.splitease.data.sync.SyncWriteService
+    private val syncWriteService: SyncWriteService
 ) {
     /**
      * Ensures the local user identity and virtual containers are registered in the database.
@@ -78,12 +83,12 @@ class IdentityBootstrapper @Inject constructor(
             // Verify/Bootstrap Personal Group Container
             // We use a check-then-insert pattern here to ensure the core container
             // is present and durable in the ledger.
-            val personalGroupExists = groupDao.getGroupById(com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID) != null
+            val personalGroupExists = groupDao.getGroupById(PersonalGroupConstants.PERSONAL_GROUP_ID) != null
             if (!personalGroupExists) {
-                val group = com.splitease.data.local.entities.Group(
-                    id = com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_ID,
-                    name = com.splitease.domain.PersonalGroupConstants.PERSONAL_GROUP_NAME,
-                    type = "OTHER",
+                val group = Group(
+                    id = PersonalGroupConstants.PERSONAL_GROUP_ID,
+                    name = PersonalGroupConstants.PERSONAL_GROUP_NAME,
+                    type = GroupType.OTHER,
                     createdBy = userId,
                     createdByUserId = userId,
                     lastModifiedByUserId = userId
@@ -91,7 +96,7 @@ class IdentityBootstrapper @Inject constructor(
 
                 // Every group must have at least one member (the creator) to satisfy UI invariants
                 val members = listOf(
-                    com.splitease.data.local.entities.GroupMember(
+                    GroupMember(
                         groupId = group.id,
                         userId = userId,
                         joinedAt = Date()

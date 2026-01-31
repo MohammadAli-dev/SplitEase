@@ -5,8 +5,11 @@ import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
+import com.splitease.data.local.entities.Settlement
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.local.entities.SyncEntityType
+import com.splitease.data.local.entities.User
+import java.math.BigDecimal
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -38,7 +41,7 @@ interface SyncWriteService {
  * @param settlement The settlement entity whose id, groupId, fromUserId, toUserId and amount are used to build the payload.
  * @return A SyncOperation with operationType "CREATE", entityType "SETTLEMENT", entityId set to settlement.id, and a JSON payload containing the settlement's id, groupId, fromUserId, toUserId and amount (version 1).
  */
-    fun createSettlementCreateSyncOp(settlement: com.splitease.data.local.entities.Settlement): SyncOperation
+    fun createSettlementCreateSyncOp(settlement: Settlement): SyncOperation
 
     /**
  * Creates a SyncOperation that represents an intent to remove a member from a group.
@@ -57,7 +60,7 @@ interface SyncWriteService {
     /**
      * Creates a SyncOperation for a new user (phantom user).
      */
-    fun createUserCreateSyncOp(user: com.splitease.data.local.entities.User): SyncOperation
+    fun createUserCreateSyncOp(user: User): SyncOperation
 }
 
 @Singleton
@@ -126,7 +129,7 @@ class SyncWriteServiceImpl @Inject constructor(
      * @param settlement The settlement to be represented in the sync operation.
      * @return A SyncOperation configured as a `CREATE` for the settlement, with a JSON payload containing the settlement's id, groupId, fromUserId, toUserId, and amount.
      */
-    override fun createSettlementCreateSyncOp(settlement: com.splitease.data.local.entities.Settlement): SyncOperation {
+    override fun createSettlementCreateSyncOp(settlement: Settlement): SyncOperation {
         val payload = SettlementCreatePayload(
             version = 1,
             id = settlement.id,
@@ -181,7 +184,7 @@ class SyncWriteServiceImpl @Inject constructor(
         )
     }
 
-    override fun createUserCreateSyncOp(user: com.splitease.data.local.entities.User): SyncOperation {
+    override fun createUserCreateSyncOp(user: User): SyncOperation {
         val payload = UserCreatePayload(
             version = 1,
             user = user
@@ -224,7 +227,7 @@ data class SettlementCreatePayload(
     val groupId: String,
     val fromUserId: String,
     val toUserId: String,
-    val amount: java.math.BigDecimal
+    val amount: BigDecimal
 )
 
 /**
@@ -251,5 +254,5 @@ data class GroupMemberAddPayload(
  */
 data class UserCreatePayload(
     val version: Int,
-    val user: com.splitease.data.local.entities.User
+    val user: User
 )
