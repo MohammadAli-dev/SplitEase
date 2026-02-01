@@ -177,3 +177,36 @@ baseState.collectLatest { repoState ->
 - ❌ `combine(repoFlow, _uiState) { ... }`: Creates feedback loops and race conditions.
 - ❌ Setting `_uiState.value = ...` directly inside flows (lost updates).
 - ❌ Deriving transient flags from repository data.
+
+---
+
+## 9. Identity & Replay Guardrails (Sprint 28.5)
+
+### 9.1 Ledger-First Identity
+User creation must be ledger-driven.
+- **Rule**: Never insert a `User` row without a corresponding `USER.CREATE` `LedgerOperation`.
+- **Enforcement**: Always use `db.insertUserWithLedger()` for the current user and `ReplayEngine` for remote users.
+
+### 9.2 Dependency Deferral
+The `ReplayEngine` is the authoritative owner of entity lifecycle.
+- **Rule**: Operations referencing an entity (Expense -> User, Member -> Group) must wait for the parent/dependency entity to exist.
+- **Implementation**: Handled via `canApplyOperation()` deferral logic. No "dummy" or "placeholder" entities should be created to satisfy FK constraints.
+
+### 9.3 v1.0 Pre-Release Invariants
+This codebase is under active development and has not been released.
+- **Rule**: Ledger backfilling for "orphan" users (users without a `USER.CREATE` operation) is strictly forbidden for the v1.0 launch.
+- **Justification**: Since there are zero pre-ledger users in the wild, adding "backfill" logic (e.g., in `IdentityBootstrapper`) creates dead code and unnecessary complexity.
+- **Enforcement**: All first-time installs must follow the Pattern B (Immediate Write-Ahead) initialization path, ensuring ledger-compliance from day zero.
+
+---
+
+## 10. Replay Performance & Scaling
+
+### 10.1 Dependency Check Optimization
+As the ledger grows beyond v1.0 (5,000+ operations), the cost of synchronous database hits during the convergence loop becomes prohibitive.
+
+- **The Problem**: `canApplyOperation` currently performs multiple `SELECT` queries per operation to check for user/group existence.
+- **The Scaling Strategy**:
+    - **Session Caching**: The `ReplayEngine` should pre-fetch all existing entity IDs into an in-memory `HashSet` at the start of the `replay()` session.
+    - **State Mirroring**: New identities created *during* the replay batch must be updated in the memory set immediately to allow dependent operations in the same batch to proceed without re-querying the DB.
+    - **Constraint**: Do not use Room's `@Relation` or complex Joins for existence checks; keep the "Dumb Courier" logic simple and memory-first.

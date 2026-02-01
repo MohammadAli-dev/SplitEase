@@ -289,13 +289,22 @@ class ReplayEngineImpl @Inject constructor(
 
 
     /**
-     * Check if an operation's dependencies are satisfied.
+     * Determines if an operation's dependencies (referenced users, groups) exist in the database.
      *
      * Dependencies:
      * - UPDATE/DELETE for entity: entity must exist (from prior CREATE)
      * - EXPENSE CREATE: group must exist
      * - SETTLEMENT CREATE: group must exist
      * - MEMBER DELETE: group must exist
+     *
+     * ⚠️ **PERFORMANCE NOTE (Sprint 28.5 Debt):**
+     * This method currently performs synchronous, per-operation database hits to verify existence.
+     * While correct for v1.0 small-scale ledgers, this WILL become a bottleneck as user data grows.
+     *
+     * **TODO: Session-Scoped Identity Cache**
+     * Instead of per-op DB checks, the parent [replay] session should pre-fetch all known User and Group IDs
+     * into a Memory Cache (HashSet) before the loop starts.
+     * See ARCHITECTURE_GUARDRAILS.md -> Section 10: Replay Performance.
      */
     private suspend fun canApplyOperation(op: LedgerOperation): Boolean {
         return when (op.entityType) {
@@ -315,11 +324,18 @@ class ReplayEngineImpl @Inject constructor(
                 }
                 when (op.operationType) {
                     OP_CREATE -> {
-                        // Expense requires group to exist
-                        db.groupDao().getGroupById(snapshot.groupId) != null
+                        val groupExists = db.groupDao().getGroupById(snapshot.groupId) != null
+                        val payerExists = db.userDao().getUserById(snapshot.payerId) != null
+                        val splitsExist = snapshot.splits.all { db.userDao().getUserById(it.userId) != null }
+                        groupExists && payerExists && splitsExist
                     }
-                    OP_UPDATE, OP_DELETE -> {
-                        // Expense must exist (from prior CREATE)
+                    OP_UPDATE -> {
+                        val expenseExists = db.expenseDao().existsById(op.entityId)
+                        val payerExists = db.userDao().getUserById(snapshot.payerId) != null
+                        val splitsExist = snapshot.splits.all { db.userDao().getUserById(it.userId) != null }
+                        expenseExists && payerExists && splitsExist
+                    }
+                    OP_DELETE -> {
                         db.expenseDao().existsById(op.entityId)
                     }
                     else -> true
@@ -334,10 +350,18 @@ class ReplayEngineImpl @Inject constructor(
                 }
                 when (op.operationType) {
                     OP_CREATE -> {
-                        // Settlement requires group to exist
-                        db.groupDao().getGroupById(snapshot.groupId) != null
+                        val groupExists = db.groupDao().getGroupById(snapshot.groupId) != null
+                        val fromUserExists = db.userDao().getUserById(snapshot.fromUserId) != null
+                        val toUserExists = db.userDao().getUserById(snapshot.toUserId) != null
+                        groupExists && fromUserExists && toUserExists
                     }
-                    OP_UPDATE, OP_DELETE -> {
+                    OP_UPDATE -> {
+                        val exists = db.settlementDao().existsById(op.entityId)
+                        val fromUserExists = db.userDao().getUserById(snapshot.fromUserId) != null
+                        val toUserExists = db.userDao().getUserById(snapshot.toUserId) != null
+                        exists && fromUserExists && toUserExists
+                    }
+                    OP_DELETE -> {
                         db.settlementDao().existsById(op.entityId)
                     }
                     else -> true
@@ -350,14 +374,15 @@ class ReplayEngineImpl @Inject constructor(
                     Log.e(TAG, "Failed to parse MemberSnapshot: ${e.message}")
                     return false
                 }
-                // Member operations require group to exist
-                db.groupDao().getGroupById(snapshot.groupId) != null
+                val groupExists = db.groupDao().getGroupById(snapshot.groupId) != null
+                val userExists = db.userDao().getUserById(snapshot.userId) != null
+                groupExists && userExists
             }
-            ENTITY_USER -> true // User creation has no dependencies
-            OP_RESOLVE_CONFLICT -> true // Metadata, always applicable
+            ENTITY_USER -> true
+            OP_RESOLVE_CONFLICT -> true
             else -> {
                 Log.w(TAG, "Unknown entity type: ${op.entityType}")
-                true // Allow unknown types to pass (forward compatibility)
+                true
             }
         }
     }
@@ -569,7 +594,8 @@ class ReplayEngineImpl @Inject constructor(
                     phone = snapshot.phone,
                     profileUrl = snapshot.profileUrl
                 )
-                db.userDao().insertUser(user)
+                // Use upsert to handle both CREATE (if new) and UPDATE (if exists) idempotently
+                db.userDao().upsertUser(user)
                 Log.d(TAG, "Applied USER ${op.operationType}: ${snapshot.id}")
             }
             else -> {

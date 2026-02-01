@@ -23,7 +23,8 @@ SplitEase is a modern Android application for managing shared expenses among gro
 13. [How to Extend the App Safely](#13-how-to-extend-the-app-safely)
 14. [Non-Goals & Intentional Omissions](#14-non-goals--intentional-omissions)
 15. [Project Philosophy](#15-project-philosophy)
-16. [Consistency & Reliability](#16-consistency--reliability)
+16. [Identity Integrity & Zero Orphan Strategy](#16-identity-integrity--zero-orphan-strategy)
+17. [Consistency & Reliability](#17-consistency--reliability)
 
 ---
 
@@ -57,7 +58,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **No Data Loss** | **Sprint 24 Update**: Atomic "Identity Consolidation" guarantees strict offline-to-online data survival. |
 | **Reliable Sync** | Background sync retries automatically until successful. |
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
-| **Zero Orphans** | Identity consolidation aborts if any data row cannot be safely merged, preventing orphaned references. |
+| **Zero Orphans** | **Sprint 28.5 Update**: Replay Engine strictly defers operations (Expenses/Settlements) until their owner identity exists in the ledger, guaranteeing referential integrity. |
 | **Auth-Gated Sync** | Prevents sync attempts until a cloud identity is established. No pre-login noise. |
 
 ---
@@ -109,7 +110,6 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Fail-Closed Currency** | ✅ Complete | **Sprint 26.2**: Strict write-blocking for indeterministic currency (No "INR" invention). |
 | **Auth-Gated Sync** | ✅ Complete | **Sprint 28**: Pipeline gated on Cloud Identity to prevent pre-login errors. |
 
-
 ### 🎯 Sync Status Indicators
 
 | State | Icon | Meaning |
@@ -119,19 +119,20 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | SYNCING | ⏳ | Syncing changes... |
 | IDLE | — | Everything synced |
 
-### ⚠️ Intentionally Simulated & Partially Integrated
+### ⚠️ Technical Limitations (Pre-v1.0)
 | Component | Status | Why |
 |-----------|---|-----|
-| **Remote API (Legacy Sync)** | ⚠️ Mocked | Legacy entity-sync uses OkHttp interceptor simulation. |
-| **Ledger Mirror** | ✅ **Real** | **Supabase PostgREST** integration for durable ledger mirroring. Uses real JWT authorization. |
-| **Auth Backend** | ⚠️ Simulated | Supabase Auth endpoints are active, but intercepted by `MockAuthInterceptor` to bypass email confirmation during dev. |
-| **User Data Fetch** | ⚠️ Mocked | Seed data used for local users not yet linked to Supabase profiles. |
+| **Auth Backend** | ⚠️ Simulated | Supabase Auth endpoints are simulated for dev speed. |
+| **Legacy Sync** | ⚠️ Mocked | Old entity-sync is disabled in favor of Ledger Mirror. |
 
-### 🚧 Future Features (Not Implemented)
-- Push notifications for expense updates
-- Currency conversion
-- Receipt image attachments
-- Export to CSV/PDF
+### 🚀 Roadmap (Upcoming Sprints)
+| Sprint | Feature | Status |
+|--------|---------|--------|
+| **28** | **Auth-Gated Sync** | ✅ Complete |
+| **28.5** | **Identity Integrity** | ✅ Complete (Ledger-First User Creation) |
+| **29** | **Universal Person Pool** | 🚧 Next Up |
+| **30** | **Performance: Replay Cache** | 📅 Planned |
+| **35** | **Replay Optimization** | 📅 Planned |
 
 ---
 
@@ -144,7 +145,7 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 1. **Offline-First**: The local database (Room) is the single source of truth. The UI never observes network responses directly.
 
 2. **Three-Tier Convergence Logic**:
-    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively executes all ledger history unconditionally to ensure raw state convergence.
+    - **Tier 1: Deterministic Reconciliation (`ReplayEngine`)**: Authoritatively executes all ledger history to ensure raw state convergence. While atomically convergent, the execution order for operations referencing an **owner identity** (e.g., `payerId`, `createdByUserId`) is governed by an in-memory convergence loop that defers execution until dependency identities exist.
     - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
     - **Tier 3: Explicit Conflict Resolution (Derivation)**: Repositories join resolution "facts" with raw state to project the Effective State (hiding Zombies/Losers) without corrupting the historical record.
 
@@ -863,10 +864,31 @@ Even though this is a demo, it uses patterns you'd find in production apps:
 - Sealed classes for exhaustive state handling
 
 ---
-
-## 16. Consistency & Reliability
-
-### Consistency Guarantees
+ 
+ ## 16. Identity Integrity & Zero Orphan Strategy
+ 
+ SplitEase employs a multi-layered defense to ensure that financial data is never orphaned from its owner identity.
+ 
+ ### Convergence-Based Deferral (Prevention)
+ Introduced in **Sprint 28.5**, the `ReplayEngine` ensures that any operation referencing a user (via `payerId` or `createdByUserId`) is only applied if that user identity already exists in the local database. 
+ - **Mechanism**: If a dependency is missing during a replay pass, the operation is deferred and retried within the same atomic **Replay Convergence Cycle**. 
+ - **Ordering**: This creates a deterministic, causal ordering where "identity creation" must technically precede "financial activity" in the database projection, regardless of their arrival order in the ledger.
+ 
+ ### Atomic Identity Consolidation (Cleanup)
+ Introduced in **Sprint 24**, this mechanism handles the transition from "Phantom" (guest) identities to "Real" (authenticated) identities.
+ - **Merge Path**: When a user logs in, the system executes an atomic transaction that re-parents all existing local data to the new authoritative cloud identity.
+ - **Invariant Audit**: The merge is followed by an immediate integrity check. If a single record remains linked to the old identity, the transaction rolls back and the login flow is aborted, preventing fragmented data visibility.
+ 
+ | Strategy | Stage | Purpose |
+ |----------|-------|---------|
+ | **Deferral (v28.5)** | Pre-Execution | Prevents "Ghost" data from entering the DB projection during replay. |
+ | **Consolidation (v24)** | Post-Authentication | Migrates existing local history to a new authenticated identity. |
+ 
+ ---
+ 
+ ## 17. Consistency & Reliability
+ 
+ ### Consistency Guarantees
 - **Eventual Consistency**: All devices will reach identical state once all ledger operations propagate.
 - **Causal Consistency**: Multi-device operations are ordered by deterministic clocks, preventing "effect before cause" paradoxes.
 - **Monotonic Read/Writes**: Users never see their own data "disappear" then reappear during sync.

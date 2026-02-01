@@ -733,3 +733,38 @@ This sprint addressed a critical correctness issue where the synchronization pip
 ## Verification Results
 - **Build**: Successfully passed.
 - **Correctness**: The app now stays silent regarding sync until the user actually logs in.
+
+---
+
+# Sprint 28.5: Identity Integrity & Replay Determinism
+
+## Overview
+This sprint bridges the gap between the "Phantom-to-Real" merge logic (Sprint 24) and the "Ledger-Only" architecture (Sprint 22). It ensures that user identities are first-class ledger entities from the moment of creation and that the Replay Engine can deterministically handle out-of-order operations that reference those identities.
+
+## Key Changes
+
+### 1. ReplayEngine: Deterministic Dependency Checking
+- **User Existence Guards**: Updated `canApplyOperation` to strictly block `EXPENSE`, `SETTLEMENT`, and `MEMBER` operations if their referenced `userId`s do not exist in the local database.
+- **Convergence Loop**: Operations with missing users are automatically deferred. The engine now correctly retries these operations in subsequent passes once the prerequisite `USER.CREATE` operation has been replayed.
+- **Idempotent User Upserts**: Refactored `applyUserOperation` to use `upsertUser` (REPLACE strategy). This ensures that both initial creations and subsequent updates (e.g., name changes) are handled safely and idempotently.
+
+### 2. Identity Bootstrapper: Ledger Alignment
+- **Pattern B (Immediate Write-Ahead)**: Aligned the local user bootstrapping flow with the standard ledger pattern.
+- **Atomic Registration**: `ensureLocalUserRegistered` now uses `db.insertUserWithLedger` to atomically commit:
+    1. The `User` record (enabling immediate UI availability).
+    2. A `SyncOperation` (ensuring the fact is pushed to the cloud).
+    3. A `USER.CREATE` `LedgerOperation` (ensuring the fact is durable in the historical timeline).
+- **Personal Group Container**: Ensured the personal group is also bootstrapped if missing, satisfying the `ReplayEngine`'s group existence invariant.
+
+### 3. Verification & Safety
+- **`ReplayUserDependencyTest`**: Created a new instrumented test suite to verify:
+  - **Partial Ordering**: An expense arriving before its user is deferred and then correctly applied.
+  - **Data Cleanliness**: SQL-level audit confirming zero orphaned references in the database.
+- **Zero-Orphan Invariant**: Hardened the system against the "Ghost User" race condition where an offline expense could be created before the local user was formally registered in the ledger.
+
+## Verification Results
+- **Build**: Successfully passed Kotlin compilation.
+- **Tests**: `ReplayUserDependencyTest` passed with 100% success on the target device.
+- **Integrity Audit**: Verified 0 orphaned records in a fresh installation scenario.
+
+---
