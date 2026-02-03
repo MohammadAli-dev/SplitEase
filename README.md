@@ -165,12 +165,17 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
         3.  **Aborts** the transaction if strict Zero-Reference invariant is violated.
     - **Terminal Failure**: If identity consolidation fails, `AuthManager` **clears tokens and refuses login**. We favor crash-safety over data corruption.
 
-5. **Unidirectional Data Flow**: Data flows in one direction:
+5. **Universal Person Architecture (Sprint 29)**:
+    - **Concept**: Separation of "who pays" (Person) from "who is logged in" (User).
+    - **Stable Participation**: Ensures that even if a user account is merged or changed, their historical participation in expenses remains linked via their stable `Person` identity.
+    - **Single-Write Invariant**: All new data MUST use `Person` identifiers. `User` identifiers are relegated to secondary lookup/linkage only.
+
+6. **Unidirectional Data Flow**: Data flows in one direction:
    ```
    User Action → ViewModel → Repository → Room → Flow → UI
    ```
 
-3. **Separation of Concerns**:
+7. **Separation of Concerns**:
    - **UI Layer**: Display only (no business logic)
    - **ViewModel**: State orchestration
    - **Domain Layer**: Pure business logic (calculations, validations)
@@ -334,7 +339,6 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `email` | TEXT | Email address |
 | `profileUrl` | TEXT? | Avatar URL (nullable) |
 
-
 #### `persons` Table (Sprint 29A)
 
 | Column | Type | Description |
@@ -343,6 +347,17 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `displayName` | TEXT | Display name (Metadata) |
 | `linkedUserId` | TEXT? | FK to `users` (Optional binding) |
 | `createdAt` | INTEGER | Timestamp |
+
+### 🛠️ User vs Person (The Identity Separation)
+
+SplitEase distinguishes between human identity and security accounts:
+
+| Concept | Scope | Visibility | Purpose |
+|---------|-------|------------|---------|
+| **User** | Authentication | Private (Email/Profile) | Security, Sync, Token Management |
+| **Person** | Participation | Public (Ledger) | Expenses, Splits, Groups, History |
+
+**Key Invariant**: A `Person` is a stable human identity that can exist before a `User` account is created. This allows you to add friends by name ("Phantom Persons") and have their history merge seamlessly when they eventually join with a real `User` account.
 
 #### `expense_groups` Table
 | Column | Type | Description |

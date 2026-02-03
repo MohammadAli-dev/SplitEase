@@ -16,6 +16,11 @@ data class ExpenseSnapshot(
     val amount: String,
     val currency: String,
     val payerId: String,
+    /**
+     * Canonical Person ID of the payer.
+     * Null for legacy ops; populated for new ops.
+     */
+    val payerPersonId: String? = null,
     val createdBy: String,
     val syncStatus: String,
     /** Epoch millis (from Date.time) */
@@ -36,5 +41,10 @@ data class ExpenseSnapshot(
 data class ExpenseSplitSnapshot(
     val expenseId: String,
     val userId: String,
+    /**
+     * Canonical Person ID of the split participant.
+     * Null for legacy ops; populated for new ops.
+     */
+    val personId: String? = null,
     val amount: String
 )

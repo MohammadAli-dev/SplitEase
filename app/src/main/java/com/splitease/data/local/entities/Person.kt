@@ -12,11 +12,13 @@ import androidx.room.PrimaryKey
  * yet registered users.
  *
  * ## Invariants
- * - **Authority**: The [id] (UUID generated locally) is the ONLY authoritative identifier.
+ * - **Authority**: The [id] (UUID generated locally) is the ONLY authoritative identifier. 
+ *   All ledger operations and domain entities MUST use this ID to reference a person.
  * - **Immutability**: The [id] and [createdAt] fields are immutable forever once persisted.
  * - **One-to-One Binding**: A Person may link to at most one [User] via [linkedUserId].
- * - **Link Immutability**: Once [linkedUserId] is set, it cannot be changed or overwritten
- *   (except via explicit future identity merge flows).
+ * - **Link Immutability**: Once [linkedUserId] is set, it cannot be changed or overwritten.
+ *   This prevents identity drift and ensures that historical participation remains tied
+ *   to a stable human identity even if user accounts are merged or reassigned.
  */
 @Entity(tableName = "persons")
 data class Person(

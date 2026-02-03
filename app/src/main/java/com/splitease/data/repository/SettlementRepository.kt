@@ -9,6 +9,7 @@ import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -76,7 +77,8 @@ class SettlementRepositoryImpl @Inject constructor(
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
     private val deviceRoleManager: DeviceRoleManager,
-    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate
+    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate,
+    private val personDao: com.splitease.data.local.dao.PersonDao
 ) : SettlementRepository {
 
     /**
@@ -111,6 +113,38 @@ class SettlementRepositoryImpl @Inject constructor(
 
     override fun observeSettlementsBetween(userA: String, userB: String): Flow<List<Settlement>> {
         return appDatabase.settlementDao().observeSettlementsBetween(userA, userB)
+            .map { settlements ->
+                hydrateIdentities(settlements)
+            }
+    }
+    
+    // Helper to hydrate list
+    private suspend fun hydrateIdentities(settlements: List<Settlement>): List<Settlement> {
+        return settlements.map { hydrateSettlement(it) }
+    }
+    
+    private suspend fun hydrateSettlement(settlement: Settlement): Settlement {
+        var updated = settlement
+        
+        // Hydrate Payer (From)
+        updated = if (updated.fromPersonId != null) {
+            updated
+        } else {
+             android.util.Log.d("SettlementRepository", "Legacy identity fallback used for settlement ${settlement.id} fromId (personId missing)")
+             val p = personDao.getPersonByLinkedUserId(updated.fromUserId)
+             if (p != null) updated.copy(fromPersonId = p.id) else updated
+        }
+        
+        // Hydrate Payee (To)
+        updated = if (updated.toPersonId != null) {
+            updated
+        } else {
+             android.util.Log.d("SettlementRepository", "Legacy identity fallback used for settlement ${settlement.id} toId (personId missing)")
+             val p = personDao.getPersonByLinkedUserId(updated.toUserId)
+             if (p != null) updated.copy(toPersonId = p.id) else updated
+        }
+        
+        return updated
     }
 
     /**
@@ -151,12 +185,25 @@ class SettlementRepositoryImpl @Inject constructor(
             require(amount.signum() > 0) {
                 "Settlement amount must be positive"
             }
+            
+            // Single-Write Guard: Must resolve Person IDs
+            val fromPerson = personDao.getPersonByLinkedUserId(fromUserId)
+                ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
+                    "Single-Write Violation: Cannot resolve personId for payer $fromUserId"
+                )
+            
+            val toPerson = personDao.getPersonByLinkedUserId(toUserId)
+                ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
+                    "Single-Write Violation: Cannot resolve personId for payee $toUserId"
+                )
 
             val settlement = Settlement(
                 id = UUID.randomUUID().toString(),
                 groupId = groupId,
                 fromUserId = fromUserId,
+                fromPersonId = fromPerson.id, // Mandatory
                 toUserId = toUserId,
+                toPersonId = toPerson.id, // Mandatory
                 amount = amount.setScale(2, RoundingMode.HALF_UP),
                 currency = currency,
                 date = Date(),

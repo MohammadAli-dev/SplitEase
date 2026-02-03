@@ -94,6 +94,7 @@ android {
 // Add KSP configuration block to prevent false validation errors
 ksp {
     arg("dagger.hilt.android.internal.disableAndroidSuperclassValidation", "true")
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

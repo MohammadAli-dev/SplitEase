@@ -17,8 +17,18 @@ import com.splitease.data.identity.IdentityConstants
 data class Settlement(
     @PrimaryKey val id: String,
     val groupId: String,
-    val fromUserId: String,
-    val toUserId: String,
+    val fromUserId: String, // Legacy - userId
+    /**
+     * The Person identity of who paid.
+     * **Sprint 29B**: Authoritative identity reference for new data.
+     */
+    val fromPersonId: String? = null,
+    val toUserId: String, // Legacy - userId
+    /**
+     * The Person identity of who received.
+     * **Sprint 29B**: Authoritative identity reference for new data.
+     */
+    val toPersonId: String? = null,
     val amount: BigDecimal,
     /** Currency code (ISO 4217). Derived from group context at creation time. */
     val currency: String,

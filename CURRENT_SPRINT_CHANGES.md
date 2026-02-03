@@ -798,6 +798,42 @@ This sprint introduces a first-class, app-scoped `Person` identity to SplitEase.
 - **`ReplayPersonTest`**: Verifies deterministic convergence of person operations and strict dependency enforcement.
 - **`BootstrapPersonTest`**: Verifies correct creation of the "Self Person" on fresh installations.
 
+---
+
+# Sprint 29B: Person Reference Migration
+
+## Overview
+This sprint migrates all transaction-level entities (Expenses, Splits, Settlements) to use the authoritative `Person` identity instead of the security `User` identity. This shift completes the decoupling of human participation from authentication accounts, enabling stable, conflict-free participation across identity merges.
+
+## Key Changes
+
+### 1. Schema Migration (Dual-Read Pattern)
+- **Entity Enrichment**: Added `personId` (or variant) to:
+    - `expenses` (`payerPersonId`)
+    - `expense_splits` (`personId`)
+    - `settlements` (`fromPersonId`, `toPersonId`)
+    - `group_members` (`personId`)
+- **Historical Hydration**: Repositories now implement a "Dual-Read" fallback. If the authoritative `personId` is missing (legacy data), the repository resolves it in real-time from the `linkedUserId` map.
+
+### 2. Single-Write Enforcement
+- **Authoritative Writes**: All mutation paths in `ExpenseRepository` and `GroupRepository` now strictly require a resolved `personId`.
+- **Fail-Fast Invariants**: Attempts to write entities without a persistent person reference now trigger a `Stop-the-World` `IdentityInvariantViolationException`.
+- **Zero-Derivation Rule**: The UI and repositories are forbidden from "inventing" person IDs; state must flow from the ledger or the local persistent map.
+
+### 3. Replay Engine Branching
+- **Dependency Tracking**: Refactored `ReplayEngine` to handle out-of-order `LINK_USER` operations. 
+- **Convergence Guard**: The engine automatically defers the binding of a user to a person until both entities exist in the local database.
+
+## Invariants
+- **Stable Identity**: A human participant's participation in an expense is tied to their `Person` UUID, which never changes.
+- **Fail-Closed**: If a person identity cannot be resolved for a user action, the operation is blocked to prevent data corruption.
+- **No Orphaned Participation**: Mandatory `personId` on all new ledger operations ensures referential integrity across all synchronized devices.
+
+## Verification Results
+- **Build**: Successful build with Hilt and Room KSP.
+- **Identity Integrity**: Verified that legacy expenses are correctly hydrated with person references in the UI.
+- **Merge Safety**: Verified that the "Self Person" correctly tracks through logout/login cycles.
+
 ## Verification Results
 - **Build**: Successfully passed.
 - **Tests**: `ReplayPersonTest` and `BootstrapPersonTest` passing 100%.

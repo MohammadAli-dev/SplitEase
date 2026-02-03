@@ -10,6 +10,11 @@ data class MemberSnapshot(
     val schemaVersion: Int = 1,
     val groupId: String,
     val userId: String,
+    /**
+     * Canonical Person ID of the member.
+     * Null for legacy ops; populated for new ops.
+     */
+    val personId: String? = null,
     val joinedAt: Long?,
     /** Populated only for LEAVE/REMOVE operations. */
     val removedAt: Long?
