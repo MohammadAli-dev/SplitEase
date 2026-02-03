@@ -151,11 +151,11 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
     - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
     - **Tier 3: Explicit Conflict Resolution (Derivation)**: Repositories join resolution "facts" with raw state to project the Effective State (hiding Zombies/Losers) without corrupting the historical record.
 
-3. **Identity Architecture (Person vs User)**:
-    - **User**: Represents an authenticated account (Supabase). Primarily used for security, sync gating, and profile metadata (email).
-    - **Person**: Represents a human participant in the ledger. **Planned authoritative identity** for expenses, splits, and settlements (see Sprint 29B).
-    - **Linkage**: A `Person` links to a `User` via the ledger (`OP_LINK_USER`). This decoupling allows for participants who aren't registered users yet ("Phantom Persons") to be upgraded to "Real Users" without breaking historical ledger integrity.
-    - **Self Person**: Every device bootstraps exactly one "Self Person" linked to the authenticated user.
+ 3. **Identity Architecture (Person vs User)**:
+     - **User**: Represents an authenticated account (Supabase). Used for security tokens, sync gating, and profile metadata.
+     - **Person**: Represents a human participant in the ledger. **Authoritative identity** for all expenses, splits, and settlements (Sprint 29A/B).
+     - **Linkage**: A `Person` links to a `User` via the ledger (`OP_LINK_USER`).
+     - **Phantom Support**: Participants can exist as "Phantom Persons" (local-only) and later be linked to a real User without rewriting history.
 
 4. **Atomic Identity Consolidation (Sprint 24 & 29A)**:
     - **`IdentityRepository`**: The authority on user identity state.

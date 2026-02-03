@@ -30,6 +30,8 @@ import org.junit.Test
 import java.math.BigDecimal
 import java.util.Date
 
+import org.junit.Assert.assertTrue
+
 class PersonMigrationRepositoryTest {
 
     private val expenseDao: ExpenseDao = mockk(relaxed = true)
@@ -132,9 +134,8 @@ class PersonMigrationRepositoryTest {
         try {
             repository.addExpense(invalidExpense, splits)
             fail("Should have thrown IdentityInvariantViolationException")
-        } catch (e: IdentityInvariantViolationException) {
             // Success
-            assert(e.message?.contains("Single-Write Violation") == true)
+            assertTrue(e.message?.contains("Single-Write Violation") == true)
         }
     }
 
@@ -160,7 +161,7 @@ class PersonMigrationRepositoryTest {
             fail("Should have thrown IdentityInvariantViolationException")
         } catch (e: IdentityInvariantViolationException) {
             // Success
-            assert(e.message?.contains("Single-Write Violation") == true)
+            assertTrue(e.message?.contains("Single-Write Violation") == true)
         }
     }
 

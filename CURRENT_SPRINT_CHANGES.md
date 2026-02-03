@@ -825,12 +825,19 @@ This sprint migrates all transaction-level entities (Expenses, Splits, Settlemen
 - **Convergence Guard**: The engine automatically defers the binding of a user to a person until both entities exist in the local database.
 
 ## Invariants
-- **Stable Identity**: A human participant's participation in an expense is tied to their `Person` UUID, which never changes.
-- **Fail-Closed**: If a person identity cannot be resolved for a user action, the operation is blocked to prevent data corruption.
-- **No Orphaned Participation**: Mandatory `personId` on all new ledger operations ensures referential integrity across all synchronized devices.
+- **Fail-Fast Invariants**:
+    - **Zero Orphans**: A Person cannot be linked to a non-existent User.
+    - **Immutable Links**: Once linked, a Person's `linkedUserId` cannot be changed.
+    - **Terminal Failure**: If an identity invariant is violated (e.g., during consolidation), the operation or login is ABORTED. We prioritize data safety over availability ("Fail-Fast").
 
-## Verification Results
-- **Build**: Successful build with Hilt and Room KSP.
+- **Feature Details**:
+    - **Convergence Guard (Dependency Branching)**: The engine now strictly defers operations (like `LINK_USER` or `EXPENSE`) if the referenced `Person` does not yet exist.
+        - **Mechanism**: Operations are held in an in-memory deferral queue.
+        - **Retry**: On every successful operation application, the queue is re-scanned.
+        - **Safety**: Prevents "Orphaned Links" where a link operation arrives before the person creation.
+    - **Single-Write / Dual-Read**:
+        - **Write Path (Fail-Fast)**: New operations MUST use `personId`. If a write attempts to use legacy `userId` without a person, it is rejected (Fail-Fast).
+        - **Read Path (Fallback)**: Readers first check `personId`. If null (legacy data), they gracefully fall back to resolving the `userId` to a `Person` via the `persons` table map.
 - **Identity Integrity**: Verified that legacy expenses are correctly hydrated with person references in the UI.
 - **Merge Safety**: Verified that the "Self Person" correctly tracks through logout/login cycles.
 

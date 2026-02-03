@@ -32,11 +32,8 @@ interface PersonDao {
     /**
      * Retrieves a person by their authoritative identity.
      *
-     *
      * @param id The canonical UUID of the person.
      * @return The Person record if found, null otherwise.
-     * @throws IllegalArgumentException if id is blank.
-     */
      */
     @Query("SELECT * FROM persons WHERE id = :id")
     suspend fun getPersonById(id: String): Person?
@@ -47,11 +44,9 @@ interface PersonDao {
      * Useful for checking if the local user already has a "Self Person"
      * or for mapping authenticated users to their canonical person container.
      *
-     *
      * @param userId The ID of the registered User.
      * @return The linked Person if found, null otherwise.
      * @see [getPersonById] for primary identity resolution.
-     */
      */
     @Query("SELECT * FROM persons WHERE linkedUserId = :userId")
     suspend fun getPersonByLinkedUserId(userId: String): Person?

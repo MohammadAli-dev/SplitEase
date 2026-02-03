@@ -456,7 +456,11 @@ class ReplayEngineImpl @Inject constructor(
                     OP_CREATE -> true
                     OP_LINK_USER -> {
                         val snapshot = try {
-                            gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                            val s = gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                            if (s.personId.isNullOrBlank() || s.userId.isNullOrBlank()) {
+                                throw IllegalArgumentException("Legacy JSON deserialization resulted in null/blank IDs")
+                            }
+                            s
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to parse PersonLinkSnapshot: ${e.message}")
                             return false
@@ -464,6 +468,7 @@ class ReplayEngineImpl @Inject constructor(
                         // Check dependencies: Person AND User must exist
                         // Branching Logic: We cannot link a user until both the Person identity
                         // and the User account have been formally registered in the local DB.
+                        // FAIL-FAST: Validate we are not querying with nulls (though the check above covers it, defense-in-depth)
                         val personExists = db.personDao().getPersonById(snapshot.personId) != null
                         val userExists = db.userDao().getUserById(snapshot.userId) != null
                         personExists && userExists
@@ -521,7 +526,11 @@ class ReplayEngineImpl @Inject constructor(
                  * Identity [Person.id] is globally unique and locally authored.
                  */
                 val snapshot = try {
-                    gson.fromJson(op.payload, PersonSnapshot::class.java)
+                    val s = gson.fromJson(op.payload, PersonSnapshot::class.java)
+                    if (s.personId.isNullOrBlank()) {
+                        throw IllegalArgumentException("PersonSnapshot personId is null/blank")
+                    }
+                    s
                  } catch (e: Exception) {
                     throw HydrationInvariantException(
                         HydrationFailureReport(
@@ -561,7 +570,11 @@ class ReplayEngineImpl @Inject constructor(
                  *    the first one applied to this device's DB wins. (Future merge flows handle reconciliation).
                  */
                 val snapshot = try {
-                    gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                    val s = gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                    if (s.personId.isNullOrBlank() || s.userId.isNullOrBlank()) {
+                        throw IllegalArgumentException("PersonLinkSnapshot has null/blank IDs")
+                    }
+                    s
                  } catch (e: Exception) {
                     throw HydrationInvariantException(
                         HydrationFailureReport(
