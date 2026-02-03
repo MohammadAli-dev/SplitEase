@@ -107,9 +107,10 @@ class BootstrapPersonTest {
 
         // Verify sequential logical clocks from same device
         val deviceOps = ledgerOps.filter { it.deviceId == "test_device" }.sortedBy { it.logicalClock }
-        assertEquals(3, deviceOps.size)
+        assertEquals("Should have 4 ops: USER, PERSON, LINK, GROUP", 4, deviceOps.size)
         assertEquals(1, deviceOps[0].logicalClock)
         assertEquals(2, deviceOps[1].logicalClock)
         assertEquals(3, deviceOps[2].logicalClock)
+        assertEquals(4, deviceOps[3].logicalClock)
     }
 }

@@ -334,7 +334,9 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `email` | TEXT | Email address |
 | `profileUrl` | TEXT? | Avatar URL (nullable) |
 
+
 #### `persons` Table (Sprint 29A)
+
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | TEXT (PK) | UUID (Canonical identity) |

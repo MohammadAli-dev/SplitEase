@@ -412,8 +412,10 @@ class ReplayEngineImpl @Inject constructor(
                     gson.fromJson(op.payload, UserSnapshot::class.java)
                     true
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse UserSnapshot check: ${e.message}")
-                    false
+                    throw HydrationInvariantException(
+                        HydrationInvariant.MALFORMED_REMOTE_DATA,
+                        "Failed to parse UserSnapshot check for op ${op.operationId}: ${e.message}"
+                    )
                 }
             }
             OP_RESOLVE_CONFLICT -> true
