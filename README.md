@@ -157,7 +157,7 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
     - **Linkage**: A `Person` links to a `User` via the ledger (`OP_LINK_USER`). This decoupling allows for participants who aren't registered users yet ("Phantom Persons") to be upgraded to "Real Users" without breaking historical ledger integrity.
     - **Self Person**: Every device bootstraps exactly one "Self Person" linked to the authenticated user.
 
-4. **Atomic Identity Linking (Sprint 24 & 29A)**:
+4. **Atomic Identity Consolidation (Sprint 24 & 29A)**:
     - **`IdentityRepository`**: The authority on user identity state.
     - **`AppDatabase.mergeAndVerify`**: **Atomic Transaction** that:
         1.  Reassigns all specific foreign-key references (Expenses, Settlements, Groups) from Phantom -> Real.
@@ -165,7 +165,7 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
         3.  **Aborts** the transaction if strict Zero-Reference invariant is violated.
     - **Terminal Failure**: If identity consolidation fails, `AuthManager` **clears tokens and refuses login**. We favor crash-safety over data corruption.
 
-4. **Unidirectional Data Flow**: Data flows in one direction:
+5. **Unidirectional Data Flow**: Data flows in one direction:
    ```
    User Action → ViewModel → Repository → Room → Flow → UI
    ```

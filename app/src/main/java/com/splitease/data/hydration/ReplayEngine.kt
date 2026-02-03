@@ -436,7 +436,13 @@ class ReplayEngineImpl @Inject constructor(
                  * Rule: Create the person identity if it doesn't already exist.
                  * Identity [Person.id] is globally unique and locally authored.
                  */
-                val snapshot = gson.fromJson(op.payload, PersonSnapshot::class.java)
+                val snapshot = try {
+                    gson.fromJson(op.payload, PersonSnapshot::class.java)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse PersonSnapshot for op ${op.operationId}: ${e.message}")
+                    return
+                }
+                
                 // Check for existence to preserve any later state (like linkedUserId)
                 val existing = db.personDao().getPersonById(snapshot.personId)
                 if (existing != null) {
@@ -464,7 +470,13 @@ class ReplayEngineImpl @Inject constructor(
                  * 3. First-Writer-Wins: If multiple devices try to link different users,
                  *    the first one applied to this device's DB wins. (Future merge flows handle reconciliation).
                  */
-                val snapshot = gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                val snapshot = try {
+                    gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse PersonLinkSnapshot for op ${op.operationId}: ${e.message}")
+                    return
+                }
+                
                 val person = db.personDao().getPersonById(snapshot.personId)
                 if (person == null) {
                     Log.e(TAG, "Cannot link user to missing person: ${snapshot.personId}")
@@ -476,8 +488,11 @@ class ReplayEngineImpl @Inject constructor(
                     if (person.linkedUserId == snapshot.userId) {
                         return // Idempotent
                     } else {
-                        Log.e(TAG, "INVARIANT VIOLATION: Attempt to overwrite linkedUserId on Person ${snapshot.personId}")
-                        return
+                        throw HydrationInvariantException(
+                            HydrationInvariant.PERSON_LINK_IMMUTABLE,
+                            "INVARIANT VIOLATION ($TAG): Attempt to overwrite linkedUserId on Person ${snapshot.personId}. " +
+                                    "Existing: ${person.linkedUserId}, New: ${snapshot.userId}"
+                        )
                     }
                 }
                 
@@ -491,7 +506,12 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applyGroupOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, GroupSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, GroupSnapshot::class.java)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse GroupSnapshot for op ${op.operationId}: ${e.message}")
+            return
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {
@@ -530,7 +550,12 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applyExpenseOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, ExpenseSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, ExpenseSnapshot::class.java)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse ExpenseSnapshot for op ${op.operationId}: ${e.message}")
+            return
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {
@@ -569,7 +594,12 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applySettlementOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, SettlementSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, SettlementSnapshot::class.java)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse SettlementSnapshot for op ${op.operationId}: ${e.message}")
+            return
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {
@@ -597,7 +627,12 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applyMemberOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, MemberSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, MemberSnapshot::class.java)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse MemberSnapshot for op ${op.operationId}: ${e.message}")
+            return
+        }
 
         when (op.operationType) {
             OP_DELETE -> {
@@ -670,7 +705,12 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applyUserOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, UserSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, UserSnapshot::class.java)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse UserSnapshot for op ${op.operationId}: ${e.message}")
+            return
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {

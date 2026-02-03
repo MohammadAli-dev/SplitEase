@@ -94,12 +94,22 @@ class BootstrapPersonTest {
         assertEquals(userId, person?.linkedUserId)
 
         // Verify Ledger Operations
-        val ledgerOps = db.ledgerDao().getAllOperationsSync() // Assuming getAllOperationsSync exists or use flow
-        // LedgerDao usually exposes flow. I'll access via query directly if needed.
-        // Actually LedgerDao might not have a sync getAll.
-        // I will rely on side-effects (Person existence) primarily, 
-        // but verifying ops exist is good.
-        // I'll skip direct ledger DAO assertions if method not handy, 
-        // since Person existence implies ops were committed via db.withTransaction.
+        val ledgerOps = db.ledgerDao().getAllOperationsSync()
+        assertTrue("USER:CREATE should exist", ledgerOps.any { 
+            it.entityType == LedgerOperationFactory.ENTITY_USER && it.operationType == LedgerOperationFactory.OP_CREATE 
+        })
+        assertTrue("PERSON:CREATE should exist", ledgerOps.any { 
+            it.entityType == LedgerOperationFactory.ENTITY_PERSON && it.operationType == LedgerOperationFactory.OP_CREATE 
+        })
+        assertTrue("PERSON:LINK_USER should exist", ledgerOps.any { 
+            it.entityType == LedgerOperationFactory.ENTITY_PERSON && it.operationType == LedgerOperationFactory.OP_LINK_USER 
+        })
+
+        // Verify sequential logical clocks from same device
+        val deviceOps = ledgerOps.filter { it.deviceId == "test_device" }.sortedBy { it.logicalClock }
+        assertEquals(3, deviceOps.size)
+        assertEquals(1, deviceOps[0].logicalClock)
+        assertEquals(2, deviceOps[1].logicalClock)
+        assertEquals(3, deviceOps[2].logicalClock)
     }
 }

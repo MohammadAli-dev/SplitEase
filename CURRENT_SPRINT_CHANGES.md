@@ -791,7 +791,7 @@ This sprint introduces a first-class, app-scoped `Person` identity to SplitEase.
 - **Bootstrapping Safety**: `OP_CREATE` is handled idempotently to allow for safe re-runs.
 
 ### 4. Identity Bootstrapper Integration
-- **Self Person Creation**: On starting the app, `IdentityBootstrapper` now ensuring exactly one "Self Person" exists locally and is linked to the authenticated user.
+- **Self Person Creation**: On starting the app, `IdentityBootstrapper` now ensures exactly one "Self Person" exists locally and is linked to the authenticated user.
 - **Atomic Transaction**: Uses Room's `withTransaction` to ensure the entity creation and its ledger facts are committed together, preventing partial identity states.
 
 ### 5. Verification & Tests

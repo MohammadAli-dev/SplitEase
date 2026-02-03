@@ -88,7 +88,7 @@ class IdentityBootstrapper @Inject constructor(
             // ## The "Self Person" Concept
             // Every local user must have exactly one Person identity linked to them.
             // This Person acts as the legal participant in all ledger-backed expenses.
-            // Decoupling Person from User allows us to participants who haven't 
+            // Decoupling Person from User allows us to represent participants who haven't 
             // registered yet, while the Self Person represents the local user themselves.
             val linkedPerson = db.personDao().getPersonByLinkedUserId(userId)
             if (linkedPerson == null) {

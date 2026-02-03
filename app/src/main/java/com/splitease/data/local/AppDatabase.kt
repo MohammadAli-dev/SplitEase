@@ -41,7 +41,6 @@ import com.splitease.data.local.entities.User
         ConnectionStateEntity::class,
         LedgerOperation::class,
         LedgerConflictEntity::class,
-        LedgerConflictEntity::class,
         ConflictResolutionEntity::class,
         Person::class
     ],

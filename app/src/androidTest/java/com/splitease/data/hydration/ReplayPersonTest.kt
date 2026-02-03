@@ -182,8 +182,17 @@ class ReplayPersonTest {
              authorLocalUserId = user1, deviceId = "A", logicalClock = 11, createdAt = 0
          )
 
-         replayEngine.replay(listOf(link1, link2))
-         advanceUntilIdle()
+         // First replay apply link1 successfully
+         val result1 = replayEngine.replay(listOf(link1))
+         assertEquals(ReplayResult.Success, result1)
+         
+         // Second replay should THROW HydrationInvariantException because link2 violates link1
+         try {
+             replayEngine.replay(listOf(link1, link2)) // Re-running with both
+             assertTrue("Should have thrown HydrationInvariantException", false)
+         } catch (e: HydrationInvariantException) {
+             assertEquals(HydrationInvariant.PERSON_LINK_IMMUTABLE, e.invariant)
+         }
 
          val person = db.personDao().getPersonById(personId)
          assertEquals("Should remain linked to U1 (First Write Wins / Immutability)", user1, person?.linkedUserId)

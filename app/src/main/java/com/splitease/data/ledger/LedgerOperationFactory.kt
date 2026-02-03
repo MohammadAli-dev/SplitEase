@@ -521,6 +521,52 @@ class LedgerOperationFactoryImpl @Inject constructor(
             createdAt = now()
         )
     }
+    override suspend fun createPersonCreateOp(
+        person: Person,
+        authorUserId: String
+    ): LedgerOperation {
+        ensureNotReadOnly()
+        val snapshot = PersonSnapshot(
+            personId = person.id,
+            displayName = person.displayName,
+            createdAt = person.createdAt
+        )
+        return LedgerOperation(
+            operationId = generateOperationId(),
+            entityType = ENTITY_PERSON,
+            entityId = person.id,
+            operationType = OP_CREATE,
+            payload = gson.toJson(snapshot),
+            authorLocalUserId = authorUserId,
+            deviceId = deviceId(),
+            logicalClock = 0L,
+            createdAt = now()
+        )
+    }
+
+    override suspend fun createPersonLinkUserOp(
+        personId: String,
+        userId: String,
+        authorUserId: String
+    ): LedgerOperation {
+        ensureNotReadOnly()
+        val snapshot = PersonLinkSnapshot(
+            personId = personId,
+            userId = userId
+        )
+        return LedgerOperation(
+            operationId = generateOperationId(),
+            entityType = ENTITY_PERSON,
+            entityId = personId,
+            operationType = OP_LINK_USER,
+            payload = gson.toJson(snapshot),
+            authorLocalUserId = authorUserId,
+            deviceId = deviceId(),
+            logicalClock = 0L,
+            createdAt = now()
+        )
+    }
+
     override suspend fun createUserCreateOp(
         user: com.splitease.data.local.entities.User,
         authorUserId: String

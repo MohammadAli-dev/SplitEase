@@ -2,6 +2,8 @@ package com.splitease.data.local.entities
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+/**
+ * Represents a human being in the SplitEase universe.
  *
  * ## Universal Identity (Sprint 29)
  * A `Person` is a first-class, app-scoped identity that exists independently of a [User].
@@ -10,7 +12,7 @@ import androidx.room.PrimaryKey
  * yet registered users.
  *
  * ## Invariants
- * - **Autority**: The [id] (UUID generated locally) is the ONLY authoritative identifier.
+ * - **Authority**: The [id] (UUID generated locally) is the ONLY authoritative identifier.
  * - **Immutability**: The [id] and [createdAt] fields are immutable forever once persisted.
  * - **One-to-One Binding**: A Person may link to at most one [User] via [linkedUserId].
  * - **Link Immutability**: Once [linkedUserId] is set, it cannot be changed or overwritten
