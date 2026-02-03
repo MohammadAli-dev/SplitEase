@@ -786,17 +786,26 @@ This sprint introduces a first-class, app-scoped `Person` identity to SplitEase.
 - **Factory Integration**: Added `createPersonCreateOp` and `createPersonLinkUserOp` to `LedgerOperationFactory`.
 
 ### 3. Replay Engine Enrichment
-- **Dependency Enforcement**: Updated `ReplayEngine.canApplyOperation` to strictly require both Person and User existence before applying a `LINK_USER` operation.
+- **Dependency Enrichment & Branching**: Updated `ReplayEngine.canApplyOperation` to strictly require both Person and User existence before applying a `LINK_USER` operation.
+- **Fail-Fast Convergence**: The engine now uses a multi-pass convergence loop to resolve dependencies. Dependent operations are automatically deferred until their prerequisites are satisfied.
 - **Immutability Protection**: Hardened `applyPersonOperation` to prevent overwriting an existing `linkedUserId`, adhering to the first-writer-wins rule for identity binding.
-- **Bootstrapping Safety**: `OP_CREATE` is handled idempotently to allow for safe re-runs.
+- **Bootstrapping Safety**: `OP_CREATE` is handled idempotently to allow for safe re-runs without side effects.
 
 ### 4. Identity Bootstrapper Integration
 - **Self Person Creation**: On starting the app, `IdentityBootstrapper` now ensures exactly one "Self Person" exists locally and is linked to the authenticated user.
-- **Atomic Transaction**: Uses Room's `withTransaction` to ensure the entity creation and its ledger facts are committed together, preventing partial identity states.
+- **Atomic Registration**: Uses Room's `withTransaction` to ensure the entity creation and its ledger facts are committed together, preventing partial identity states.
 
 ### 5. Verification & Tests
 - **`ReplayPersonTest`**: Verifies deterministic convergence of person operations and strict dependency enforcement.
 - **`BootstrapPersonTest`**: Verifies correct creation of the "Self Person" on fresh installations.
+- **KDoc Hardening**: Achieved ~80% documentation coverage for all new identity components, explaining the *why* behind the strict invariants.
+
+## Exclusions (What Sprint 29 Does NOT Do)
+> [!IMPORTANT]
+> To maintain architectural purity, several features were explicitly excluded from this sprint:
+> - **No Backfill**: Historical database rows are NOT updated with Person IDs. We rely on "Dual-Read" Fallback.
+> - **No Auto-Merge**: The system does NOT automatically merge duplicate Persons. Merges must be ledger-authored.
+> - **No UI Changes**: The user-facing identity management UI remains unchanged; the system operates transparently in the background.
 
 ---
 
@@ -816,32 +825,29 @@ This sprint migrates all transaction-level entities (Expenses, Splits, Settlemen
 - **Historical Hydration**: Repositories now implement a "Dual-Read" fallback. If the authoritative `personId` is missing (legacy data), the repository resolves it in real-time from the `linkedUserId` map.
 
 ### 2. Single-Write Enforcement
-- **Authoritative Writes**: All mutation paths in `ExpenseRepository` and `GroupRepository` now strictly require a resolved `personId`.
-- **Fail-Fast Invariants**: Attempts to write entities without a persistent person reference now trigger a `Stop-the-World` `IdentityInvariantViolationException`.
-- **Zero-Derivation Rule**: The UI and repositories are forbidden from "inventing" person IDs; state must flow from the ledger or the local persistent map.
+- **Authoritative Writes**: All mutation paths in `ExpenseRepository`, `GroupRepository`, and `SettlementRepository` now strictly require a resolved `personId`.
+- **Fail-Fast Invariants**: Attempts to write entities without a persistent person reference now trigger a **Fail-Fast** `IdentityInvariantViolationException`. The system would rather crash than persist data that violates canonical identity, preventing permanent "zombie" data orphans.
+- **Zero-Derivation Rule**: The UI and repositories are forbidden from "inventing" person IDs; state must flow from the ledger or the **linkedUserId map (persistent mapping)**.
 
-### 3. Replay Engine Branching
-- **Dependency Tracking**: Refactored `ReplayEngine` to handle out-of-order `LINK_USER` operations. 
-- **Convergence Guard**: The engine automatically defers the binding of a user to a person until both entities exist in the local database.
+### 3. Replay Engine: Convergence Guard
+- **Dependency Branching**: The `ReplayEngine` now handles out-of-order `LINK_USER` operations via a **Convergence Guard**.
+- **Deferral Queue**: Operations referencing non-existent entities are held in an in-memory deferral queue and retried per replay pass.
+- **No Silent Drops**: The replay loop continues until all operations are applied or zero progress is made. If operations remain deferred at the end of the loop, the system triggers a **Fail-Fast** error.
+- **No Person derivation**: The `ReplayEngine` will NEVER automatically derive or backfill a `personId` for an expense; it only persists exactly what is in the ledger payload.
 
-## Invariants
-- **Fail-Fast Invariants**:
+## Invariants & Guardrails
+- **Identity Invariants**:
     - **Zero Orphans**: A Person cannot be linked to a non-existent User.
-    - **Immutable Links**: Once linked, a Person's `linkedUserId` cannot be changed.
-    - **Terminal Failure**: If an identity invariant is violated (e.g., during consolidation), the operation or login is ABORTED. We prioritize data safety over availability ("Fail-Fast").
+    - **Immutable Links**: Once linked, a Person's `linkedUserId` cannot be changed via standard ledger replays.
+    - **Fail-Fast Policy**: If an identity invariant is violated, the operation or session is ABORTED. We prioritize data safety over availability.
 
-- **Feature Details**:
-    - **Convergence Guard (Dependency Branching)**: The engine now strictly defers operations (like `LINK_USER` or `EXPENSE`) if the referenced `Person` does not yet exist.
-        - **Mechanism**: Operations are held in an in-memory deferral queue.
-        - **Retry**: On every successful operation application, the queue is re-scanned.
-        - **Safety**: Prevents "Orphaned Links" where a link operation arrives before the person creation.
-    - **Single-Write / Dual-Read**:
-        - **Write Path (Fail-Fast)**: New operations MUST use `personId`. If a write attempts to use legacy `userId` without a person, it is rejected (Fail-Fast).
-        - **Read Path (Fallback)**: Readers first check `personId`. If null (legacy data), they gracefully fall back to resolving the `userId` to a `Person` via the `persons` table map.
+- **Dual-Read / Single-Write Pattern**:
+    - **Single-Write (Fail-Fast)**: All new operations MUST provide an explicit `personId`.
+    - **Dual-Read (Fallback)**: To support legacy data, the system first checks for `personId`. If null, it gracefully falls back to resolving the existing `userId` to a `Person` via the **linkedUserId map (persistent mapping)**.
 - **Identity Integrity**: Verified that legacy expenses are correctly hydrated with person references in the UI.
 - **Merge Safety**: Verified that the "Self Person" correctly tracks through logout/login cycles.
 
 ## Verification Results
 - **Build**: Successfully passed.
 - **Tests**: `ReplayPersonTest` and `BootstrapPersonTest` passing 100%.
-- **Doc Coverage**: KDoc coverage for all Sprint 29A code is >= 80%.
+- **Doc Precision**: Standardized terminology across the codebase (Fail-Fast, Dual-Read, Single-Write).

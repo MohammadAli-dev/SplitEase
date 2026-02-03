@@ -210,3 +210,35 @@ As the ledger grows beyond v1.0 (5,000+ operations), the cost of synchronous dat
     - **Session Caching**: The `ReplayEngine` should pre-fetch all existing entity IDs into an in-memory `HashSet` at the start of the `replay()` session.
     - **State Mirroring**: New identities created *during* the replay batch must be updated in the memory set immediately to allow dependent operations in the same batch to proceed without re-querying the DB.
     - **Constraint**: Do not use Room's `@Relation` or complex Joins for existence checks; keep the "Dumb Courier" logic simple and memory-first.
+
+---
+
+## 11. Universal Identity Guardrails (Sprint 29)
+
+### 11.1 Authority Invariant
+In the v1.0 architecture, the `Person` entity is the sole authoritative domain identity.
+- **Rule**: All new domain entities (Expenses, Settlements, Group Members) MUST use `personId` for participant identification.
+- **Exception**: Historical data (pre-Sprint 29) may use legacy `userId`, which must be resolved via the **Dual-Read Fallback** implemented in repositories.
+
+### 11.2 Link Immutability
+The binding between a human `Person` and a security `User` is established via the ledger (`OP_LINK_USER`).
+- **Rule**: Once a person is linked to a user, the `linkedUserId` is immutable via standard ledger replays. This prevents "identity drift" where financial history could accidentally be re-parented during a merge.
+- **Enforcement**: Handled via `applyPersonOperation` in the `ReplayEngine`.
+
+### 11.3 Fail-Fast Policy
+Identity correctness is prioritized over system availability.
+- **Rule**: If a mutation is attempted without a valid `personId`, or if a consolidated identity merge fails the audit, the system MUST throw `IdentityInvariantViolationException` and abort the operation/session.
+- **Rationale**: In financial systems, a hard crash is safer than a silent data orphan.
+
+---
+
+## 12. Person-Centric Replay Guardrails
+
+### 12.1 Convergence Guard (Dependency Branching)
+The `ReplayEngine` must strictly enforce existence dependencies to prevent orphaned links.
+- **Rule**: A `LINK_USER` operation MUST NOT be applied if the referenced `Person` does not yet exist in the local database.
+- **Mechanism**: Such operations must be held in the in-memory **Deferral Queue** and retried in subsequent replay passes.
+
+### 12.2 Single Source of Identity
+The Replay Engine is a "Dumb Courier" of ledger facts.
+- **Rule**: The engine must NEVER "invent" or backfill a `personId` for an expense. If the ledger payload is missing the ID, the engine persists it as-is (relying on Dual-Read at the repository layer).

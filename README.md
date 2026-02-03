@@ -60,7 +60,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
 | **Zero Orphans** | **Sprint 28.5 Update**: Replay Engine strictly defers operations (Expenses/Settlements) until their owner identity exists in the ledger, guaranteeing referential integrity. |
 | **Auth-Gated Sync** | Prevents sync attempts until a cloud identity is established. No pre-login noise. |
-| **Universal Person** | **Sprint 29A Update**: Introduced canonical Person identity decoupled from authentication, ensuring stable participation across identity merges. |
+| **Universal Identity** | **Sprint 29 Update**: Introduced canonical `Person` identity decoupled from authentication, ensuring stable participation across identity merges. |
 
 ---
 
@@ -153,22 +153,11 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 
  3. **Identity Architecture (Person vs User)**:
      - **User**: Represents an authenticated account (Supabase). Used for security tokens, sync gating, and profile metadata.
-     - **Person**: Represents a human participant in the ledger. **Authoritative identity** for all expenses, splits, and settlements (Sprint 29A/B).
+     - **Person**: Represents a human participant in the ledger. **Authoritative identity** for all expenses, splits, and settlements.
      - **Linkage**: A `Person` links to a `User` via the ledger (`OP_LINK_USER`).
      - **Phantom Support**: Participants can exist as "Phantom Persons" (local-only) and later be linked to a real User without rewriting history.
-
-4. **Atomic Identity Consolidation (Sprint 24 & 29A)**:
-    - **`IdentityRepository`**: The authority on user identity state.
-    - **`AppDatabase.mergeAndVerify`**: **Atomic Transaction** that:
-        1.  Reassigns all specific foreign-key references (Expenses, Settlements, Groups) from Phantom -> Real.
-        2.  **Audits** the database for any remaining "Orphan" references to the Phantom ID.
-        3.  **Aborts** the transaction if strict Zero-Reference invariant is violated.
-    - **Terminal Failure**: If identity consolidation fails, `AuthManager` **clears tokens and refuses login**. We favor crash-safety over data corruption.
-
-5. **Universal Person Architecture (Sprint 29)**:
-    - **Concept**: Separation of "who pays" (Person) from "who is logged in" (User).
-    - **Stable Participation**: Ensures that even if a user account is merged or changed, their historical participation in expenses remains linked via their stable `Person` identity.
-    - **Single-Write Invariant**: All new data MUST use `Person` identifiers. `User` identifiers are relegated to secondary lookup/linkage only.
+     - **Single-Write Invariant**: All new data MUST use `Person` identifiers. `User` identifiers are relegated to secondary lookup/linkage only.
+     - **Stable Participation**: Ensures that even if a user account is merged or changed, their historical participation in expenses remains linked via their stable `Person` identity.
 
 6. **Unidirectional Data Flow**: Data flows in one direction:
    ```
@@ -352,12 +341,16 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 
 SplitEase distinguishes between human identity and security accounts:
 
-| Concept | Scope | Visibility | Purpose |
-|---------|-------|------------|---------|
-| **User** | Authentication | Private (Email/Profile) | Security, Sync, Token Management |
-| **Person** | Participation | Public (Ledger) | Expenses, Splits, Groups, History |
+| Concept | Scope | Visibility | Purpose | Authority |
+|---------|-------|------------|---------|-----------|
+| **User** | Authentication | Private (Email/Profile) | Security, Sync, Token Management | Credentials |
+| **Person** | Participation | Public (Ledger) | Expenses, Splits, Groups, History | UUID (Ledger) |
 
-**Key Invariant**: A `Person` is a stable human identity that can exist before a `User` account is created. This allows you to add friends by name ("Phantom Persons") and have their history merge seamlessly when they eventually join with a real `User` account.
+**Key Invariants**:
+- **Authoritative Identity**: A `Person` is a stable human identity that exists before a `User` account is created.
+- **Phantom Support**: You can add friends by name ("Phantom Persons") and have their history merge seamlessly when they eventually join with a real `User` account.
+- **Single-Write Policy**: All new domain data (Expenses, Settlements) MUST reference `Person` IDs.
+- **Fail-Fast Enforcement**: Mutations that violate identity invariants trigger immediate system failure to prevent data corruption.
 
 #### `expense_groups` Table
 | Column | Type | Description |

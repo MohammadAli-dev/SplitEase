@@ -30,3 +30,11 @@
 
 ---
 *Created: 2026-01-17 during Sprint 17 Consolidation.*
+
+## Identity Layer
+
+### 5. Person vs User Separation
+**Policy**: Enforce strict separation between Human Identity (Person) and Security Credentials (User).
+- **Rule**: `Person.id` is the only primary key permitted in domain entity relationship columns (e.g., `payerPersonId`).
+- **Rule**: Use the `personId` for all UI display names. Use `userId` exclusively for authentication checks and sync gating.
+- **Rationale**: This decouples participation from authentication, allowing for stable historical records and "Phantom" participants.

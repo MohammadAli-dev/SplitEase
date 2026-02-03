@@ -235,3 +235,23 @@ Runtime logic must **ALWAYS** use the `LocalUserManager` UUID for new entities.
 
 ### Attribution Graceful Handling
 UI components should gracefully handle `LEGACY_USER_ID` (or nulls from legacy payloads) by hiding attribution or displaying a generic "Added before identity enabled" state, rather than showing raw ID strings.
++
++---
++
++## Identity Integrity (Universal Person)
++
++### Single-Write Invariant (Sprint 29)
++> **All new mutations MUST use an authoritative Person ID.**
++
++Mutations that arrive without a `personId` (in Expense, Split, or Settlement) are treated as violations of the **Single-Write** policy.
++
++### Dual-Read Fallback
++> **Missing Person IDs in historical data are resolved via the `linkedUserId` map.**
++
++This fallback ensures that legacy data remains visible and participable without requiring a destructive database backfill.
++
++### Fail-Fast Guard
++> **Identity corruption is fatal.**
++
++If a `personId` is missing during a **Single-Write** operation, or if the **Dual-Read** fails to resolve a fallback for a known User ID, the system must trigger an immediate **Fail-Fast** shutdown via `IdentityInvariantViolationException`.
++

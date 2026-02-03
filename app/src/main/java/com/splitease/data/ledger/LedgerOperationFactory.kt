@@ -187,6 +187,9 @@ interface LedgerOperationFactory {
     /**
      * Creates a ledger operation for creating a [Person] entity.
      *
+     * In the Universal Identity system, this represents the birth of a human 
+     * participant record that is independent of any authentication provider.
+     *
      * @param person The person entity to snapshot.
      * @param authorUserId The local user id performing the operation.
      * @return A [LedgerOperation] with [ENTITY_PERSON] and [OP_CREATE].
@@ -199,13 +202,19 @@ interface LedgerOperationFactory {
     /**
      * Creates a ledger operation for linking a [Person] to a [User].
      *
-     * This binding is fundamentally many-to-one (multiple persons could link to
-     * one user in theory if merging), but for Sprint 29 we treat it as a binder
-     * for the "Self Person".
+     * This decouples the human participant ("Person") from the security 
+     * account ("User"). This binding allows offline participation to persist 
+     * across different authentication states and identifies the "Self Person" 
+     * of a registered user.
      *
-     * @param personId The ID of the person to link.
-     * @param userId The ID of the registered user.
-     * @param authorUserId The local user id performing the operation.
+     * ## Stability Guarantee (Sprint 29)
+     * Once an identity is linked, all future ledger operations (Expenses, 
+     * Settlements) MUST use the [personId] to ensure logical stability even if 
+     * the underlying [userId] changes or is merged.
+     *
+     * @param personId The ID of the human identity to bind.
+     * @param userId The ID of the authenticated account to link to.
+     * @param authorUserId The user emitting this binding fact.
      * @return A [LedgerOperation] with [ENTITY_PERSON] and [OP_LINK_USER].
      */
     suspend fun createPersonLinkUserOp(
@@ -569,8 +578,7 @@ class LedgerOperationFactoryImpl @Inject constructor(
             createdAt = now()
         )
     }
-
-     *
+    /**
      * In Sprint 29A, this decouples the human participant ("Person") from the 
      * security account ("User"). This allows offline participation to persist 
      * across different authentication states.
@@ -580,6 +588,10 @@ class LedgerOperationFactoryImpl @Inject constructor(
      * @param authorUserId The user emitting this binding fact.
      */
     override suspend fun createPersonLinkUserOp(
+        personId: String,
+        userId: String,
+        authorUserId: String
+    ): LedgerOperation {
         ensureNotReadOnly()
         val snapshot = PersonLinkSnapshot(
             personId = personId,

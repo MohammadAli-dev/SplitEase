@@ -50,21 +50,27 @@ import javax.inject.Singleton
 /**
  * Deterministically replays ledger operations into Room.
  *
- * **Sprint 18 Contract**:
- * - Uses convergence-based algorithm: retry until no progress, then fail if deferred remain.
- * - No arbitrary retry limits.
- * - Idempotent: same operation applied twice = same state.
- * - Restart-safe: replaying from zero always converges to same state.
+ * ## Convergence Algorithm
+ * ReplayEngine uses a **Fail-Fast** multi-pass convergence loop. It continues 
+ * replaying operations until either all operations are applied or a pass results 
+ * in zero progress (at which point it fails if deferred operations remain).
+ * 
+ * - **Idempotency**: Applying the same operation twice is a no-op.
+ * - **Restart-Safety**: Replaying from scratch always results in the same final state.
+ * - **No Silent Drops**: Every operation MUST be either applied, suppressed by a 
+ *   conflict resolution, or the entire replay chain fails.
  *
- * ## Dependency Branching (Sprint 29)
- * Operations are replayed in a multi-pass convergence loop. Some entities depend on
- * others (e.g., LINK_USER depends on PERSON and USER existence). The engine
- * automatically defers dependent operations until their prerequisites are
- * persisted in the local Room database.
+ * ## Dependency Branching & Deferral (Sprint 29)
+ * Operations are replayed in a specific order. Some entities depend on others 
+ * (e.g., [OP_LINK_USER] depends on both the [ENTITY_PERSON] and [ENTITY_USER] 
+ * existence). The engine automatically defers dependent operations to the 
+ * next pass if their prerequisites are not yet persisted.
  *
- * ## Derivation Ban
- * ReplayEngine MUST NOT derive state from non-ledger tables (e.g., Preferences).
+ * ## The Derivation Ban
+ * ReplayEngine MUST NOT derive state from non-ledger tables or local preferences.
  * State must be a pure, deterministic function of the Ledger + existing Entity state.
+ * Specifically, the engine **must NOT backfill or derive personId**; it only 
+ * persists what is explicitly provided in the ledger payload.
  */
 interface ReplayEngine {
     /**

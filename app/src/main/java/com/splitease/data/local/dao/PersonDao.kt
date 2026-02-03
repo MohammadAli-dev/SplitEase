@@ -12,9 +12,13 @@ import kotlinx.coroutines.flow.Flow
  * ## Principles
  * - **Immutability**: Once a person is created, they are never deleted.
  * - **Authority**: All queries use the canonical personId or linkedUserId.
- * - **No Deletion**: Deletion is strictly forbidden to preserve ledger auditability. 
- *   Broken or duplicate identities must be handled via explicit "Identity Merge" 
- *   ledger operations, never by row removal.
+ * - **Fail-Fast Write Policy**: Direct modifications to this table must only occur 
+ *   as a result of ledger recomputations. Mismatched or orphaned data detected 
+ *   during writes will trigger immediate system failure to prevent corruption.
+ * - **Dual-Read Fallback**: While the system transition is in progress, reads from 
+ *   domain entities may "fallback" to query this DAO to resolve historical [User] 
+ *   IDs into canonical [Person] containers.
+ * - **No Deletion**: Deletion is strictly forbidden to preserve ledger auditability.
  */
 @Dao
 interface PersonDao {

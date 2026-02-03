@@ -169,7 +169,10 @@ class GroupRepositoryImpl @Inject constructor(
             // Single-Write Guard: Resolve all members to Persons
             // Sprint 29 Requirement: All group memberships MUST be canonically 
             // tied to a Person ID, not just a User ID. This ensures participation
-            // stability across user account merges.
+            // stability across user account merges and authentication changes.
+            // 
+            // FAIL-FAST: If any member cannot be resolved to a Person container, 
+            // the operation is aborted to prevent identity orphans.
             val resolvedMembers = mutableMapOf<String, String>() // userId -> personId
             for (uid in memberIds) {
                 val person = personDao.getPersonByLinkedUserId(uid)

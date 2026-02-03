@@ -27,6 +27,18 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Authority for Expense objects.
  * 
+ * ## Dual-Read / Single-Write Architecture (Sprint 29)
+ * This repository implements the transition from [User]-based identity to 
+ * [Person]-based "Universal Identity".
+ * 
+ * 1. **Single-Write (Fail-Fast)**: All new mutations MUST provide a validated 
+ *    [Person] ID. If a mutation is attempted with a missing or unresolvable 
+ *    identity, the repository will throw an [IdentityInvariantViolationException].
+ * 2. **Dual-Read (Fallback)**: To support historical data, reads will first 
+ *    attempt to use the [Person] ID stored in the entity. If missing (legacy 
+ *    data), it will fallback to resolving the [User] ID via the [PersonDao] 
+ *    mapping.
+ *
  * ## Effective State Derivation (P0 Guarantee)
  * Because SplitEase uses a Ledger-first architecture, the "Effective State" of an expense
  * is NOT merely what is in the `expenses` table. It is dynamically derived:
@@ -120,8 +132,9 @@ class ExpenseRepositoryImpl @Inject constructor(
         }
 
     /**
-     * Enforces the Single-Write invariant: every mutation MUST have an authoritative
-     * [Person] reference. This prevents "phantom" data that cannot be synced or Corrected.
+     * Enforces the **Single-Write** invariant: every mutation MUST have an 
+     * authoritative [Person] reference. This prevents "phantom" data that 
+     * cannot be synced or Corrected.
      *
      * @throws IdentityInvariantViolationException if any personId is missing.
      */

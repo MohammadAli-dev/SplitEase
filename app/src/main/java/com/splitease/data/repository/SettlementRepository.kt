@@ -123,6 +123,14 @@ class SettlementRepositoryImpl @Inject constructor(
         return settlements.map { hydrateSettlement(it) }
     }
     
+    /**
+     * Resolves the [fromPersonId] and [toPersonId] for legacy data.
+     * 
+     * ## Dual-Read Fallback
+     * Similar to Expense hydration, this projects the canonical Person ID 
+     * into the domain entity for UI consistency. It DOES NOT backfill 
+     * the database.
+     */
     private suspend fun hydrateSettlement(settlement: Settlement): Settlement {
         var updated = settlement
         
@@ -187,6 +195,8 @@ class SettlementRepositoryImpl @Inject constructor(
             }
             
             // Single-Write Guard: Must resolve Person IDs
+            // FAIL-FAST: Validates that both payer and payee have canonical Person
+            // identities before recording the settlement fact in the ledger.
             val fromPerson = personDao.getPersonByLinkedUserId(fromUserId)
                 ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
                     "Single-Write Violation: Cannot resolve personId for payer $fromUserId"
