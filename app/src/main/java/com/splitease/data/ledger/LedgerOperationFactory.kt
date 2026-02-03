@@ -11,6 +11,9 @@ import com.splitease.data.ledger.model.GroupSnapshot
 import com.splitease.data.ledger.model.MemberSnapshot
 import com.splitease.data.ledger.model.SettlementSnapshot
 import com.splitease.data.ledger.model.UserSnapshot
+import com.splitease.data.ledger.model.PersonSnapshot
+import com.splitease.data.ledger.model.PersonLinkSnapshot
+import com.splitease.data.local.entities.Person
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
@@ -179,6 +182,35 @@ interface LedgerOperationFactory {
         user: com.splitease.data.local.entities.User,
         authorUserId: String
     ): LedgerOperation
+    /**
+     * Creates a ledger operation for creating a [Person] entity.
+     *
+     * @param person The person entity to snapshot.
+     * @param authorUserId The local user id performing the operation.
+     * @return A [LedgerOperation] with [ENTITY_PERSON] and [OP_CREATE].
+     */
+    suspend fun createPersonCreateOp(
+        person: Person,
+        authorUserId: String
+    ): LedgerOperation
+
+    /**
+     * Creates a ledger operation for linking a [Person] to a [User].
+     *
+     * This binding is fundamentally many-to-one (multiple persons could link to
+     * one user in theory if merging), but for Sprint 29 we treat it as a binder
+     * for the "Self Person".
+     *
+     * @param personId The ID of the person to link.
+     * @param userId The ID of the registered user.
+     * @param authorUserId The local user id performing the operation.
+     * @return A [LedgerOperation] with [ENTITY_PERSON] and [OP_LINK_USER].
+     */
+    suspend fun createPersonLinkUserOp(
+        personId: String,
+        userId: String,
+        authorUserId: String
+    ): LedgerOperation
 
     companion object {
         const val ENTITY_EXPENSE = "EXPENSE"
@@ -186,11 +218,15 @@ interface LedgerOperationFactory {
         const val ENTITY_SETTLEMENT = "SETTLEMENT"
         const val ENTITY_MEMBER = "MEMBER"
         const val ENTITY_USER = "USER"
+        /** Universal Person entity type. */
+        const val ENTITY_PERSON = "PERSON"
 
 
         const val OP_CREATE = "CREATE"
         const val OP_UPDATE = "UPDATE"
         const val OP_DELETE = "DELETE"
+        /** Operation to bind a person to a registered user account. */
+        const val OP_LINK_USER = "LINK_USER"
         /** Sprint 21: Explicit conflict resolution operation type. */
         const val OP_RESOLVE_CONFLICT = "RESOLVE_CONFLICT"
     }

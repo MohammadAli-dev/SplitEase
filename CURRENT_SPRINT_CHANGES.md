@@ -768,3 +768,37 @@ This sprint bridges the gap between the "Phantom-to-Real" merge logic (Sprint 24
 - **Integrity Audit**: Verified 0 orphaned records in a fresh installation scenario.
 
 ---
+# Sprint 29A: Universal Person Foundation
+
+## Overview
+This sprint introduces a first-class, app-scoped `Person` identity to SplitEase. This identity is decoupled from the authentication `User`, establishing a foundation for participants who may not yet be registered users ("phantom" persons) while ensuring a consistent, ledger-backed identity for all participants.
+
+## Key Changes
+
+### 1. Data Model & Room Integration
+- **`Person` Entity**: Introduced the `persons` table with canonical `id` (UUID), `displayName`, and a nullable `linkedUserId`.
+- **`PersonDao`**: Implemented atomic upserts and queries by `personId` or `linkedUserId`.
+- **Invariants**: Enforced one-to-one binding between Person and User via the ledger and Replay Engine.
+
+### 2. Ledger Vocabulary & Factory
+- **Entity Identification**: Added `ENTITY_PERSON` to the ledger vocabulary.
+- **Link Operation**: Introduced `OP_LINK_USER` to explicitly bind a Person to a User identity.
+- **Factory Integration**: Added `createPersonCreateOp` and `createPersonLinkUserOp` to `LedgerOperationFactory`.
+
+### 3. Replay Engine Enrichment
+- **Dependency Enforcement**: Updated `ReplayEngine.canApplyOperation` to strictly require both Person and User existence before applying a `LINK_USER` operation.
+- **Immutability Protection**: Hardened `applyPersonOperation` to prevent overwriting an existing `linkedUserId`, adhering to the first-writer-wins rule for identity binding.
+- **Bootstrapping Safety**: `OP_CREATE` is handled idempotently to allow for safe re-runs.
+
+### 4. Identity Bootstrapper Integration
+- **Self Person Creation**: On starting the app, `IdentityBootstrapper` now ensuring exactly one "Self Person" exists locally and is linked to the authenticated user.
+- **Atomic Transaction**: Uses Room's `withTransaction` to ensure the entity creation and its ledger facts are committed together, preventing partial identity states.
+
+### 5. Verification & Tests
+- **`ReplayPersonTest`**: Verifies deterministic convergence of person operations and strict dependency enforcement.
+- **`BootstrapPersonTest`**: Verifies correct creation of the "Self Person" on fresh installations.
+
+## Verification Results
+- **Build**: Successfully passed.
+- **Tests**: `ReplayPersonTest` and `BootstrapPersonTest` passing 100%.
+- **Doc Coverage**: KDoc coverage for all Sprint 29A code is >= 80%.

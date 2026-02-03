@@ -14,11 +14,15 @@ import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_USER
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_CREATE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_DELETE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_UPDATE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_PERSON
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_LINK_USER
 import com.splitease.data.ledger.model.ExpenseSnapshot
 import com.splitease.data.ledger.model.GroupSnapshot
 import com.splitease.data.ledger.model.MemberSnapshot
 import com.splitease.data.ledger.model.SettlementSnapshot
 import com.splitease.data.ledger.model.UserSnapshot
+import com.splitease.data.ledger.model.PersonSnapshot
+import com.splitease.data.ledger.model.PersonLinkSnapshot
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.ConflictResolutionEntity
 import com.splitease.data.local.entities.Expense
@@ -27,6 +31,7 @@ import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.local.entities.Person
 import com.splitease.data.resolution.ConflictResolutionPayload
 import com.splitease.data.conflict.LedgerOpRef
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_RESOLVE_CONFLICT
@@ -378,6 +383,24 @@ class ReplayEngineImpl @Inject constructor(
                 val userExists = db.userDao().getUserById(snapshot.userId) != null
                 groupExists && userExists
             }
+            ENTITY_PERSON -> {
+                when (op.operationType) {
+                    OP_CREATE -> true
+                    OP_LINK_USER -> {
+                        val snapshot = try {
+                            gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to parse PersonLinkSnapshot: ${e.message}")
+                            return false
+                        }
+                        // Check dependencies: Person AND User must exist
+                        val personExists = db.personDao().getPersonById(snapshot.personId) != null
+                        val userExists = db.userDao().getUserById(snapshot.userId) != null
+                        personExists && userExists
+                    }
+                    else -> true
+                }
+            }
             ENTITY_USER -> true
             OP_RESOLVE_CONFLICT -> true
             else -> {
@@ -398,8 +421,72 @@ class ReplayEngineImpl @Inject constructor(
             ENTITY_EXPENSE -> applyExpenseOperation(op)
             ENTITY_SETTLEMENT -> applySettlementOperation(op)
             ENTITY_MEMBER -> applyMemberOperation(op)
+            ENTITY_PERSON -> applyPersonOperation(op)
             ENTITY_USER -> applyUserOperation(op)
             OP_RESOLVE_CONFLICT -> applyResolutionOperation(op)
+        }
+    }
+    
+    private suspend fun applyPersonOperation(op: LedgerOperation) {
+        when (op.operationType) {
+            OP_CREATE -> {
+                /**
+                 * PERSON.CREATE
+                 *
+                 * Rule: Create the person identity if it doesn't already exist.
+                 * Identity [Person.id] is globally unique and locally authored.
+                 */
+                val snapshot = gson.fromJson(op.payload, PersonSnapshot::class.java)
+                // Check for existence to preserve any later state (like linkedUserId)
+                val existing = db.personDao().getPersonById(snapshot.personId)
+                if (existing != null) {
+                    Log.d(TAG, "Person ${snapshot.personId} already exists. Skipping CREATE to preserve state.")
+                    return
+                }
+                val person = Person(
+                    id = snapshot.personId,
+                    displayName = snapshot.displayName,
+                    linkedUserId = null,
+                    createdAt = snapshot.createdAt
+                )
+                db.personDao().upsertPerson(person)
+                Log.d(TAG, "Applied PERSON CREATE: ${snapshot.personId}")
+            }
+            OP_LINK_USER -> {
+                /**
+                 * PERSON.LINK_USER
+                 *
+                 * Rule: Bind a Person identity to a registered User identity.
+                 *
+                 * Invariants:
+                 * 1. Dependencies: Both Person and User must exist (verified in canApplyOperation).
+                 * 2. Immutability: A linkedUserId can ONLY be set if it is currently null.
+                 * 3. First-Writer-Wins: If multiple devices try to link different users,
+                 *    the first one applied to this device's DB wins. (Future merge flows handle reconciliation).
+                 */
+                val snapshot = gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                val person = db.personDao().getPersonById(snapshot.personId)
+                if (person == null) {
+                    Log.e(TAG, "Cannot link user to missing person: ${snapshot.personId}")
+                    return
+                }
+                
+                // Enforce Immutability: Once set, cannot change (unless same value)
+                if (person.linkedUserId != null) {
+                    if (person.linkedUserId == snapshot.userId) {
+                        return // Idempotent
+                    } else {
+                        Log.e(TAG, "INVARIANT VIOLATION: Attempt to overwrite linkedUserId on Person ${snapshot.personId}")
+                        return
+                    }
+                }
+                
+                // Apply update
+                val updated = person.copy(linkedUserId = snapshot.userId)
+                db.personDao().upsertPerson(updated)
+                Log.d(TAG, "Applied PERSON LINK_USER: ${snapshot.personId} -> ${snapshot.userId}")
+            }
+            else -> Log.w(TAG, "Unknown PERSON operation type: ${op.operationType}")
         }
     }
 
