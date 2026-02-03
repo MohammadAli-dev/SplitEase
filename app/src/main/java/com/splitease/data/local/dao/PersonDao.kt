@@ -1,11 +1,7 @@
 package com.splitease.data.local.dao
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import com.splitease.data.local.entities.Person
-import kotlinx.coroutines.flow.Flow
+import androidx.room.Upsert
 
 /**
  * Data Access Object for the "persons" table.
@@ -20,11 +16,11 @@ interface PersonDao {
      * Inserts or updates a person identity.
      *
      * In Sprint 29A, this is purely for local persisting of ledger facts.
-     * Use [OnConflictStrategy.REPLACE] to ensure idempotency.
+     * Uses [Upsert] to ensure idempotency without delete side-effects.
      *
      * @param person The person entity to upsert.
      */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertPerson(person: Person)
 
     /**

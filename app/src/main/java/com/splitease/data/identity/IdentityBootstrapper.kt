@@ -36,9 +36,11 @@ class IdentityBootstrapper @Inject constructor(
      * Must be called during authentication flow (startup recovery, login, signup).
      *
      * Semantics:
-     * - Idempotent: checks specific existence before inserting.
-     * - Fail-Safe: Propagates DB exceptions for caller to handle.
-     * - Ledger-Aligned: Emits USER.CREATE ledger operation for the local user.
+     * - **Person**: Represents a participant in expenses/groups.
+     *
+     * This decoupling allows us to represent participants who haven't
+     * signed up yet ("Phantom Persons") and allows us to add participants
+     * to groups without requiring their email upfront.
      */
     suspend fun ensureLocalUserRegistered(): Boolean {
         val userId = userContext.userId.firstOrNull()

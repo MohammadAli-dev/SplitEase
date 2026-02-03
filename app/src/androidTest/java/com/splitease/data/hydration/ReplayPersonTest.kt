@@ -197,4 +197,69 @@ class ReplayPersonTest {
          val person = db.personDao().getPersonById(personId)
          assertEquals("Should remain linked to U1 (First Write Wins / Immutability)", user1, person?.linkedUserId)
     }
+
+    @Test
+    fun testReplay_UserUniquenessInvariant() = runTest(testDispatcher) {
+         val user1 = "u1"
+         val person1 = "p1"
+         val person2 = "p2"
+
+         // Setup: Create two Persons, one User
+         db.personDao().upsertPerson(com.splitease.data.local.entities.Person(person1, "P1", null, 0))
+         db.personDao().upsertPerson(com.splitease.data.local.entities.Person(person2, "P2", null, 0))
+         db.userDao().insertUser(com.splitease.data.local.entities.User(user1, "U1", null, null))
+
+         // Op 1: Link User1 -> Person1
+         val link1 = LedgerOperation(
+             operationId = "link1", entityType = ENTITY_PERSON, entityId = person1,
+             operationType = OP_LINK_USER, payload = gson.toJson(PersonLinkSnapshot(person1, user1)),
+             authorLocalUserId = user1, deviceId = "A", logicalClock = 10, createdAt = 0
+         )
+
+         // Op 2: Link User1 -> Person2 (ILLEGAL: User already linked!)
+         val link2 = LedgerOperation(
+             operationId = "link2", entityType = ENTITY_PERSON, entityId = person2,
+             operationType = OP_LINK_USER, payload = gson.toJson(PersonLinkSnapshot(person2, user1)),
+             authorLocalUserId = user1, deviceId = "A", logicalClock = 11, createdAt = 0
+         )
+
+         // First replay applies link1
+         val result1 = replayEngine.replay(listOf(link1))
+         assertEquals(ReplayResult.Success, result1)
+         
+         // Assert Person1 is linked
+         assertEquals(user1, db.personDao().getPersonById(person1)?.linkedUserId)
+
+         // Second replay should NOT THROW (Log + Skip semantics for valid conflict)
+         // It should succeed overall because the operation is just skipped (First-Writer-Wins)
+         val result2 = replayEngine.replay(listOf(link1, link2))
+         assertEquals(ReplayResult.Success, result2)
+
+         // Assert Person2 is NOT linked (First-Writer-Wins)
+         assertNull("Person2 link should be ignored because User1 is already claimed", db.personDao().getPersonById(person2)?.linkedUserId)
+         
+         // Assert Person1 STAYED linked
+         assertEquals(user1, db.personDao().getPersonById(person1)?.linkedUserId)
+    }
+
+    @Test
+    fun testReplay_MalformedPayload_ThrowsInvariantException() = runTest(testDispatcher) {
+         val personId = "person_bad_json"
+         
+         val malformedOp = LedgerOperation(
+             operationId = "op_malformed",
+             entityType = ENTITY_PERSON,
+             entityId = personId,
+             operationType = OP_CREATE,
+             payload = "{ invalid_json: ", // Missing closing brace
+             authorLocalUserId = "u1", deviceId = "A", logicalClock = 1, createdAt = Date().time
+         )
+
+         try {
+             replayEngine.replay(listOf(malformedOp))
+             assertTrue("Should have thrown HydrationInvariantException", false)
+         } catch (e: HydrationInvariantException) {
+             assertEquals(HydrationInvariant.MALFORMED_REMOTE_DATA, e.invariant)
+         }
+    }
 }

@@ -153,7 +153,7 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
 
 3. **Identity Architecture (Person vs User)**:
     - **User**: Represents an authenticated account (Supabase). Primarily used for security, sync gating, and profile metadata (email).
-    - **Person**: Represents a human participant in the ledger. **Authoritative identity** for all expenses, splits, and settlements.
+    - **Person**: Represents a human participant in the ledger. **Planned authoritative identity** for expenses, splits, and settlements (see Sprint 29B).
     - **Linkage**: A `Person` links to a `User` via the ledger (`OP_LINK_USER`). This decoupling allows for participants who aren't registered users yet ("Phantom Persons") to be upgraded to "Real Users" without breaking historical ledger integrity.
     - **Self Person**: Every device bootstraps exactly one "Self Person" linked to the authenticated user.
 

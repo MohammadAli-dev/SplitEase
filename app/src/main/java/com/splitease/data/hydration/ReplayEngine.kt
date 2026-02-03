@@ -314,6 +314,12 @@ class ReplayEngineImpl @Inject constructor(
     private suspend fun canApplyOperation(op: LedgerOperation): Boolean {
         return when (op.entityType) {
             ENTITY_GROUP -> {
+                val snapshot = try {
+                    gson.fromJson(op.payload, GroupSnapshot::class.java)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse GroupSnapshot check: ${e.message}")
+                    return false
+                }
                 when (op.operationType) {
                     OP_CREATE -> true // Groups have no dependencies
                     OP_UPDATE, OP_DELETE -> db.groupDao().getGroupById(op.entityId) != null
@@ -401,7 +407,15 @@ class ReplayEngineImpl @Inject constructor(
                     else -> true
                 }
             }
-            ENTITY_USER -> true
+            ENTITY_USER -> {
+                try {
+                    gson.fromJson(op.payload, UserSnapshot::class.java)
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse UserSnapshot check: ${e.message}")
+                    false
+                }
+            }
             OP_RESOLVE_CONFLICT -> true
             else -> {
                 Log.w(TAG, "Unknown entity type: ${op.entityType}")
@@ -439,8 +453,10 @@ class ReplayEngineImpl @Inject constructor(
                 val snapshot = try {
                     gson.fromJson(op.payload, PersonSnapshot::class.java)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse PersonSnapshot for op ${op.operationId}: ${e.message}")
-                    return
+                    throw HydrationInvariantException(
+                        HydrationInvariant.MALFORMED_REMOTE_DATA,
+                        "Failed to parse PersonSnapshot for op ${op.operationId}: ${e.message}"
+                    )
                 }
                 
                 // Check for existence to preserve any later state (like linkedUserId)
@@ -473,14 +489,32 @@ class ReplayEngineImpl @Inject constructor(
                 val snapshot = try {
                     gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse PersonLinkSnapshot for op ${op.operationId}: ${e.message}")
-                    return
+                    throw HydrationInvariantException(
+                        HydrationInvariant.MALFORMED_REMOTE_DATA,
+                        "Failed to parse PersonLinkSnapshot for op ${op.operationId}: ${e.message}"
+                    )
                 }
                 
                 val person = db.personDao().getPersonById(snapshot.personId)
                 if (person == null) {
                     Log.e(TAG, "Cannot link user to missing person: ${snapshot.personId}")
                     return
+                }
+
+                // Enforce User Uniqueness: One Person per User
+                // Check if this User is already linked to ANY Person
+                val existingLink = db.personDao().getPersonByLinkedUserId(snapshot.userId)
+                if (existingLink != null) {
+                    if (existingLink.id == snapshot.personId) {
+                        return // Idempotent: Already linked to THIS person
+                    } else {
+                        // First-Writer-Wins: User already claimed by another Person.
+                        // We do NOT throw here because this is a cross-entity conflict that can happen 
+                        // in distributed systems/merges, unlike self-immutability.
+                        Log.e(TAG, "INVARIANT VIOLATION: User ${snapshot.userId} already linked to Person ${existingLink.id}. " +
+                                  "Ignoring link for ${snapshot.personId}.")
+                        return
+                    }
                 }
                 
                 // Enforce Immutability: Once set, cannot change (unless same value)
@@ -509,8 +543,10 @@ class ReplayEngineImpl @Inject constructor(
         val snapshot = try {
             gson.fromJson(op.payload, GroupSnapshot::class.java)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse GroupSnapshot for op ${op.operationId}: ${e.message}")
-            return
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse GroupSnapshot for op ${op.operationId}: ${e.message}"
+            )
         }
 
         when (op.operationType) {
@@ -553,8 +589,10 @@ class ReplayEngineImpl @Inject constructor(
         val snapshot = try {
             gson.fromJson(op.payload, ExpenseSnapshot::class.java)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse ExpenseSnapshot for op ${op.operationId}: ${e.message}")
-            return
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse ExpenseSnapshot for op ${op.operationId}: ${e.message}"
+            )
         }
 
         when (op.operationType) {
@@ -597,8 +635,10 @@ class ReplayEngineImpl @Inject constructor(
         val snapshot = try {
             gson.fromJson(op.payload, SettlementSnapshot::class.java)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse SettlementSnapshot for op ${op.operationId}: ${e.message}")
-            return
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse SettlementSnapshot for op ${op.operationId}: ${e.message}"
+            )
         }
 
         when (op.operationType) {
@@ -630,8 +670,10 @@ class ReplayEngineImpl @Inject constructor(
         val snapshot = try {
             gson.fromJson(op.payload, MemberSnapshot::class.java)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse MemberSnapshot for op ${op.operationId}: ${e.message}")
-            return
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse MemberSnapshot for op ${op.operationId}: ${e.message}"
+            )
         }
 
         when (op.operationType) {
@@ -708,8 +750,10 @@ class ReplayEngineImpl @Inject constructor(
         val snapshot = try {
             gson.fromJson(op.payload, UserSnapshot::class.java)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse UserSnapshot for op ${op.operationId}: ${e.message}")
-            return
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse UserSnapshot for op ${op.operationId}: ${e.message}"
+            )
         }
 
         when (op.operationType) {
