@@ -287,3 +287,21 @@ No action required.
 ## CTO Principle
 
 > **Tools must adapt to architecture — not the other way around.**
++
++---
++
++## 13. Universal Person Invariants (Sprint 29)
++
++### Person is the Domain Authority
++- **Contract**: After Sprint 29, `Person.id` is the primary key for all transaction participation.
++- **User IDs** are for authentication and "Self Person" binding ONLY.
++- **Do NOT** flag code that uses `personId` instead of `userId` in Expense or Settlement contexts. This is intentional.
++
++### Fail-Fast Guardrails
++- **Invariant**: The system prefers a crash (throwing `IdentityInvariantViolationException`) over persisting identity-corrupt state.
++- **Do NOT** suggest wrapping identity checks in broad `try-catch` blocks or providing "safe defaults" for missing Person IDs in mutation paths.
++
++### Dual-Read Fallback
++- **Contract**: Repositories resolve missing `personId` by falling back to the `linkedUserId` map.
++- **Do NOT** suggest "database backfilling" to fix legacy nulls; the fallback is the sanctioned architectural pattern for v1.0.
++

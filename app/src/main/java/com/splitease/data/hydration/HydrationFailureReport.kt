@@ -41,7 +41,12 @@ enum class HydrationInvariant(val category: HydrationInvariantCategory) {
     /**
      * Person-to-User bindings are immutable once set.
      */
-    PERSON_LINK_IMMUTABLE(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
+    PERSON_LINK_IMMUTABLE(HydrationInvariantCategory.MALFORMED_REMOTE_DATA),
+
+    /**
+     * Payload is not a valid JSON or missing required fields for the entity type.
+     */
+    MALFORMED_REMOTE_DATA(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
 }
 
 /**

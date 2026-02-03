@@ -9,6 +9,11 @@ import java.util.Date
 )
 data class GroupMember(
     val groupId: String,
-    val userId: String,
+    val userId: String, // Legacy - userId
+    /**
+     * The Person identity of this group member.
+     * **Sprint 29B**: Authoritative identity reference for new data.
+     */
+    val personId: String? = null,
     val joinedAt: Date = Date()
 )

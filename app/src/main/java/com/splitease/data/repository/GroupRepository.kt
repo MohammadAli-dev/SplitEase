@@ -137,7 +137,8 @@ class GroupRepositoryImpl @Inject constructor(
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
     private val deviceRoleManager: DeviceRoleManager,
-    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate
+    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate,
+    private val personDao: com.splitease.data.local.dao.PersonDao
 ) : GroupRepository {
 
     companion object {
@@ -164,6 +165,22 @@ class GroupRepositoryImpl @Inject constructor(
             if (!creatorExists) {
                  throw IllegalStateException("Invariant violated: createGroup attempted without local user row for $creatorUserId")
             }
+            
+            // Single-Write Guard: Resolve all members to Persons
+            // Sprint 29 Requirement: All group memberships MUST be canonically 
+            // tied to a Person ID, not just a User ID. This ensures participation
+            // stability across user account merges and authentication changes.
+            // 
+            // FAIL-FAST: If any member cannot be resolved to a Person container, 
+            // the operation is aborted to prevent identity orphans.
+            val resolvedMembers = mutableMapOf<String, String>() // userId -> personId
+            for (uid in memberIds) {
+                val person = personDao.getPersonByLinkedUserId(uid)
+                    ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
+                        "Single-Write Violation: createGroup failed. Cannot resolve personId for member $uid"
+                    )
+                resolvedMembers[uid] = person.id
+            }
 
             val groupId = id
             val now = Date()
@@ -185,6 +202,7 @@ class GroupRepositoryImpl @Inject constructor(
                 GroupMember(
                     groupId = groupId,
                     userId = userId,
+                    personId = resolvedMembers[userId], // Mandatory
                     joinedAt = now
                 )
             }
@@ -365,9 +383,15 @@ class GroupRepositoryImpl @Inject constructor(
                     Log.d(TAG, "addMember: AlreadyMember [groupId=$groupId, userId=$userId]")
                     return@withWriteLock AddMemberResult.AlreadyMember
                 }
+                
+                // 3. Single-Write Guard: Resolve Person ID
+                val person = personDao.getPersonByLinkedUserId(userId)
+                    ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
+                        "Single-Write Violation: addMember failed. Cannot resolve personId for user $userId"
+                    )
 
-                // 3. Execute Add
-                val member = GroupMember(groupId = groupId, userId = userId)
+                // 4. Execute Add
+                val member = GroupMember(groupId = groupId, userId = userId, personId = person.id)
                 val syncOp = syncWriteService.createGroupMemberAddSyncOp(groupId, userId)
                 // Fix: Attribute action to the ACTOR (inviter), not the generic user being added
                 val ledgerOp = ledgerOperationFactory.createMemberAddOp(groupId, userId, actorUserId)

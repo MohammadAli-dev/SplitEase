@@ -27,6 +27,18 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Authority for Expense objects.
  * 
+ * ## Dual-Read / Single-Write Architecture (Sprint 29)
+ * This repository implements the transition from [User]-based identity to 
+ * [Person]-based "Universal Identity".
+ * 
+ * 1. **Single-Write (Fail-Fast)**: All new mutations MUST provide a validated 
+ *    [Person] ID. If a mutation is attempted with a missing or unresolvable 
+ *    identity, the repository will throw an [IdentityInvariantViolationException].
+ * 2. **Dual-Read (Fallback)**: To support historical data, reads will first 
+ *    attempt to use the [Person] ID stored in the entity. If missing (legacy 
+ *    data), it will fallback to resolving the [User] ID via the [PersonDao] 
+ *    mapping.
+ *
  * ## Effective State Derivation (P0 Guarantee)
  * Because SplitEase uses a Ledger-first architecture, the "Effective State" of an expense
  * is NOT merely what is in the `expenses` table. It is dynamically derived:
@@ -87,11 +99,13 @@ class ExpenseRepositoryImpl @Inject constructor(
     private val ledgerOperationFactory: LedgerOperationFactory,
     private val ledgerSyncScheduler: LedgerSyncScheduler,
     private val deviceRoleManager: DeviceRoleManager,
-    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate
+    private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate,
+    private val personDao: com.splitease.data.local.dao.PersonDao
 ) : ExpenseRepository {
 
     override suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>) = 
         withContext(Dispatchers.IO) {
+            ensureIdentityInvariant(expense, splits)
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
                     throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
@@ -105,6 +119,7 @@ class ExpenseRepositoryImpl @Inject constructor(
 
     override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
+            ensureIdentityInvariant(expense, splits)
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
                     throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
@@ -115,6 +130,27 @@ class ExpenseRepositoryImpl @Inject constructor(
                 ledgerSyncScheduler.schedulePush()
             }
         }
+
+    /**
+     * Enforces the **Single-Write** invariant: every mutation MUST have an 
+     * authoritative [Person] reference. This prevents "phantom" data that 
+     * cannot be synced or Corrected.
+     *
+     * @throws IdentityInvariantViolationException if any personId is missing.
+     */
+    private fun ensureIdentityInvariant(expense: Expense, splits: List<ExpenseSplit>) {
+        if (expense.payerPersonId == null) {
+             throw com.splitease.data.identity.IdentityInvariantViolationException(
+                 "Single-Write Violation: Expense ${expense.id} missing payerPersonId. Writes must be authoritative."
+             )
+        }
+        val invalidSplit = splits.find { it.personId == null }
+        if (invalidSplit != null) {
+             throw com.splitease.data.identity.IdentityInvariantViolationException(
+                 "Single-Write Violation: Split for user ${invalidSplit.userId} missing personId."
+             )
+        }
+    }
 
     override suspend fun deleteExpense(expenseId: String) =
         withContext(Dispatchers.IO) {
@@ -169,11 +205,58 @@ class ExpenseRepositoryImpl @Inject constructor(
                 }
             }
             // If MULTIPLE_WRITERS -> Show
-            expenseValue
+            hydrateIdentity(expenseValue)
         }
     }
     
-    override fun getSplits(expenseId: String) = expenseDao.getSplits(expenseId)
+    override fun getSplits(expenseId: String): Flow<List<ExpenseSplit>> {
+         return expenseDao.getSplits(expenseId).mapLatest { splits ->
+             hydrateSplits(splits)
+         }
+    }
+
+    /**
+     * Resolves the [payerPersonId] for legacy data that was created before the 
+     * Sprint 29 "Single-Write" enforcement.
+     *
+     * ## Dual-Read Fallback
+     * This is a transient migration helper. It reads from the [personDao] to 
+     * reconstruct the identity reference in memory. 
+     * 
+     * WARNING: This does NOT modify the database. It only projects the 
+     * personId for UI consumption.
+     */
+    private suspend fun hydrateIdentity(expense: Expense): Expense {
+        if (expense.payerPersonId != null) return expense
+        
+        // Dual-Read Fallback
+        android.util.Log.d("ExpenseRepository", "Legacy identity fallback used for expense ${expense.id} (payerPersonId missing)")
+        val person = personDao.getPersonByLinkedUserId(expense.payerId)
+        
+        return if (person != null) {
+            expense.copy(payerPersonId = person.id)
+        } else {
+            // Resolution failed -> Return as-is (Legacy mode)
+            // Ideally we might want to flag this, but for now we follow "Do not invent data"
+            expense
+        }
+    }
+
+    private suspend fun hydrateSplits(splits: List<ExpenseSplit>): List<ExpenseSplit> {
+        return splits.map { split ->
+            if (split.personId != null) {
+                split
+            } else {
+                android.util.Log.d("ExpenseRepository", "Legacy identity fallback used for split ${split.expenseId}:${split.userId}")
+                val person = personDao.getPersonByLinkedUserId(split.userId)
+                if (person != null) {
+                    split.copy(personId = person.id)
+                } else {
+                    split
+                }
+            }
+        }
+    }
 
     override fun getAllEffectiveExpenses(): Flow<List<Expense>> {
         return combine(
@@ -264,6 +347,8 @@ class ExpenseRepositoryImpl @Inject constructor(
                 
                 // All other conflicts (MULTIPLE_WRITERS) -> SHOW
                 true
+            }.map { expense ->
+                hydrateIdentity(expense)
             }
         }
     }

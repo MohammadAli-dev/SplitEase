@@ -60,7 +60,7 @@ Most existing solutions rely on "Last-Writer-Wins" or simple state-replacement s
 | **Financial Accuracy** | Uses `BigDecimal` for all money calculations. No rounding errors. |
 | **Zero Orphans** | **Sprint 28.5 Update**: Replay Engine strictly defers operations (Expenses/Settlements) until their owner identity exists in the ledger, guaranteeing referential integrity. |
 | **Auth-Gated Sync** | Prevents sync attempts until a cloud identity is established. No pre-login noise. |
-| **Universal Person** | **Sprint 29A Update**: Introduced canonical Person identity decoupled from authentication, ensuring stable participation across identity merges. |
+| **Universal Identity** | **Sprint 29 Update**: Introduced canonical `Person` identity decoupled from authentication, ensuring stable participation across identity merges. |
 
 ---
 
@@ -151,26 +151,20 @@ SplitEase follows **MVVM (Model-View-ViewModel)** with strict **Unidirectional D
     - **Tier 2: Explicit Conflict Detection (`ConflictDetector`)**: Surfaces multi-device mutation facts (conflicts) as read-only metadata.
     - **Tier 3: Explicit Conflict Resolution (Derivation)**: Repositories join resolution "facts" with raw state to project the Effective State (hiding Zombies/Losers) without corrupting the historical record.
 
-3. **Identity Architecture (Person vs User)**:
-    - **User**: Represents an authenticated account (Supabase). Primarily used for security, sync gating, and profile metadata (email).
-    - **Person**: Represents a human participant in the ledger. **Planned authoritative identity** for expenses, splits, and settlements (see Sprint 29B).
-    - **Linkage**: A `Person` links to a `User` via the ledger (`OP_LINK_USER`). This decoupling allows for participants who aren't registered users yet ("Phantom Persons") to be upgraded to "Real Users" without breaking historical ledger integrity.
-    - **Self Person**: Every device bootstraps exactly one "Self Person" linked to the authenticated user.
+ 3. **Identity Architecture (Person vs User)**:
+     - **User**: Represents an authenticated account (Supabase). Used for security tokens, sync gating, and profile metadata.
+     - **Person**: Represents a human participant in the ledger. **Authoritative identity** for all expenses, splits, and settlements.
+     - **Linkage**: A `Person` links to a `User` via the ledger (`OP_LINK_USER`).
+     - **Phantom Support**: Participants can exist as "Phantom Persons" (local-only) and later be linked to a real User without rewriting history.
+     - **Single-Write Invariant**: All new data MUST use `Person` identifiers. `User` identifiers are relegated to secondary lookup/linkage only.
+     - **Stable Participation**: Ensures that even if a user account is merged or changed, their historical participation in expenses remains linked via their stable `Person` identity.
 
-4. **Atomic Identity Consolidation (Sprint 24 & 29A)**:
-    - **`IdentityRepository`**: The authority on user identity state.
-    - **`AppDatabase.mergeAndVerify`**: **Atomic Transaction** that:
-        1.  Reassigns all specific foreign-key references (Expenses, Settlements, Groups) from Phantom -> Real.
-        2.  **Audits** the database for any remaining "Orphan" references to the Phantom ID.
-        3.  **Aborts** the transaction if strict Zero-Reference invariant is violated.
-    - **Terminal Failure**: If identity consolidation fails, `AuthManager` **clears tokens and refuses login**. We favor crash-safety over data corruption.
-
-5. **Unidirectional Data Flow**: Data flows in one direction:
+6. **Unidirectional Data Flow**: Data flows in one direction:
    ```
    User Action → ViewModel → Repository → Room → Flow → UI
    ```
 
-3. **Separation of Concerns**:
+7. **Separation of Concerns**:
    - **UI Layer**: Display only (no business logic)
    - **ViewModel**: State orchestration
    - **Domain Layer**: Pure business logic (calculations, validations)
@@ -334,7 +328,6 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `email` | TEXT | Email address |
 | `profileUrl` | TEXT? | Avatar URL (nullable) |
 
-
 #### `persons` Table (Sprint 29A)
 
 | Column | Type | Description |
@@ -343,6 +336,21 @@ Room is the **Single Source of Truth (SSOT)**. Every piece of data the UI displa
 | `displayName` | TEXT | Display name (Metadata) |
 | `linkedUserId` | TEXT? | FK to `users` (Optional binding) |
 | `createdAt` | INTEGER | Timestamp |
+
+### 🛠️ User vs Person (The Identity Separation)
+
+SplitEase distinguishes between human identity and security accounts:
+
+| Concept | Scope | Visibility | Purpose | Authority |
+|---------|-------|------------|---------|-----------|
+| **User** | Authentication | Private (Email/Profile) | Security, Sync, Token Management | Credentials |
+| **Person** | Participation | Public (Ledger) | Expenses, Splits, Groups, History | UUID (Ledger) |
+
+**Key Invariants**:
+- **Authoritative Identity**: A `Person` is a stable human identity that exists before a `User` account is created.
+- **Phantom Support**: You can add friends by name ("Phantom Persons") and have their history merge seamlessly when they eventually join with a real `User` account.
+- **Single-Write Policy**: All new domain data (Expenses, Settlements) MUST reference `Person` IDs.
+- **Fail-Fast Enforcement**: Mutations that violate identity invariants trigger immediate system failure to prevent data corruption.
 
 #### `expense_groups` Table
 | Column | Type | Description |

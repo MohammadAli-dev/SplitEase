@@ -17,7 +17,17 @@ data class SettlementSnapshot(
     val id: String,
     val groupId: String,
     val fromUserId: String,
+    /**
+     * Canonical Person ID of the payer.
+     * Null for legacy ops; populated for new ops.
+     */
+    val fromPersonId: String? = null,
     val toUserId: String,
+    /**
+     * Canonical Person ID of the payee.
+     * Null for legacy ops; populated for new ops.
+     */
+    val toPersonId: String? = null,
     val amount: String,
     /** Currency code (ISO 4217). Derived from group context at creation time. */
     val currency: String,

@@ -50,11 +50,27 @@ import javax.inject.Singleton
 /**
  * Deterministically replays ledger operations into Room.
  *
- * **Sprint 18 Contract**:
- * - Uses convergence-based algorithm: retry until no progress, then fail if deferred remain.
- * - No arbitrary retry limits.
- * - Idempotent: same operation applied twice = same state.
- * - Restart-safe: replaying from zero always converges to same state.
+ * ## Convergence Algorithm
+ * ReplayEngine uses a **Fail-Fast** multi-pass convergence loop. It continues 
+ * replaying operations until either all operations are applied or a pass results 
+ * in zero progress (at which point it fails if deferred operations remain).
+ * 
+ * - **Idempotency**: Applying the same operation twice is a no-op.
+ * - **Restart-Safety**: Replaying from scratch always results in the same final state.
+ * - **No Silent Drops**: Every operation MUST be either applied, suppressed by a 
+ *   conflict resolution, or the entire replay chain fails.
+ *
+ * ## Dependency Branching & Deferral (Sprint 29)
+ * Operations are replayed in a specific order. Some entities depend on others 
+ * (e.g., [OP_LINK_USER] depends on both the [ENTITY_PERSON] and [ENTITY_USER] 
+ * existence). The engine automatically defers dependent operations to the 
+ * next pass if their prerequisites are not yet persisted.
+ *
+ * ## The Derivation Ban
+ * ReplayEngine MUST NOT derive state from non-ledger tables or local preferences.
+ * State must be a pure, deterministic function of the Ledger + existing Entity state.
+ * Specifically, the engine **must NOT backfill or derive personId**; it only 
+ * persists what is explicitly provided in the ledger payload.
  */
 interface ReplayEngine {
     /**
@@ -336,14 +352,38 @@ class ReplayEngineImpl @Inject constructor(
                 when (op.operationType) {
                     OP_CREATE -> {
                         val groupExists = db.groupDao().getGroupById(snapshot.groupId) != null
-                        val payerExists = db.userDao().getUserById(snapshot.payerId) != null
-                        val splitsExist = snapshot.splits.all { db.userDao().getUserById(it.userId) != null }
+                        
+                        val payerExists = if (snapshot.payerPersonId != null) {
+                            db.personDao().getPersonById(snapshot.payerPersonId) != null
+                        } else {
+                            db.userDao().getUserById(snapshot.payerId) != null
+                        }
+
+                        val splitsExist = snapshot.splits.all { 
+                            if (it.personId != null) {
+                                db.personDao().getPersonById(it.personId) != null
+                            } else {
+                                db.userDao().getUserById(it.userId) != null
+                            }
+                        }
                         groupExists && payerExists && splitsExist
                     }
                     OP_UPDATE -> {
                         val expenseExists = db.expenseDao().existsById(op.entityId)
-                        val payerExists = db.userDao().getUserById(snapshot.payerId) != null
-                        val splitsExist = snapshot.splits.all { db.userDao().getUserById(it.userId) != null }
+                        
+                        val payerExists = if (snapshot.payerPersonId != null) {
+                            db.personDao().getPersonById(snapshot.payerPersonId) != null
+                        } else {
+                            db.userDao().getUserById(snapshot.payerId) != null
+                        }
+
+                        val splitsExist = snapshot.splits.all { 
+                            if (it.personId != null) {
+                                db.personDao().getPersonById(it.personId) != null
+                            } else {
+                                db.userDao().getUserById(it.userId) != null
+                            }
+                        }
                         expenseExists && payerExists && splitsExist
                     }
                     OP_DELETE -> {
@@ -362,14 +402,36 @@ class ReplayEngineImpl @Inject constructor(
                 when (op.operationType) {
                     OP_CREATE -> {
                         val groupExists = db.groupDao().getGroupById(snapshot.groupId) != null
-                        val fromUserExists = db.userDao().getUserById(snapshot.fromUserId) != null
-                        val toUserExists = db.userDao().getUserById(snapshot.toUserId) != null
+                        
+                        val fromUserExists = if (snapshot.fromPersonId != null) {
+                            db.personDao().getPersonById(snapshot.fromPersonId) != null
+                        } else {
+                            db.userDao().getUserById(snapshot.fromUserId) != null
+                        }
+
+                        val toUserExists = if (snapshot.toPersonId != null) {
+                            db.personDao().getPersonById(snapshot.toPersonId) != null
+                        } else {
+                            db.userDao().getUserById(snapshot.toUserId) != null
+                        }
+                        
                         groupExists && fromUserExists && toUserExists
                     }
                     OP_UPDATE -> {
                         val exists = db.settlementDao().existsById(op.entityId)
-                        val fromUserExists = db.userDao().getUserById(snapshot.fromUserId) != null
-                        val toUserExists = db.userDao().getUserById(snapshot.toUserId) != null
+                        
+                        val fromUserExists = if (snapshot.fromPersonId != null) {
+                            db.personDao().getPersonById(snapshot.fromPersonId) != null
+                        } else {
+                            db.userDao().getUserById(snapshot.fromUserId) != null
+                        }
+
+                        val toUserExists = if (snapshot.toPersonId != null) {
+                            db.personDao().getPersonById(snapshot.toPersonId) != null
+                        } else {
+                            db.userDao().getUserById(snapshot.toUserId) != null
+                        }
+
                         exists && fromUserExists && toUserExists
                     }
                     OP_DELETE -> {
@@ -386,7 +448,13 @@ class ReplayEngineImpl @Inject constructor(
                     return false
                 }
                 val groupExists = db.groupDao().getGroupById(snapshot.groupId) != null
-                val userExists = db.userDao().getUserById(snapshot.userId) != null
+                
+                val userExists = if (snapshot.personId != null) {
+                    db.personDao().getPersonById(snapshot.personId) != null
+                } else {
+                    db.userDao().getUserById(snapshot.userId) != null
+                }
+                
                 groupExists && userExists
             }
             ENTITY_PERSON -> {
@@ -394,12 +462,19 @@ class ReplayEngineImpl @Inject constructor(
                     OP_CREATE -> true
                     OP_LINK_USER -> {
                         val snapshot = try {
-                            gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                            val s = gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                            if (s.personId.isNullOrBlank() || s.userId.isNullOrBlank()) {
+                                throw IllegalArgumentException("Legacy JSON deserialization resulted in null/blank IDs")
+                            }
+                            s
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to parse PersonLinkSnapshot: ${e.message}")
                             return false
                         }
                         // Check dependencies: Person AND User must exist
+                        // Branching Logic: We cannot link a user until both the Person identity
+                        // and the User account have been formally registered in the local DB.
+                        // FAIL-FAST: Validate we are not querying with nulls (though the check above covers it, defense-in-depth)
                         val personExists = db.personDao().getPersonById(snapshot.personId) != null
                         val userExists = db.userDao().getUserById(snapshot.userId) != null
                         personExists && userExists
@@ -411,10 +486,14 @@ class ReplayEngineImpl @Inject constructor(
                 try {
                     gson.fromJson(op.payload, UserSnapshot::class.java)
                     true
-                } catch (e: Exception) {
+                 } catch (e: Exception) {
                     throw HydrationInvariantException(
-                        HydrationInvariant.MALFORMED_REMOTE_DATA,
-                        "Failed to parse UserSnapshot check for op ${op.operationId}: ${e.message}"
+                        HydrationFailureReport(
+                            invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                            location = HydrationFailureLocation.REPLAY_ENGINE,
+                            operationId = op.operationId,
+                            details = "Failed to parse UserSnapshot check: ${e.message}"
+                        )
                     )
                 }
             }
@@ -453,11 +532,19 @@ class ReplayEngineImpl @Inject constructor(
                  * Identity [Person.id] is globally unique and locally authored.
                  */
                 val snapshot = try {
-                    gson.fromJson(op.payload, PersonSnapshot::class.java)
-                } catch (e: Exception) {
+                    val s = gson.fromJson(op.payload, PersonSnapshot::class.java)
+                    if (s.personId.isNullOrBlank()) {
+                        throw IllegalArgumentException("PersonSnapshot personId is null/blank")
+                    }
+                    s
+                 } catch (e: Exception) {
                     throw HydrationInvariantException(
-                        HydrationInvariant.MALFORMED_REMOTE_DATA,
-                        "Failed to parse PersonSnapshot for op ${op.operationId}: ${e.message}"
+                        HydrationFailureReport(
+                            invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                            location = HydrationFailureLocation.REPLAY_ENGINE,
+                            operationId = op.operationId,
+                            details = "Failed to parse PersonSnapshot for op ${op.operationId}: ${e.message}"
+                        )
                     )
                 }
                 
@@ -489,11 +576,19 @@ class ReplayEngineImpl @Inject constructor(
                  *    the first one applied to this device's DB wins. (Future merge flows handle reconciliation).
                  */
                 val snapshot = try {
-                    gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
-                } catch (e: Exception) {
+                    val s = gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                    if (s.personId.isNullOrBlank() || s.userId.isNullOrBlank()) {
+                        throw IllegalArgumentException("PersonLinkSnapshot has null/blank IDs")
+                    }
+                    s
+                 } catch (e: Exception) {
                     throw HydrationInvariantException(
-                        HydrationInvariant.MALFORMED_REMOTE_DATA,
-                        "Failed to parse PersonLinkSnapshot for op ${op.operationId}: ${e.message}"
+                        HydrationFailureReport(
+                            invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                            location = HydrationFailureLocation.REPLAY_ENGINE,
+                            operationId = op.operationId,
+                            details = "Failed to parse PersonLinkSnapshot for op ${op.operationId}: ${e.message}"
+                        )
                     )
                 }
                 
@@ -525,9 +620,12 @@ class ReplayEngineImpl @Inject constructor(
                         return // Idempotent
                     } else {
                         throw HydrationInvariantException(
-                            HydrationInvariant.PERSON_LINK_IMMUTABLE,
-                            "INVARIANT VIOLATION ($TAG): Attempt to overwrite linkedUserId on Person ${snapshot.personId}. " +
-                                    "Existing: ${person.linkedUserId}, New: ${snapshot.userId}"
+                            HydrationFailureReport(
+                                invariant = HydrationInvariant.PERSON_LINK_IMMUTABLE,
+                                location = HydrationFailureLocation.REPLAY_ENGINE,
+                                operationId = op.operationId,
+                                details = "Attempt to overwrite linkedUserId on Person ${snapshot.personId}. Existing: ${person.linkedUserId}, New: ${snapshot.userId}"
+                            )
                         )
                     }
                 }
@@ -546,8 +644,12 @@ class ReplayEngineImpl @Inject constructor(
             gson.fromJson(op.payload, GroupSnapshot::class.java)
         } catch (e: Exception) {
             throw HydrationInvariantException(
-                HydrationInvariant.MALFORMED_REMOTE_DATA,
-                "Failed to parse GroupSnapshot for op ${op.operationId}: ${e.message}"
+                HydrationFailureReport(
+                    invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                    location = HydrationFailureLocation.REPLAY_ENGINE,
+                    operationId = op.operationId,
+                    details = "Failed to parse GroupSnapshot for op ${op.operationId}: ${e.message}"
+                )
             )
         }
 
@@ -592,8 +694,12 @@ class ReplayEngineImpl @Inject constructor(
             gson.fromJson(op.payload, ExpenseSnapshot::class.java)
         } catch (e: Exception) {
             throw HydrationInvariantException(
-                HydrationInvariant.MALFORMED_REMOTE_DATA,
-                "Failed to parse ExpenseSnapshot for op ${op.operationId}: ${e.message}"
+                HydrationFailureReport(
+                    invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                    location = HydrationFailureLocation.REPLAY_ENGINE,
+                    operationId = op.operationId,
+                    details = "Failed to parse ExpenseSnapshot for op ${op.operationId}: ${e.message}"
+                )
             )
         }
 
@@ -607,6 +713,13 @@ class ReplayEngineImpl @Inject constructor(
                     currency = snapshot.currency,
                     date = Date(snapshot.date),
                     payerId = snapshot.payerId,
+                    /**
+                     * Replay Payer Authority:
+                     * - If snapshot has payerPersonId (New Ops), use it.
+                     * - If snapshot is legacy (Old Ops), it remains null.
+                     * - DO NOT DERIVE or backfill.
+                     */
+                    payerPersonId = snapshot.payerPersonId,
                     createdBy = snapshot.createdBy,
                     syncStatus = snapshot.syncStatus,
                     expenseDate = snapshot.expenseDate,
@@ -619,6 +732,12 @@ class ReplayEngineImpl @Inject constructor(
                     ExpenseSplit(
                         expenseId = splitSnapshot.expenseId,
                         userId = splitSnapshot.userId,
+                        /**
+                         * Replay Split Authority:
+                         * - If snapshot has personId (New Ops), use it.
+                         * - If snapshot is legacy, it remains null.
+                         */
+                        personId = splitSnapshot.personId,
                         amount = BigDecimal(splitSnapshot.amount)
                     )
                 }
@@ -638,8 +757,12 @@ class ReplayEngineImpl @Inject constructor(
             gson.fromJson(op.payload, SettlementSnapshot::class.java)
         } catch (e: Exception) {
             throw HydrationInvariantException(
-                HydrationInvariant.MALFORMED_REMOTE_DATA,
-                "Failed to parse SettlementSnapshot for op ${op.operationId}: ${e.message}"
+                HydrationFailureReport(
+                    invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                    location = HydrationFailureLocation.REPLAY_ENGINE,
+                    operationId = op.operationId,
+                    details = "Failed to parse SettlementSnapshot for op ${op.operationId}: ${e.message}"
+                )
             )
         }
 
@@ -650,6 +773,13 @@ class ReplayEngineImpl @Inject constructor(
                     groupId = snapshot.groupId,
                     fromUserId = snapshot.fromUserId,
                     toUserId = snapshot.toUserId,
+                    /**
+                     * Replay Identity Authority:
+                     * - If snapshot has personId (New Ops), use it.
+                     * - If snapshot is legacy, it remains null.
+                     */
+                    fromPersonId = snapshot.fromPersonId,
+                    toPersonId = snapshot.toPersonId,
                     amount = BigDecimal(snapshot.amount),
                     currency = snapshot.currency,
                     date = Date(snapshot.date),
@@ -673,8 +803,12 @@ class ReplayEngineImpl @Inject constructor(
             gson.fromJson(op.payload, MemberSnapshot::class.java)
         } catch (e: Exception) {
             throw HydrationInvariantException(
-                HydrationInvariant.MALFORMED_REMOTE_DATA,
-                "Failed to parse MemberSnapshot for op ${op.operationId}: ${e.message}"
+                HydrationFailureReport(
+                    invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                    location = HydrationFailureLocation.REPLAY_ENGINE,
+                    operationId = op.operationId,
+                    details = "Failed to parse MemberSnapshot for op ${op.operationId}: ${e.message}"
+                )
             )
         }
 
@@ -699,6 +833,12 @@ class ReplayEngineImpl @Inject constructor(
                     GroupMember(
                         groupId = snapshot.groupId,
                         userId = snapshot.userId,
+                        /**
+                         * Replay Identity Authority:
+                         * - If snapshot has personId (New Ops), use it.
+                         * - If snapshot is legacy, it remains null.
+                         */
+                        personId = snapshot.personId,
                         joinedAt = Date(resolvedJoinedAt)
                     )
                 )
@@ -753,8 +893,12 @@ class ReplayEngineImpl @Inject constructor(
             gson.fromJson(op.payload, UserSnapshot::class.java)
         } catch (e: Exception) {
             throw HydrationInvariantException(
-                HydrationInvariant.MALFORMED_REMOTE_DATA,
-                "Failed to parse UserSnapshot for op ${op.operationId}: ${e.message}"
+                HydrationFailureReport(
+                    invariant = HydrationInvariant.MALFORMED_REMOTE_DATA,
+                    location = HydrationFailureLocation.REPLAY_ENGINE,
+                    operationId = op.operationId,
+                    details = "Failed to parse UserSnapshot for op ${op.operationId}: ${e.message}"
+                )
             )
         }
 

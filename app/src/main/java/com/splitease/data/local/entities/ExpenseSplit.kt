@@ -18,6 +18,12 @@ import java.math.BigDecimal
 )
 data class ExpenseSplit(
     val expenseId: String,
-    val userId: String,
+    val userId: String, // Legacy - userId
+    /**
+     * The Person identity of this split participant.
+     * **Sprint 29B**: Authoritative identity reference for new data.
+     * Null for historical records created before Person migration.
+     */
+    val personId: String? = null,
     val amount: BigDecimal
 )

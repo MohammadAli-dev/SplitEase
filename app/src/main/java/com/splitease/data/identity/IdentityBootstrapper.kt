@@ -100,7 +100,7 @@ class IdentityBootstrapper @Inject constructor(
                 // Create Person Entity
                 val person = Person(
                     id = personId,
-                    displayName = userContext.getDisplayName() ?: IdentityConstants.LOCAL_USER_DISPLAY_NAME,
+                    displayName = IdentityConstants.LOCAL_USER_DISPLAY_NAME,
                     linkedUserId = userId, // Link immediately in local state
                     createdAt = Date().time
                 )

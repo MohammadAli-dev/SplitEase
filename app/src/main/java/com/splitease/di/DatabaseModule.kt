@@ -277,9 +277,33 @@ object DatabaseModule {
     }
 
     /**
+     * Migration from version 14 to 15:
+     * - Add nullable `payerPersonId` to `expenses`
+     * - Add nullable `personId` to `expense_splits`
+     * - Add nullable `fromPersonId` and `toPersonId` to `settlements`
+     * - Add nullable `personId` to `group_members`
+     */
+    private val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Expenses
+            db.execSQL("ALTER TABLE expenses ADD COLUMN payerPersonId TEXT")
+
+            // Expense Splits
+            db.execSQL("ALTER TABLE expense_splits ADD COLUMN personId TEXT")
+
+            // Settlements
+            db.execSQL("ALTER TABLE settlements ADD COLUMN fromPersonId TEXT")
+            db.execSQL("ALTER TABLE settlements ADD COLUMN toPersonId TEXT")
+
+            // Group Members
+            db.execSQL("ALTER TABLE group_members ADD COLUMN personId TEXT")
+        }
+    }
+
+    /**
      * Creates and provides the singleton Room database used by the application.
      *
-     * Registers migrations 2→3, 3→4, 4→5, 5→6, 6→7, 7→8, 9→10, 10→11, and 11→12, and enables destructive migration as a fallback.
+     * Registers migrations 2→3, 3→4, 4→5, 5→6, 6→7, 7→8, 9→10, 10→11, 11→12, 12→13, 13→14, and 14→15.
      *
      * @return The configured AppDatabase instance.
      */
@@ -302,6 +326,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_11_12)
             .addMigrations(MIGRATION_12_13)
             .addMigrations(MIGRATION_13_14)
+            .addMigrations(MIGRATION_14_15)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -324,6 +349,11 @@ object DatabaseModule {
     @Provides
     fun provideSyncDao(db: AppDatabase): SyncDao {
         return db.syncDao()
+    }
+
+    @Provides
+    fun providePersonDao(db: AppDatabase): com.splitease.data.local.dao.PersonDao {
+        return db.personDao()
     }
 
     /**

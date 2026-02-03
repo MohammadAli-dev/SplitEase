@@ -18,7 +18,13 @@ data class Expense(
      * For sorting/display, prefer [expenseDate].
      */
     val date: Date = Date(),
-    val payerId: String, // Who paid for this expense
+    val payerId: String, // Who paid for this expense (Legacy - userId)
+    /**
+     * The Person identity of the payer.
+     * **Sprint 29B**: This is the authoritative identity reference for new data.
+     * Null for historical records created before Person migration.
+     */
+    val payerPersonId: String? = null,
     val createdBy: String,
     val syncStatus: String = "PENDING",
     /**

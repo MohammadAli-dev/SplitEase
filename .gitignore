@@ -72,6 +72,7 @@ Thumbs.db
 # User-specific configuration
 .idea/misc.xml
 .idea/deployment.xml
+.idea/
 
 # spec files
 specs*.md*
