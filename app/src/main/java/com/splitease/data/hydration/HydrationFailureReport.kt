@@ -36,7 +36,12 @@ enum class HydrationInvariant(val category: HydrationInvariantCategory) {
     /**
      * ConflictResolutionPayload must be valid JSON.
      */
-    RESOLUTION_PAYLOAD_VALID(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
+    RESOLUTION_PAYLOAD_VALID(HydrationInvariantCategory.MALFORMED_REMOTE_DATA),
+
+    /**
+     * Person-to-User bindings are immutable once set.
+     */
+    PERSON_LINK_IMMUTABLE(HydrationInvariantCategory.MALFORMED_REMOTE_DATA)
 }
 
 /**

@@ -11,6 +11,7 @@ import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.LedgerConflictDao
 import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.dao.LedgerUploadDao
+import com.splitease.data.local.dao.PersonDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.dao.UserDao
@@ -23,6 +24,7 @@ import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.LedgerConflictEntity
 import com.splitease.data.local.entities.LedgerOperation
+import com.splitease.data.local.entities.Person
 import com.splitease.data.local.entities.Settlement
 import com.splitease.data.local.entities.SyncOperation
 import com.splitease.data.local.entities.User
@@ -39,7 +41,8 @@ import com.splitease.data.local.entities.User
         ConnectionStateEntity::class,
         LedgerOperation::class,
         LedgerConflictEntity::class,
-        ConflictResolutionEntity::class
+        ConflictResolutionEntity::class,
+        Person::class
     ],
     version = 14,
     exportSchema = false
@@ -142,6 +145,11 @@ abstract fun settlementDao(): SettlementDao
  * @return The DAO that manages `ConnectionStateEntity` records and related queries. 
  */
 abstract fun connectionStateDao(): ConnectionStateDao
+
+    /**
+     * Provides access to the DAO for Person operations.
+     */
+    abstract fun personDao(): PersonDao
 
     /**
  * Provides access to the DAO responsible for persisting immutable ledger operations.

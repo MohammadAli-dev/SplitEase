@@ -14,11 +14,15 @@ import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_USER
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_CREATE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_DELETE
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_UPDATE
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.ENTITY_PERSON
+import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_LINK_USER
 import com.splitease.data.ledger.model.ExpenseSnapshot
 import com.splitease.data.ledger.model.GroupSnapshot
 import com.splitease.data.ledger.model.MemberSnapshot
 import com.splitease.data.ledger.model.SettlementSnapshot
 import com.splitease.data.ledger.model.UserSnapshot
+import com.splitease.data.ledger.model.PersonSnapshot
+import com.splitease.data.ledger.model.PersonLinkSnapshot
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.entities.ConflictResolutionEntity
 import com.splitease.data.local.entities.Expense
@@ -27,6 +31,7 @@ import com.splitease.data.local.entities.Group
 import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.local.entities.Settlement
+import com.splitease.data.local.entities.Person
 import com.splitease.data.resolution.ConflictResolutionPayload
 import com.splitease.data.conflict.LedgerOpRef
 import com.splitease.data.ledger.LedgerOperationFactory.Companion.OP_RESOLVE_CONFLICT
@@ -309,6 +314,12 @@ class ReplayEngineImpl @Inject constructor(
     private suspend fun canApplyOperation(op: LedgerOperation): Boolean {
         return when (op.entityType) {
             ENTITY_GROUP -> {
+                val snapshot = try {
+                    gson.fromJson(op.payload, GroupSnapshot::class.java)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse GroupSnapshot check: ${e.message}")
+                    return false
+                }
                 when (op.operationType) {
                     OP_CREATE -> true // Groups have no dependencies
                     OP_UPDATE, OP_DELETE -> db.groupDao().getGroupById(op.entityId) != null
@@ -378,7 +389,35 @@ class ReplayEngineImpl @Inject constructor(
                 val userExists = db.userDao().getUserById(snapshot.userId) != null
                 groupExists && userExists
             }
-            ENTITY_USER -> true
+            ENTITY_PERSON -> {
+                when (op.operationType) {
+                    OP_CREATE -> true
+                    OP_LINK_USER -> {
+                        val snapshot = try {
+                            gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to parse PersonLinkSnapshot: ${e.message}")
+                            return false
+                        }
+                        // Check dependencies: Person AND User must exist
+                        val personExists = db.personDao().getPersonById(snapshot.personId) != null
+                        val userExists = db.userDao().getUserById(snapshot.userId) != null
+                        personExists && userExists
+                    }
+                    else -> true
+                }
+            }
+            ENTITY_USER -> {
+                try {
+                    gson.fromJson(op.payload, UserSnapshot::class.java)
+                    true
+                } catch (e: Exception) {
+                    throw HydrationInvariantException(
+                        HydrationInvariant.MALFORMED_REMOTE_DATA,
+                        "Failed to parse UserSnapshot check for op ${op.operationId}: ${e.message}"
+                    )
+                }
+            }
             OP_RESOLVE_CONFLICT -> true
             else -> {
                 Log.w(TAG, "Unknown entity type: ${op.entityType}")
@@ -398,13 +437,119 @@ class ReplayEngineImpl @Inject constructor(
             ENTITY_EXPENSE -> applyExpenseOperation(op)
             ENTITY_SETTLEMENT -> applySettlementOperation(op)
             ENTITY_MEMBER -> applyMemberOperation(op)
+            ENTITY_PERSON -> applyPersonOperation(op)
             ENTITY_USER -> applyUserOperation(op)
             OP_RESOLVE_CONFLICT -> applyResolutionOperation(op)
         }
     }
+    
+    private suspend fun applyPersonOperation(op: LedgerOperation) {
+        when (op.operationType) {
+            OP_CREATE -> {
+                /**
+                 * PERSON.CREATE
+                 *
+                 * Rule: Create the person identity if it doesn't already exist.
+                 * Identity [Person.id] is globally unique and locally authored.
+                 */
+                val snapshot = try {
+                    gson.fromJson(op.payload, PersonSnapshot::class.java)
+                } catch (e: Exception) {
+                    throw HydrationInvariantException(
+                        HydrationInvariant.MALFORMED_REMOTE_DATA,
+                        "Failed to parse PersonSnapshot for op ${op.operationId}: ${e.message}"
+                    )
+                }
+                
+                // Check for existence to preserve any later state (like linkedUserId)
+                val existing = db.personDao().getPersonById(snapshot.personId)
+                if (existing != null) {
+                    Log.d(TAG, "Person ${snapshot.personId} already exists. Skipping CREATE to preserve state.")
+                    return
+                }
+                val person = Person(
+                    id = snapshot.personId,
+                    displayName = snapshot.displayName,
+                    linkedUserId = null,
+                    createdAt = snapshot.createdAt
+                )
+                db.personDao().upsertPerson(person)
+                Log.d(TAG, "Applied PERSON CREATE: ${snapshot.personId}")
+            }
+            OP_LINK_USER -> {
+                /**
+                 * PERSON.LINK_USER
+                 *
+                 * Rule: Bind a Person identity to a registered User identity.
+                 *
+                 * Invariants:
+                 * 1. Dependencies: Both Person and User must exist (verified in canApplyOperation).
+                 * 2. Immutability: A linkedUserId can ONLY be set if it is currently null.
+                 * 3. First-Writer-Wins: If multiple devices try to link different users,
+                 *    the first one applied to this device's DB wins. (Future merge flows handle reconciliation).
+                 */
+                val snapshot = try {
+                    gson.fromJson(op.payload, PersonLinkSnapshot::class.java)
+                } catch (e: Exception) {
+                    throw HydrationInvariantException(
+                        HydrationInvariant.MALFORMED_REMOTE_DATA,
+                        "Failed to parse PersonLinkSnapshot for op ${op.operationId}: ${e.message}"
+                    )
+                }
+                
+                val person = db.personDao().getPersonById(snapshot.personId)
+                if (person == null) {
+                    Log.e(TAG, "Cannot link user to missing person: ${snapshot.personId}")
+                    return
+                }
+
+                // Enforce User Uniqueness: One Person per User
+                // Check if this User is already linked to ANY Person
+                val existingLink = db.personDao().getPersonByLinkedUserId(snapshot.userId)
+                if (existingLink != null) {
+                    if (existingLink.id == snapshot.personId) {
+                        return // Idempotent: Already linked to THIS person
+                    } else {
+                        // First-Writer-Wins: User already claimed by another Person.
+                        // We do NOT throw here because this is a cross-entity conflict that can happen 
+                        // in distributed systems/merges, unlike self-immutability.
+                        Log.e(TAG, "INVARIANT VIOLATION: User ${snapshot.userId} already linked to Person ${existingLink.id}. " +
+                                  "Ignoring link for ${snapshot.personId}.")
+                        return
+                    }
+                }
+                
+                // Enforce Immutability: Once set, cannot change (unless same value)
+                if (person.linkedUserId != null) {
+                    if (person.linkedUserId == snapshot.userId) {
+                        return // Idempotent
+                    } else {
+                        throw HydrationInvariantException(
+                            HydrationInvariant.PERSON_LINK_IMMUTABLE,
+                            "INVARIANT VIOLATION ($TAG): Attempt to overwrite linkedUserId on Person ${snapshot.personId}. " +
+                                    "Existing: ${person.linkedUserId}, New: ${snapshot.userId}"
+                        )
+                    }
+                }
+                
+                // Apply update
+                val updated = person.copy(linkedUserId = snapshot.userId)
+                db.personDao().upsertPerson(updated)
+                Log.d(TAG, "Applied PERSON LINK_USER: ${snapshot.personId} -> ${snapshot.userId}")
+            }
+            else -> Log.w(TAG, "Unknown PERSON operation type: ${op.operationType}")
+        }
+    }
 
     private suspend fun applyGroupOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, GroupSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, GroupSnapshot::class.java)
+        } catch (e: Exception) {
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse GroupSnapshot for op ${op.operationId}: ${e.message}"
+            )
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {
@@ -443,7 +588,14 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applyExpenseOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, ExpenseSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, ExpenseSnapshot::class.java)
+        } catch (e: Exception) {
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse ExpenseSnapshot for op ${op.operationId}: ${e.message}"
+            )
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {
@@ -482,7 +634,14 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applySettlementOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, SettlementSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, SettlementSnapshot::class.java)
+        } catch (e: Exception) {
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse SettlementSnapshot for op ${op.operationId}: ${e.message}"
+            )
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {
@@ -510,7 +669,14 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applyMemberOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, MemberSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, MemberSnapshot::class.java)
+        } catch (e: Exception) {
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse MemberSnapshot for op ${op.operationId}: ${e.message}"
+            )
+        }
 
         when (op.operationType) {
             OP_DELETE -> {
@@ -583,7 +749,14 @@ class ReplayEngineImpl @Inject constructor(
     }
 
     private suspend fun applyUserOperation(op: LedgerOperation) {
-        val snapshot = gson.fromJson(op.payload, UserSnapshot::class.java)
+        val snapshot = try {
+            gson.fromJson(op.payload, UserSnapshot::class.java)
+        } catch (e: Exception) {
+            throw HydrationInvariantException(
+                HydrationInvariant.MALFORMED_REMOTE_DATA,
+                "Failed to parse UserSnapshot for op ${op.operationId}: ${e.message}"
+            )
+        }
 
         when (op.operationType) {
             OP_CREATE, OP_UPDATE -> {
