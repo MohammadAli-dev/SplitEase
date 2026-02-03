@@ -827,13 +827,13 @@ This sprint migrates all transaction-level entities (Expenses, Splits, Settlemen
 ### 2. Single-Write Enforcement
 - **Authoritative Writes**: All mutation paths in `ExpenseRepository`, `GroupRepository`, and `SettlementRepository` now strictly require a resolved `personId`.
 - **Fail-Fast Invariants**: Attempts to write entities without a persistent person reference now trigger a **Fail-Fast** `IdentityInvariantViolationException`. The system would rather crash than persist data that violates canonical identity, preventing permanent "zombie" data orphans.
-- **Zero-Derivation Rule**: The UI and repositories are forbidden from "inventing" person IDs; state must flow from the ledger or the **linkedUserId map (persistent mapping)**.
+- **Zero-Derivation Rule**: The UI and repositories are forbidden from "inventing" person IDs; state must flow from the ledger or be resolved via the **linkedUserId map (persistent mapping)**. The system must not key off `userId` to generate new persons on the fly, but may resolve existing `userId` references to Person entities via the authoritative `linkedUserId` mapping for legacy compatibility.
 
 ### 3. Replay Engine: Convergence Guard
 - **Dependency Branching**: The `ReplayEngine` now handles out-of-order `LINK_USER` operations via a **Convergence Guard**.
 - **Deferral Queue**: Operations referencing non-existent entities are held in an in-memory deferral queue and retried per replay pass.
 - **No Silent Drops**: The replay loop continues until all operations are applied or zero progress is made. If operations remain deferred at the end of the loop, the system triggers a **Fail-Fast** error.
-- **No Person derivation**: The `ReplayEngine` will NEVER automatically derive or backfill a `personId` for an expense; it only persists exactly what is in the ledger payload.
+- **No Person derivation**: The `ReplayEngine` will NEVER automatically derive or backfill a `personId` for an expense; it only persists exactly what is in the ledger payload. It is forbidden from inventing person IDs but may resolve existing `userId` references via the authoritative mapping.
 
 ## Invariants & Guardrails
 - **Identity Invariants**:
@@ -843,7 +843,7 @@ This sprint migrates all transaction-level entities (Expenses, Splits, Settlemen
 
 - **Dual-Read / Single-Write Pattern**:
     - **Single-Write (Fail-Fast)**: All new operations MUST provide an explicit `personId`.
-    - **Dual-Read (Fallback)**: To support legacy data, the system first checks for `personId`. If null, it gracefully falls back to resolving the existing `userId` to a `Person` via the **linkedUserId map (persistent mapping)**.
+    - **Dual-Read (Fallback)**: To support legacy data, the system first checks for `personId`. If null, it gracefully falls back to resolving the existing `userId` to a `Person` via the **linkedUserId map (persistent mapping)**. This permits lookup-based resolution for compatibility without violating the prohibition on inventing new IDs.
 - **Identity Integrity**: Verified that legacy expenses are correctly hydrated with person references in the UI.
 - **Merge Safety**: Verified that the "Self Person" correctly tracks through logout/login cycles.
 

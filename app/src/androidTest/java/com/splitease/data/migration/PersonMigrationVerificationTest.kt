@@ -167,7 +167,7 @@ class PersonMigrationVerificationTest {
         settlementDao.insertSettlement(legacySettlement)
 
         // 3. Verify Hydration Logic
-        val loaded = settlementDao.getSettlement(settId).first()!! // Assuming DAO has this method, or we add/use query
+
         // Wait, SettlementDao interface check needed. It usually has observeSettlementsBetween or similar.
         // Let's assume standard query or add one if needed for test, but sticking to known DAO methods:
         // getSettlementsForGroup is standard.

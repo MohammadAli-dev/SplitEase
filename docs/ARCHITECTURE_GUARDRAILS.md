@@ -35,6 +35,7 @@
 
 ### 5. Person vs User Separation
 **Policy**: Enforce strict separation between Human Identity (Person) and Security Credentials (User).
-- **Rule**: `Person.id` is the only primary key permitted in domain entity relationship columns (e.g., `payerPersonId`).
-- **Rule**: Use the `personId` for all UI display names. Use `userId` exclusively for authentication checks and sync gating.
+- **Cardinality**: 1:0..1 (One Person maps to Zero or One User). A Person may exist without a User (e.g., a "phantom" participant), but a User (if involved in ledger activities) must map to exactly one Person. Multiple Users must NOT map to the same Person.
+- **Rule**: `Person.id` is the domain primary key (used in `payerPersonId`, `personId`). `userId` is optional, used only for authentication/sync gating.
+- **Rule**: Use the `personId` for all UI display names.
 - **Rationale**: This decouples participation from authentication, allowing for stable historical records and "Phantom" participants.

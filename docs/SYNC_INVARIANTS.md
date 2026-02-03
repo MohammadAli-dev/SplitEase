@@ -241,17 +241,27 @@ UI components should gracefully handle `LEGACY_USER_ID` (or nulls from legacy pa
 +## Identity Integrity (Universal Person)
 +
 +### Single-Write Invariant (Sprint 29)
-+> **All new mutations MUST use an authoritative Person ID.**
-+
-+Mutations that arrive without a `personId` (in Expense, Split, or Settlement) are treated as violations of the **Single-Write** policy.
-+
-+### Dual-Read Fallback
-+> **Missing Person IDs in historical data are resolved via the `linkedUserId` map.**
-+
-+This fallback ensures that legacy data remains visible and participable without requiring a destructive database backfill.
-+
-+### Fail-Fast Guard
-+> **Identity corruption is fatal.**
-+
-+If a `personId` is missing during a **Single-Write** operation, or if the **Dual-Read** fails to resolve a fallback for a known User ID, the system must trigger an immediate **Fail-Fast** shutdown via `IdentityInvariantViolationException`.
-+
+
+---
+
+## Identity Integrity (Universal Person)
+
+### Single-Write Invariant (Sprint 29)
+> **All new mutations MUST use an authoritative Person ID.**
+
+Mutations that arrive without a `personId` (in Expense, Split, or Settlement) are treated as violations of the **Single-Write** policy.
+
+### Dual-Read Fallback
+> **Missing Person IDs in historical data are resolved via the `linkedUserId` map.**
+
+**Definition**: The `linkedUserId` mapping is an authoritative index within the `persons` database table (column: `linkedUserId`). It is populated exclusively by `PERSON.LINK_USER` ledger operations (or during `PERSON.CREATE` for self-persons).
+- **Source**: Local SQLite `persons` table.
+- **Maintenance**: Managed by `ReplayEngine`. Immutable once set (except via merged conflict resolution).
+- **Usage**: When a `payerPersonId` is null, the repository queries `SELECT id FROM persons WHERE linkedUserId = ?` to resolve the legacy `payerId`.
+
+This fallback ensures that legacy data remains visible and participable without requiring a destructive database backfill.
+
+### Fail-Fast Guard
+> **Identity corruption is fatal.**
+
+If a `personId` is missing during a **Single-Write** operation, or if the **Dual-Read** fails to resolve a fallback for a known User ID, the system must trigger an immediate **Fail-Fast** shutdown via `IdentityInvariantViolationException`.
