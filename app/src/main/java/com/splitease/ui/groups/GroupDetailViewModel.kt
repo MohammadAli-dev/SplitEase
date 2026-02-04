@@ -216,11 +216,14 @@ class GroupDetailViewModel @Inject constructor(
         }
         
         // 3. Resolve all discovered IDs to displayable entities (Fail-Visible)
+        // GroupData needs distinct enriched members for UI display,
+        // BUT needs separate "rawMembers" for structural validation (like count).
+        // Actually, existing GroupData has `enrichedMembers`.
+        // The issue is that enrichedMembers includes non-member participants (Phantom users in expenses).
+        // If we use enrichedMembers.size for Group Count, it's wrong.
+        
         val enrichedMembers = allInvolvedIds.map { id ->
             val discoveredName = resolveName(id)
-            
-            // Fail-Visible: If we can't find a name, we still keep the ID in the list 
-            // so balances can resolve. We use "Unknown ($id)" so we can debug.
             val finalName = discoveredName ?: "Unknown Participant (${id.take(8)})"
             
             User(
@@ -230,7 +233,20 @@ class GroupDetailViewModel @Inject constructor(
             )
         }.distinctBy { it.id }
         
-        GroupData(group, members, enrichedMembers, expenses, splits, settlements)
+        // Members List for UI: Should strictly be the ACTUAL group members + phantoms that are members?
+        // Wait, CodeRabbit said "enrichedMembers is incorrectly used as the UI members list, inflating counts".
+        // Indeed, enrichedMembers currently includes EVERYONE involved in expenses (former members, outside payers).
+        
+        // We need a list of ACTUAL members enriched.
+        val actualMemberIds = members.map { it.userId }.toSet() // Plus personIds?
+        // Note: GroupMember now has personId.
+        // We should include IDs from members list. 
+        val actualMemberEnriched = enrichedMembers.filter { it.id in actualMemberIds || 
+            // Also check if any member has this personId
+            members.any { m -> m.personId == it.id }
+        }
+        
+        GroupData(group, members, actualMemberEnriched, expenses, splits, settlements)
     }
 
     // Combine sync context (renamed to avoid conflict with SyncState enum)

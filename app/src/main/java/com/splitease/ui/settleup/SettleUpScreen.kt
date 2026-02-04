@@ -64,7 +64,7 @@ fun SettleUpScreen(
                 showPayerPicker = false 
                 showReceiverPicker = false
             },
-            sheetState = rememberModalBottomSheetState()
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Column(modifier = Modifier.padding(bottom = 32.dp)) {
                 Text(
@@ -183,7 +183,7 @@ fun SettleUpScreen(
                 onValueChange = viewModel::onAmountChanged,
                 label = { Text("Amount") },
                 prefix = { Text("₹") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
             )
 

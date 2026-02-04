@@ -952,6 +952,10 @@ This sub-sprint implements a one-time, deterministic migration that reconciles a
   1. Pre-calculate canonical Person for each User (using `selectCanonical`).
   2. Batch-update all domain rows for that User with the canonical Person ID.
   3. Fall back to `ensurePerson` for Users with no linked Person.
+- **Transaction Semantics**:
+  - Uses **per-user batch transactions** (not a single global transaction).
+  - Designed for idempotency; partial failures are acceptable and will be retried on next run.
+  - The version gate is set ONLY after all phases complete successfully.
 
 **Phase 1-3: Merge Duplicate Identities**
 - **Phase 1**: Identify Users with multiple Person records.
@@ -962,8 +966,11 @@ This sub-sprint implements a one-time, deterministic migration that reconciles a
 #### 2. Canonical Selection Rules (`selectCanonical`)
 Deterministic precedence (stable across all devices):
 1. **Real over Synthetic**: `isSynthetic = false` wins over `isSynthetic = true`.
-2. **Older over Newer**: Earlier `createdAt` timestamp wins.
+2. **Older over Newer**: Earlier `createdAt` timestamp wins (Client-Authoritative).
 3. **Lexicographical Tie-Breaker**: Smallest UUID string wins.
+
+> [!NOTE]
+> Canonical selection relies on client-supplied `createdAt`. This is acceptable under the assumption of reasonably synchronized device clocks (NTP). In the presence of severe clock skew, canonical selection may differ transiently across devices but will converge via deterministic re-run and UUID tie-breakers. A future migration may replace createdAt with ledger ordering or logical clocks.
 
 This ensures Device A and Device B always select the same canonical Person.
 
@@ -986,6 +993,8 @@ This ensures Device A and Device B always select the same canonical Person.
 **Replay-Safe**
 - Migration runs AFTER ledger hydration completes (not during DB open).
 - Ensures all ledger-derived Persons are materialized before merging.
+- **Concurrency**: Migration may run concurrently with `LedgerSyncCoordinator.sync`. It relies on **idempotency** rather than global locking. Late-arriving Persons are reconciled on subsequent sync-triggered runs.
+- **Cross-Device Convergence**: Convergence is **eventual**. Each device runs migration independently; deterministic canonical selection ensures all devices eventually reach the same state.
 
 #### 4. Lifecycle & Triggers
 

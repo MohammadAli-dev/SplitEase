@@ -38,7 +38,7 @@ data class DashboardUiState(
     val totalOwing: BigDecimal = BigDecimal.ZERO,
     val groups: List<Group> = emptyList(),
     val ledgerBalances: List<FriendBalanceUi> = emptyList(), // Balances derived from expenses/settlements
-    val knownUserCount: Int = 0, // Total known users (excluding self), derived from users table
+    val activeFriendCount: Int = 0, // Active friend count (users with ledger balances)
     val isLoading: Boolean = true,
     val isSyncing: Boolean = false,
     val isRefreshing: Boolean = false
@@ -139,7 +139,7 @@ class DashboardViewModel @Inject constructor(
                     totalOwing = summary.totalOwing,
                     groups = groups,
                     ledgerBalances = ledgerBalancesUi,
-                    knownUserCount = knownUserCount,
+                    activeFriendCount = ledgerBalancesUi.size,
                     isLoading = false,
                     isSyncing = false,
                     isRefreshing = false

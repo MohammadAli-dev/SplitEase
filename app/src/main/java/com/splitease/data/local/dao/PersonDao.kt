@@ -78,6 +78,9 @@ interface PersonDao {
      */
     @Query("SELECT * FROM persons WHERE linkedUserId IS NOT NULL AND linkedUserId IN (SELECT linkedUserId FROM persons WHERE linkedUserId IS NOT NULL GROUP BY linkedUserId HAVING COUNT(*) > 1)")
     suspend fun getPersonsWithDuplicateLinks(): List<Person>
+
+    @Query("SELECT * FROM persons WHERE id IN (:ids)")
+    suspend fun getPersonsByIds(ids: List<String>): List<Person>
     
     // NO DELETE METHOD: People are never deleted to preserve ledger auditability.
 }

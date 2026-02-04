@@ -8,6 +8,8 @@ import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.device.DeviceRole
 import com.splitease.data.device.DeviceRoleManager
+import com.splitease.data.migration.IdentityMigrationCoordinator
+import com.splitease.data.hydration.PullResult
 import io.mockk.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -28,6 +30,7 @@ class HydrationCoordinatorTest {
     private val ledgerPullService: LedgerPullService = mockk(relaxed = true)
     private val replayEngine: ReplayEngine = mockk(relaxed = true)
     private val deviceRoleManager: DeviceRoleManager = mockk(relaxed = true)
+    private val identityMigrationCoordinator: IdentityMigrationCoordinator = mockk(relaxed = true)
 
     private val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
     private lateinit var coordinator: HydrationCoordinatorImpl
@@ -39,6 +42,7 @@ class HydrationCoordinatorTest {
             ledgerPullService,
             replayEngine,
             deviceRoleManager,
+            identityMigrationCoordinator,
             testDispatcher
         )
         mockkStatic(android.util.Log::class)
@@ -52,6 +56,12 @@ class HydrationCoordinatorTest {
         every { appDatabase.groupDao() } returns groupDao
         every { appDatabase.settlementDao() } returns settlementDao
         every { appDatabase.ledgerDao() } returns ledgerDao
+        every { appDatabase.ledgerDao() } returns ledgerDao
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        io.mockk.clearAllMocks()
     }
 
     @Test
@@ -164,7 +174,7 @@ class HydrationCoordinatorTest {
             logicalClock = 1L,
             createdAt = 1000L
         )
-        coEvery { ledgerPullService.fetchAllOperations() } returns Result.success(listOf(mockOp))
+        coEvery { ledgerPullService.fetchAllOperations() } returns PullResult.Success(listOf(mockOp))
 
         // AND: Replay succeeds
         coEvery { replayEngine.replay(any()) } returns ReplayResult.Success
@@ -198,7 +208,7 @@ class HydrationCoordinatorTest {
         // AND: fetchAllOperations is slow
         coEvery { ledgerPullService.fetchAllOperations() } coAnswers {
             delay(1000)
-            Result.success(emptyList())
+            PullResult.Success(emptyList())
         }
 
         // WHEN: Two calls are made in parallel

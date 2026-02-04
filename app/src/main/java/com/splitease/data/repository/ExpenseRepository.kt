@@ -13,6 +13,7 @@ import com.splitease.data.device.WritePermissionDeniedException
 import com.splitease.data.ledger.LedgerOperationFactory
 import com.splitease.data.sync.LedgerSyncScheduler
 import com.splitease.data.sync.SyncWriteService
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -106,34 +107,46 @@ class ExpenseRepositoryImpl @Inject constructor(
 
     override suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>) = 
         withContext(Dispatchers.IO) {
-            val healedExpense = healExpense(expense)
-            val healedSplits = healSplits(splits)
-            ensureIdentityInvariant(healedExpense, healedSplits)
-            
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
                     throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
                 }
-                val syncOp = syncWriteService.createExpenseSyncOp(healedExpense, healedSplits)
-                val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(healedExpense, healedSplits, healedExpense.createdByUserId)
-                appDatabase.insertExpenseWithLedger(healedExpense, healedSplits, syncOp, ledgerOp)
+
+                // Lock ordering: writeLock → db.withTransaction (must not invert to avoid deadlocks).
+                appDatabase.withTransaction {
+                    // Invariant: No Person rows are created outside the write lock + transaction when performing expense writes.
+                    val healedExpense = healExpense(expense)
+                    val healedSplits = healSplits(splits)
+                    ensureIdentityInvariant(healedExpense, healedSplits)
+                    
+                    val syncOp = syncWriteService.createExpenseSyncOp(healedExpense, healedSplits)
+                    val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(healedExpense, healedSplits, healedExpense.createdByUserId)
+                    appDatabase.insertExpenseWithLedger(healedExpense, healedSplits, syncOp, ledgerOp)
+                }
+                
                 ledgerSyncScheduler.schedulePush()
             }
         }
 
     override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
-            val healedExpense = healExpense(expense)
-            val healedSplits = healSplits(splits)
-            ensureIdentityInvariant(healedExpense, healedSplits)
-            
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
                     throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
                 }
-                val syncOp = syncWriteService.createUpdateExpenseSyncOp(healedExpense, healedSplits)
-                val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(healedExpense, healedSplits, healedExpense.lastModifiedByUserId)
-                appDatabase.updateExpenseWithLedger(healedExpense, healedSplits, syncOp, ledgerOp)
+
+                // Lock ordering: writeLock → db.withTransaction (must not invert to avoid deadlocks).
+                appDatabase.withTransaction {
+                    // Invariant: No Person rows are created outside the write lock + transaction when performing expense writes.
+                    val healedExpense = healExpense(expense)
+                    val healedSplits = healSplits(splits)
+                    ensureIdentityInvariant(healedExpense, healedSplits)
+                    
+                    val syncOp = syncWriteService.createUpdateExpenseSyncOp(healedExpense, healedSplits)
+                    val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(healedExpense, healedSplits, healedExpense.lastModifiedByUserId)
+                    appDatabase.updateExpenseWithLedger(healedExpense, healedSplits, syncOp, ledgerOp)
+                }
+                
                 ledgerSyncScheduler.schedulePush()
             }
         }

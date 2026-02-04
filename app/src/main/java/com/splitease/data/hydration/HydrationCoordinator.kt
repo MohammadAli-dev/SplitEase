@@ -222,7 +222,13 @@ class HydrationCoordinatorImpl @Inject constructor(
 
             // === PHANTOM MERGE & MIGRATION (Sprint 29C-4) ===
             // Trigger migration after hydration completes to reconcile deterministic identities.
-            identityMigrationCoordinator.runMigration()
+            // Wrapped in try/catch so migration failures don't block hydration success.
+            try {
+                identityMigrationCoordinator.runMigration()
+            } catch (e: Exception) {
+                Log.e(TAG, "Identity migration failed (non-fatal)", e)
+                // Do not rethrow; hydration is already successful.
+            }
 
             Log.d(TAG, "Entered PROMOTED role, hydration complete (Writable)")
             HydrationResult.Success

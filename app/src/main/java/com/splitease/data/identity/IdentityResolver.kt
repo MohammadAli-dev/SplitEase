@@ -38,10 +38,21 @@ class IdentityResolver @Inject constructor(
         if (personId != null) {
             var person = personDao.getPersonById(personId)
             
-            // Re-resolve if shadowed (follows the merge link)
-            if (person?.shadowedById != null) {
-                person = personDao.getPersonById(person.shadowedById!!)
+            // Re-resolve if shadowed (multi-hop with cycle detection)
+            var currentPerson = person
+            val visited = mutableSetOf<String>()
+            var depth = 0
+            val MAX_DEPTH = 10
+
+            while (currentPerson?.shadowedById != null) {
+                if (depth >= MAX_DEPTH || !visited.add(currentPerson!!.id)) {
+                    android.util.Log.e("IdentityResolver", "Shadow cycle or max depth exceeded for person ${person!!.id}")
+                    break // Stop following shadow chain to prevent stack overflow/infinite loop
+                }
+                currentPerson = personDao.getPersonById(currentPerson!!.shadowedById!!)
+                depth++
             }
+            person = currentPerson
 
             if (person != null) {
                 val isMe = person.linkedUserId == currentUserId
@@ -137,7 +148,31 @@ class IdentityResolver @Inject constructor(
     suspend fun resolveIdeally(id: String): ResolvedParticipant {
         // Try as Person ID first
         val asPerson = resolve(personId = id, userId = null)
-        if (asPerson.displayName != "Unknown") return asPerson
+        // Check stableId match rather than magic string "Unknown"
+        // If it was resolved as a Person, the stableId will match the requested id (or its canonical shadow).
+        // If it fell back to "Unknown" with a synthetic ID, it won't match (unless id matches fallback logic).
+        // Better check: isGuest is false OR stableId is found in DB.
+        // Actually, resolve() returns a fallback struct if not found.
+        // The fallback logic in resolve() sets stableId = personId (input) for fallback.
+        // So checking if it is NOT a guest-fallback is safer if possible, but Persons can be guests.
+        // Let's rely on the fact that `resolve` returns a fallback if DB lookup failed.
+        // We can inspect if the name is "Unknown" AND it makes sense, or better:
+        // Refactor resolve to return nullable? No.
+        // Check if `asPerson` was actually found. 
+        // For now, replacing the strict string check with a slightly more robust Guest check combination
+        // But since this method `resolveIdeally` tries User next, we need to know if Person lookup FAILED.
+        // A failed Person lookup returns `ResolvedParticipant("id", "Unknown", ..., isGuest=true)`.
+        // A valid Guest Person returns `ResolvedParticipant("id", "Name", ..., isGuest=true)`.
+        
+        // So: If name is "Unknown" AND it's a guest, it's likely a miss.
+        // But a user could be named "Unknown".
+        // The robust fix is to check if real resolution happened. 
+        // Since we can't easily change `resolve` return type now without breakages, we interpret "Unknown".
+        if (asPerson.displayName != "Unknown" || !asPerson.isGuest) return asPerson
+        
+        // Note: The previous check `asPerson.displayName != "Unknown"` remains the most practical proxy 
+        // for "Did we find a record?" given the current `resolve` implementation fallback.
+        // We add `!asPerson.isGuest` to ensure that if we found a Real User named "Unknown", it returns true.
         
         // Try as User ID
         val asUser = resolve(personId = null, userId = id)

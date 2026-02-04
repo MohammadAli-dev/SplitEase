@@ -112,13 +112,7 @@ class FriendDetailViewModel @Inject constructor(
                 friendTransactionsRepository.getFriendIdentity(friendId),
                 friendTransactionsRepository.getTransactionsForFriend(friendId),
                 balanceSummaryRepository.getBalanceWithFriend(friendId) 
-                // It has getBalanceWithFriend(friendId).
             ) { identity, transactions, balance ->
-                // Wait, I need to check BalanceSummaryRepository signature.
-                // It has `getBalanceWithFriend(friendId): Flow<BigDecimal>`.
-                // Does it give me "displayText"? No.
-                
-                // Let's use getBalanceWithFriend.
                 val formattedBalance = com.splitease.ui.common.Formatters.formatMoney(balance.abs(), "INR") // TODO: Currency
                 val balanceText = when {
                     balance > BigDecimal.ZERO -> "owes you $formattedBalance"
@@ -154,8 +148,7 @@ class FriendDetailViewModel @Inject constructor(
 
     /**
      * Observes connection status changes for the current friend and updates the UI state accordingly.
-     *
-     * Collects updates from the connection manager, maps remote connection statuses to `ConnectionUiState`
+
      * variants (e.g., `InviteCreated`, `Claimed`, `Merged`, `None`), and applies the mapped value to the
      * view model's `uiState.connectionState`.
      */

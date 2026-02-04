@@ -207,6 +207,11 @@ class SettleUpViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false, isSettled = true) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, errorMessage = e.message) }
+            } finally {
+                // Ensure isLoading is reset if flow aborted abnormally (though catch handles most)
+                if (_uiState.value.isLoading && !_uiState.value.isSettled) {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
             }
         }
     }

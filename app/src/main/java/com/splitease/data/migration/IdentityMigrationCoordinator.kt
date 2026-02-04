@@ -57,8 +57,15 @@ import javax.inject.Singleton
  * ## Canonical Selection Rules ([selectCanonical])
  * Deterministic precedence (stable across all devices):
  * 1. **Real over Synthetic**: `isSynthetic = false` wins over `isSynthetic = true`.
- * 2. **Older over Newer**: Earlier `createdAt` timestamp wins.
+ * 2. **Older over Newer**: Earlier `createdAt` timestamp wins (Client-Authoritative, see note).
  * 3. **Lexicographical Tie-Breaker**: Smallest UUID string wins.
+ *
+ * > [!NOTE]
+ * > Canonical selection relies on client-supplied `createdAt`. This is acceptable under the
+ * > assumption of reasonably synchronized device clocks (NTP). In the presence of severe
+ * > clock skew, canonical selection may differ transiently across devices but will converge
+ * > via deterministic re-run and UUID tie-breakers. A future migration may replace createdAt
+ * > with ledger ordering or logical clocks.
  *
  * This ensures Device A and Device B always select the same canonical Person.
  *
@@ -140,6 +147,11 @@ class IdentityMigrationCoordinator @Inject constructor(
      * Catches and logs exceptions without crashing the app. If migration fails:
      * - Version is NOT incremented (migration will retry on next hydration/sync).
      * - Partial state is acceptable (idempotent design allows safe retry).
+     *
+     * ## Concurrency Semantics
+     * This migration may run concurrently with [LedgerSyncCoordinatorImpl.sync] and relies on idempotency.
+     * It is designed to be safe to run in parallel; there is no global lock. Late-arriving Persons
+     * will be reconciled on subsequent sync-triggered runs.
      *
      * ## Execution Order
      * 1. Phase 0: Backfill missing `personId` fields.
@@ -265,7 +277,13 @@ class IdentityMigrationCoordinator @Inject constructor(
         val groups = duplicates.groupBy { it.linkedUserId }
 
         var processed = 0
-        val totalPersons = duplicates.size
+        // Correctly calculate total persons to be merged: sum of (groupSize - 1) for all groups > 1
+        var totalPersons = 0
+        groups.forEach { (_, persons) ->
+            if (persons.size > 1) {
+                totalPersons += (persons.size - 1)
+            }
+        }
 
         for ((userId, persons) in groups) {
             if (userId == null) continue
@@ -322,7 +340,7 @@ class IdentityMigrationCoordinator @Inject constructor(
         return persons.sortedWith(
             compareBy(
                 { it.isSynthetic }, // false (real) < true (synthetic)
-                { it.createdAt },   // older < newer
+                { it.createdAt },   // older < newer (relies on NTP, see class KDoc)
                 { it.id }           // lexicographical tie-breaker
             )
         ).first()
