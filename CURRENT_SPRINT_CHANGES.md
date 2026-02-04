@@ -1039,8 +1039,9 @@ This ensures Device A and Device B always select the same canonical Person.
 
 ### Version Gate
 - **Migration Version**: `2904`
-- **Persisted In**: `DeviceRoleManager` (DataStore)
-- **Effect**: Migration runs exactly once per device.
+- **Persisted In**: `SystemMetadata` (SQLite - Transactional) & `DeviceRoleManager` (DataStore - Legacy Fallback)
+- **Retry Semantics**: Runs until successfully completed once, then gated. 
+- **Atomicity**: The Version Gate is only updated within the final transaction of the migration process. Failed or partial runs are automatically retried on next app session or hydration cycle.
 
 ---
 

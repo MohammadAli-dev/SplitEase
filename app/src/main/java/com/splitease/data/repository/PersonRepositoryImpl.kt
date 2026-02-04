@@ -73,7 +73,7 @@ class PersonRepositoryImpl @Inject constructor(
      *
      * ## Deterministic ID Generation
      * ```kotlin
-     * UUID.nameUUIDFromBytes("Person:$userId".toByteArray())
+     * UUID.nameUUIDFromBytes("Person:$userId".toByteArray(StandardCharsets.UTF_8))
      * ```
      * This ensures that:
      * - Device A and Device B generate the same Person ID for the same User.
@@ -100,7 +100,7 @@ class PersonRepositoryImpl @Inject constructor(
         if (existing != null) return existing
 
         // 2. Deterministic Fallback (Option B: Transitional Determinism)
-        val deterministicId = java.util.UUID.nameUUIDFromBytes("Person:$userId".toByteArray()).toString()
+        val deterministicId = java.util.UUID.nameUUIDFromBytes("Person:$userId".toByteArray(java.nio.charset.StandardCharsets.UTF_8)).toString()
         
         // Check if we already created this synthetic person
         val byId = personDao.getPersonById(deterministicId)
@@ -151,9 +151,9 @@ class PersonRepositoryImpl @Inject constructor(
      * @see ensurePerson
      * @since Sprint 29C-3
      */
-    override suspend fun createPhantomPerson(name: String): String {
+    override suspend fun createPhantomPerson(name: String, email: String?, phone: String?): String {
         // Delegate to UserRepository to ensure a synced User exists
-        val userId = userRepository.get().createPhantomUser(name)
+        val userId = userRepository.get().createPhantomUser(name, email, phone)
         
         // Immediately ensure a Person exists for this User
         val person = ensurePerson(userId)

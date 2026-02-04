@@ -418,4 +418,12 @@ object DatabaseModule {
     fun provideIdentityAuditDao(db: AppDatabase): com.splitease.data.local.dao.IdentityAuditDao {
         return db.identityAuditDao()
     }
+
+    /**
+     * Provides the SystemMetadataDao for atomic versioning within transactions.
+     */
+    @Provides
+    fun provideSystemMetadataDao(db: AppDatabase): com.splitease.data.local.dao.SystemMetadataDao {
+        return db.systemMetadataDao()
+    }
 }

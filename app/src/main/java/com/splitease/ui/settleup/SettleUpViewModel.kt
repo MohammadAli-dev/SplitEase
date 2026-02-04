@@ -27,6 +27,7 @@ import javax.inject.Inject
 data class SettleUpUiState(
     val friendId: String = "",
     val friendName: String = "",
+    val currency: String = "INR", // Default
     val availablePersons: List<Person> = emptyList(),
     val payerPersonId: String? = null,
     val receiverPersonId: String? = null,
@@ -47,6 +48,15 @@ data class SettleUpUiState(
 
     val amountError: String?
         get() = null // Removed balance restriction for settling
+
+    val currencySymbol: String
+        get() = when (currency) {
+            "USD" -> "$"
+            "EUR" -> "€"
+            "GBP" -> "£"
+            "INR" -> "₹"
+            else -> currency // Fallback to code
+        }
 }
 
 @HiltViewModel
@@ -106,12 +116,22 @@ class SettleUpViewModel @Inject constructor(
             }
 
             // Load informational balance
-            balanceSummaryRepository.getBalanceWithFriend(friendId)
-                .onEach { balance ->
-                    _uiState.update { it.copy(balance = balance) }
+            launch {
+                balanceSummaryRepository.getBalanceWithFriend(friendId)
+                    .onEach { balance ->
+                        _uiState.update { it.copy(balance = balance) }
+                    }
+                    .catch { /* ignore */ }
+                    .collect()
+            }
+                
+            // Load Currency Context
+            launch {
+                friendTransactionsRepository.getTransactionsForFriend(friendId).collect { transactions ->
+                     val currency = transactions.firstOrNull()?.currency ?: "INR"
+                     _uiState.update { it.copy(currency = currency) }
                 }
-                .catch { /* ignore */ }
-                .collect()
+            }
         }
     }
 
@@ -196,10 +216,19 @@ class SettleUpViewModel @Inject constructor(
                     return@launch
                 }
                 
+                // Map Person ID -> User ID for legacy compatibility
+                // If person is linked to a User, use that User ID.
+                // If person is a phantom (no user), fall back to using their Person ID as the User ID
+                val payerPerson = state.availablePersons.find { it.id == state.payerPersonId }
+                val receiverPerson = state.availablePersons.find { it.id == state.receiverPersonId }
+                
+                val fromUserId = payerPerson?.linkedUserId ?: state.payerPersonId!!
+                val toUserId = receiverPerson?.linkedUserId ?: state.receiverPersonId!!
+
                 // Explicit Settlement
                 settlementRepository.createSettlement(
-                    fromUserId = state.payerPersonId, // Mapping Person ID as User ID for patched Repo
-                    toUserId = state.receiverPersonId, // Mapping Person ID as User ID for patched Repo
+                    fromUserId = fromUserId,
+                    toUserId = toUserId,
                     amount = amount,
                     currency = contextCurrency
                 )

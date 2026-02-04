@@ -77,7 +77,7 @@ class AddExpenseViewModelTest {
         coEvery { personRepository.getAllPersons() } returns flowOf(allPersons)
         coEvery { userDao.getAllUsers() } returns flowOf(allUsers)
         coEvery { groupDao.getGroupMembers(groupId) } returns flowOf(members)
-        coEvery { userContext.userId } returns flowOf("u1")
+        every { userContext.userId } returns flowOf("u1")
 
         // When
         val viewModel = AddExpenseViewModel(

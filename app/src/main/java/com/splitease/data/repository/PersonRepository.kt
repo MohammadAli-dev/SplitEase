@@ -52,7 +52,7 @@ interface PersonRepository {
      * @param name The display name for the new person.
      * @return The ID of the newly created person.
      */
-    suspend fun createPhantomPerson(name: String): String
+    suspend fun createPhantomPerson(name: String, email: String? = null, phone: String? = null): String
 }
 
 

@@ -175,7 +175,7 @@ class GroupDetailViewModel @Inject constructor(
         val personLinks = allPersons.filter { it.linkedUserId != null }.associate { it.linkedUserId!! to it.displayName }
         
         fun resolveName(id: String): String? {
-            return userNames[id] ?: personNames[id] ?: personLinks[id]
+            return personNames[id] ?: userNames[id] ?: personLinks[id]
         }
 
         // 2. Identify every single ID involved in this group's financial history

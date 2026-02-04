@@ -205,10 +205,10 @@ class CreateGroupViewModel @Inject constructor(
     /**
      * Creates a phantom Person, writes to DB, and queues it for auto-selection.
      */
-    fun createPhantomPersonAndSelect(name: String) {
+    fun createPhantomPersonAndSelect(name: String, email: String? = null, phone: String? = null) {
         viewModelScope.launch {
             try {
-                val personId = personRepository.createPhantomPerson(name)
+                val personId = personRepository.createPhantomPerson(name, email, phone)
                 // Queue for auto-selection when DB emits
                 pendingAutoSelectPersonIds.add(personId)
             } catch (e: Exception) {

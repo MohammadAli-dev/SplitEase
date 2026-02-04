@@ -106,6 +106,7 @@ interface DeviceRoleManager {
      * @see setIdentityMigrationVersion
      * @see IdentityMigrationCoordinator.runMigration
      */
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
     suspend fun getIdentityMigrationVersion(): Int
 
     /**
@@ -120,6 +121,7 @@ interface DeviceRoleManager {
      * @param version The migration version to persist (2904 for Sprint 29C-4).
      * @see getIdentityMigrationVersion
      */
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
     suspend fun setIdentityMigrationVersion(version: Int)
 }
 
@@ -244,12 +246,14 @@ class DeviceRoleManagerImpl @Inject constructor(
         }
     }
 
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
     override suspend fun getIdentityMigrationVersion(): Int {
         return context.deviceRoleDataStore.data.map { preferences ->
             preferences[KEY_IDENTITY_MIGRATION_VERSION] ?: 0
         }.first()
     }
 
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
     override suspend fun setIdentityMigrationVersion(version: Int) {
         context.deviceRoleDataStore.edit { preferences ->
             preferences[KEY_IDENTITY_MIGRATION_VERSION] = version

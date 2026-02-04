@@ -46,7 +46,7 @@ class PersonRepositoryHealTest {
     @Test
     fun `ensurePerson generates deterministic ID if person is missing`() = runTest {
         val userId = "user-123"
-        val expectedDeterministicId = UUID.nameUUIDFromBytes("Person:$userId".toByteArray()).toString()
+        val expectedDeterministicId = UUID.nameUUIDFromBytes("Person:$userId".toByteArray(java.nio.charset.StandardCharsets.UTF_8)).toString()
         
         coEvery { personDao.getPersonByLinkedUserId(userId) } returns null
         coEvery { personDao.getPersonById(expectedDeterministicId) } returns null
@@ -57,6 +57,7 @@ class PersonRepositoryHealTest {
         assertEquals(expectedDeterministicId, result.id)
         assertEquals("John Doe", result.displayName)
         assertEquals(userId, result.linkedUserId)
+        assertEquals(true, result.isSynthetic)
         
         coVerify { personDao.upsertPerson(match { it.id == expectedDeterministicId }) }
     }
@@ -64,8 +65,8 @@ class PersonRepositoryHealTest {
     @Test
     fun `ensurePerson is idempotent and returns already existing synthetic person`() = runTest {
         val userId = "user-123"
-        val deterministicId = UUID.nameUUIDFromBytes("Person:$userId".toByteArray()).toString()
-        val syntheticPerson = Person(deterministicId, "John Doe", userId, 1000L)
+        val deterministicId = UUID.nameUUIDFromBytes("Person:$userId".toByteArray(java.nio.charset.StandardCharsets.UTF_8)).toString()
+        val syntheticPerson = Person(deterministicId, "John Doe", userId, 1000L, isSynthetic = true)
 
         // Case: direct link missing but synthetic record already exists
         coEvery { personDao.getPersonByLinkedUserId(userId) } returns null

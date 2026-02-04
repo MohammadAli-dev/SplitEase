@@ -5,12 +5,16 @@ import androidx.room.withTransaction
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.local.dao.*
 import com.splitease.data.local.entities.*
+import com.splitease.data.sync.SyncMetadataStore
+import com.splitease.data.local.dao.SystemMetadataDao
 import com.splitease.data.device.DeviceRoleManager
 import com.splitease.data.repository.PersonRepository
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
 import org.junit.Before
 import org.junit.Test
 
@@ -21,12 +25,15 @@ class IdentityMigrationCoordinatorTest {
     private val personDao = mockk<PersonDao>(relaxed = true)
     private val personRepository = mockk<PersonRepository>(relaxed = true)
     private val deviceRoleManager = mockk<DeviceRoleManager>(relaxed = true)
+    private val systemMetadataDao = mockk<SystemMetadataDao>(relaxed = true)
+    private val syncMetadataStore = mockk<SyncMetadataStore>(relaxed = true)
     private val testDispatcher = UnconfinedTestDispatcher()
 
     private lateinit var coordinator: IdentityMigrationCoordinator
 
     @Before
     fun setup() {
+        kotlinx.coroutines.Dispatchers.setMain(testDispatcher)
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
@@ -36,25 +43,42 @@ class IdentityMigrationCoordinatorTest {
 
         mockkStatic("androidx.room.RoomDatabaseKt")
         val blockSlot = slot<suspend () -> Any?>()
-        coEvery { db.withTransaction<Any?>(capture(blockSlot)) } coAnswers {
-            blockSlot.captured.invoke()
-        }
-
         coordinator = IdentityMigrationCoordinator(
             db = db,
             personDao = personDao,
             personRepository = personRepository,
             deviceRoleManager = deviceRoleManager,
+            systemMetadataDao = systemMetadataDao,
+            syncMetadataStore = syncMetadataStore,
             ioDispatcher = testDispatcher
         )
         
-        // Mock default version to force migration
+        // Mock default state: Sync has occurred, Migration version is 0
+        coEvery { syncMetadataStore.getLastSyncedAt() } returns "2024-01-01T00:00:00Z"
+        coEvery { systemMetadataDao.getValue("identity_migration_version") } returns null
         coEvery { deviceRoleManager.getIdentityMigrationVersion() } returns 0
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        kotlinx.coroutines.Dispatchers.resetMain()
+        unmockkStatic(Log::class)
+        unmockkStatic("androidx.room.RoomDatabaseKt")
+        clearAllMocks()
     }
 
     @Test
     fun `runMigration should skip if already at target version`() = runTest(testDispatcher) {
-        coEvery { deviceRoleManager.getIdentityMigrationVersion() } returns 2904
+        coEvery { systemMetadataDao.getValue("identity_migration_version") } returns "2904"
+        
+        coordinator.runMigration()
+        
+        coVerify(exactly = 0) { personDao.getAllPersonsSync() }
+    }
+
+    @Test
+    fun `runMigration should skip if device has never synced`() = runTest(testDispatcher) {
+        coEvery { syncMetadataStore.getLastSyncedAt() } returns null
         
         coordinator.runMigration()
         
@@ -95,6 +119,7 @@ class IdentityMigrationCoordinatorTest {
     fun `Migration should set version to 2904 upon success`() = runTest(testDispatcher) {
         coordinator.runMigration()
         
+        coVerify { systemMetadataDao.putValue(match { it.key == "identity_migration_version" && it.value == "2904" }) }
         coVerify { deviceRoleManager.setIdentityMigrationVersion(2904) }
     }
 }

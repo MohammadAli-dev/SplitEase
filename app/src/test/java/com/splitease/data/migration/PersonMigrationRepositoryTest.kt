@@ -24,7 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -52,7 +52,7 @@ class PersonMigrationRepositoryTest {
     private val personDao: PersonDao = mockk(relaxed = true)
     private val personRepository: com.splitease.data.repository.PersonRepository = mockk(relaxed = true)
 
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = UnconfinedTestDispatcher()
 
     private val repository = ExpenseRepositoryImpl(
         expenseDao,
@@ -86,11 +86,12 @@ class PersonMigrationRepositoryTest {
     @org.junit.After
     fun tearDown() {
         Dispatchers.resetMain()
+        io.mockk.unmockkStatic(android.util.Log::class)
         io.mockk.clearAllMocks()
     }
 
     @Test
-    fun `verifyDualRead - legacy expense populates payerPersonId from PersonDao`() = runTest(testDispatcher) {
+    fun `verifyDualRead - legacy expense populates payerPersonId from PersonDao`() = runTest {
         // Given
         val legacyExpense = Expense(
             id = "exp1",
@@ -118,7 +119,7 @@ class PersonMigrationRepositoryTest {
     }
 
     @Test
-    fun `verifyDualRead - new expense preserves payerPersonId`() = runTest(testDispatcher) {
+    fun `verifyDualRead - new expense preserves payerPersonId`() = runTest {
         // Given
         val newExpense = Expense(
             id = "exp2",
@@ -142,7 +143,7 @@ class PersonMigrationRepositoryTest {
     }
 
     @Test
-    fun `verifySingleWrite - missing payerPersonId throws exception`() = runTest(testDispatcher) {
+    fun `verifySingleWrite - missing payerPersonId throws exception`() = runTest {
         // Given
         val invalidExpense = Expense(
             id = "exp3",
@@ -162,11 +163,13 @@ class PersonMigrationRepositoryTest {
         } catch (e: IdentityInvariantViolationException) {
             // Success
             assertTrue(e.message?.contains("Single-Write Violation") == true)
+        } finally {
+            testDispatcher.scheduler.advanceUntilIdle()
         }
     }
 
     @Test
-    fun `verifySingleWrite - missing split personId throws exception`() = runTest(testDispatcher) {
+    fun `verifySingleWrite - missing split personId throws exception`() = runTest {
         // Given
         val validExpense = Expense(
             id = "exp4",
@@ -188,11 +191,13 @@ class PersonMigrationRepositoryTest {
         } catch (e: IdentityInvariantViolationException) {
             // Success
             assertTrue(e.message?.contains("Single-Write Violation") == true)
+        } finally {
+            testDispatcher.scheduler.advanceUntilIdle()
         }
     }
 
     @Test
-    fun `verifySingleWrite - valid new expense succeeds`() = runTest(testDispatcher) {
+    fun `verifySingleWrite - valid new expense succeeds`() = runTest {
         // Given
         val validExpense = Expense(
             id = "exp5",

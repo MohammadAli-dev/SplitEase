@@ -103,8 +103,8 @@ fun CreateGroupScreen(
                         viewModel.toggleMember(personId)
                     },
                     allowMultiple = true,
-                    onCreatePerson = { name ->
-                        viewModel.createPhantomPersonAndSelect(name)
+                    onCreatePerson = { name, email, phone ->
+                        viewModel.createPhantomPersonAndSelect(name, email, phone)
                         // Keep picker open
                     }
                 )

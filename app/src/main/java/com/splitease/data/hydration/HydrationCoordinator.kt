@@ -226,6 +226,7 @@ class HydrationCoordinatorImpl @Inject constructor(
             try {
                 identityMigrationCoordinator.runMigration()
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Identity migration failed (non-fatal)", e)
                 // Do not rethrow; hydration is already successful.
             }

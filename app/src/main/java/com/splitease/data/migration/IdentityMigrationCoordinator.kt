@@ -8,7 +8,12 @@ import com.splitease.data.local.entities.Person
 import com.splitease.data.device.DeviceRoleManager
 import com.splitease.data.repository.PersonRepository
 import com.splitease.di.IoDispatcher
+import com.splitease.data.local.dao.SystemMetadataDao
+import com.splitease.data.local.entities.SystemMetadata
+import com.splitease.data.sync.SyncMetadataStore
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -124,16 +129,23 @@ class IdentityMigrationCoordinator @Inject constructor(
     private val personDao: PersonDao,
     private val personRepository: PersonRepository,
     private val deviceRoleManager: DeviceRoleManager,
+    private val systemMetadataDao: SystemMetadataDao,
+    private val syncMetadataStore: SyncMetadataStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
+    // Serializes local migration attempts to prevent interleaved runs
+    private val migrationMutex = Mutex()
     companion object {
         private const val TAG = "IdentityMigration"
         
         /**
          * Target migration version (Sprint 29C-4 = 2904).
-         * Persisted in [DeviceRoleManager] to prevent re-execution.
+         * Persisted in [SystemMetadata] to prevent re-execution.
          */
         private const val TARGET_VERSION = 2904
+        
+        /** Key for SystemMetadata table */
+        private const val METADATA_KEY = "identity_migration_version"
     }
 
     /**
@@ -162,25 +174,63 @@ class IdentityMigrationCoordinator @Inject constructor(
      * @see mergeDuplicateIdentities
      */
     suspend fun runMigration() = withContext(ioDispatcher) {
-        val currentVersion = deviceRoleManager.getIdentityMigrationVersion()
-        if (currentVersion >= TARGET_VERSION) {
-            Log.d(TAG, "Identity Migration already at version $currentVersion. Skipping.")
-            return@withContext
+        // Serialization Guard: Ensure only one migration runs at a time per process
+        if (!migrationMutex.tryLock()) {
+             Log.d(TAG, "Migration ignored: already in progress (Mutex locked)")
+             return@withContext
         }
-
-        Log.i(TAG, "Starting Identity Migration (Phase 0-3) to version $TARGET_VERSION")
         
         try {
-            // Phase 0: Explicit Backfill for Legacy Data
-            backfillMissingPersonIds()
+            if (syncMetadataStore.getLastSyncedAt() == null) {
+                Log.w(TAG, "Migration SKIPPED: Device has never synced. Waiting for initial sync to prevent split-brain.")
+                return@withContext
+            }
+        
+            // Version Gate Check (Read Phase - Optimization)
+            // We check the transactional source of truth (SystemMetadata)
+            val currentVersionStr = systemMetadataDao.getValue(METADATA_KEY)
+            val currentVersion = currentVersionStr?.toIntOrNull() ?: 0
+            
+            if (currentVersion >= TARGET_VERSION) {
+                Log.d(TAG, "Identity Migration already at version $currentVersion. Skipping.")
+                return@withContext
+            }
 
-            // Phase 1: Merge Duplicates
-            mergeDuplicateIdentities()
+            Log.i(TAG, "Starting Identity Migration (Phase 0-3) to version $TARGET_VERSION")
+            
+            try {
+                // Phase 0: Explicit Backfill for Legacy Data
+                backfillMissingPersonIds()
 
-            deviceRoleManager.setIdentityMigrationVersion(TARGET_VERSION)
-            Log.i(TAG, "Identity Migration completed successfully to version $TARGET_VERSION")
-        } catch (e: Exception) {
-            Log.e(TAG, "Identity Migration failed", e)
+                // Phase 1-3: Merge Duplicates
+                // We wrap the version write inside the transaction implicitly if possible,
+                // but since mergeDuplicateIdentities performs multiple transactions,
+                // and Phase 0 is separate, we need to decide on the atomic boundary.
+                // The implementation plan suggested: db.withTransaction { runs... writeVersion }
+                // However, `mergeDuplicateIdentities` iterates and does `db.withTransaction` per user/person.
+                // Making the WHOLE migration one massive transaction is risky (locks DB for too long).
+                // Instead, we will perform the work, and then have a FINAL transaction that:
+                // 1. Verifies work (optional)
+                // 2. Writes the version
+                
+                // Executing Idempotent Work
+                mergeDuplicateIdentities()
+
+                // Atomic Completion Gate
+                db.withTransaction {
+                    systemMetadataDao.putValue(SystemMetadata(METADATA_KEY, TARGET_VERSION.toString()))
+                }
+                
+                // Legacy Fallback (Redundant but harmless)
+                deviceRoleManager.setIdentityMigrationVersion(TARGET_VERSION)
+                
+                Log.i(TAG, "Identity Migration completed successfully to version $TARGET_VERSION")
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Identity Migration failed", e)
+            }
+        } finally {
+            migrationMutex.unlock()
         }
     }
 
@@ -279,8 +329,8 @@ class IdentityMigrationCoordinator @Inject constructor(
         var processed = 0
         // Correctly calculate total persons to be merged: sum of (groupSize - 1) for all groups > 1
         var totalPersons = 0
-        groups.forEach { (_, persons) ->
-            if (persons.size > 1) {
+        groups.forEach { (userId, persons) ->
+            if (userId != null && persons.size > 1) {
                 totalPersons += (persons.size - 1)
             }
         }

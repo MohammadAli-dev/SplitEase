@@ -42,9 +42,10 @@ import com.splitease.data.local.entities.User
         LedgerOperation::class,
         LedgerConflictEntity::class,
         ConflictResolutionEntity::class,
-        Person::class
+        Person::class,
+        com.splitease.data.local.entities.SystemMetadata::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 
@@ -150,6 +151,11 @@ abstract fun connectionStateDao(): ConnectionStateDao
      * Provides access to the DAO for Person operations.
      */
     abstract fun personDao(): PersonDao
+
+    /**
+     * Accessor for system metadata (atomic version gates).
+     */
+    abstract fun systemMetadataDao(): com.splitease.data.local.dao.SystemMetadataDao
 
     /**
  * Provides access to the DAO responsible for persisting immutable ledger operations.

@@ -148,9 +148,10 @@ class FriendDetailViewModel @Inject constructor(
 
     /**
      * Observes connection status changes for the current friend and updates the UI state accordingly.
-
-     * variants (e.g., `InviteCreated`, `Claimed`, `Merged`, `None`), and applies the mapped value to the
-     * view model's `uiState.connectionState`.
+     *
+     * Maps the database [ConnectionStatus] to [ConnectionUiState] variants (e.g., `InviteCreated`, 
+     * `Claimed`, `Merged`, `None`), and applies the mapped value to the view model's 
+     * `uiState.connectionState`.
      */
     private fun observeConnectionState() {
         viewModelScope.launch {

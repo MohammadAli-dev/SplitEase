@@ -49,7 +49,7 @@ fun PersonPicker(
     selectedPersonIds: Set<String>,
     onToggleSelection: (String) -> Unit,
     modifier: Modifier = Modifier,
-    onCreatePerson: ((name: String) -> Unit)? = null,
+    onCreatePerson: ((name: String, email: String?, phone: String?) -> Unit)? = null,
     allowMultiple: Boolean = true
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -69,8 +69,9 @@ fun PersonPicker(
     if (showAddDialog && onCreatePerson != null) {
         AddPersonDialog(
             onDismiss = { showAddDialog = false },
-            onConfirm = { name, _, _ ->
-                onCreatePerson(name)
+            onConfirm = { name, email, phone ->
+                onCreatePerson(name, email, phone)
+                showAddDialog = false
                 // Note: We don't wait for success here, the parent should update 'persons' list
             }
         )

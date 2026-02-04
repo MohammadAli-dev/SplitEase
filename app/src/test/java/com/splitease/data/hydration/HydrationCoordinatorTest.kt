@@ -15,6 +15,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -37,6 +39,7 @@ class HydrationCoordinatorTest {
 
     @Before
     fun setup() {
+        kotlinx.coroutines.Dispatchers.setMain(testDispatcher)
         coordinator = HydrationCoordinatorImpl(
             appDatabase,
             ledgerPullService,
@@ -56,11 +59,12 @@ class HydrationCoordinatorTest {
         every { appDatabase.groupDao() } returns groupDao
         every { appDatabase.settlementDao() } returns settlementDao
         every { appDatabase.ledgerDao() } returns ledgerDao
-        every { appDatabase.ledgerDao() } returns ledgerDao
     }
 
     @org.junit.After
     fun tearDown() {
+        kotlinx.coroutines.Dispatchers.resetMain()
+        io.mockk.unmockkStatic(android.util.Log::class)
         io.mockk.clearAllMocks()
     }
 
@@ -219,15 +223,16 @@ class HydrationCoordinatorTest {
             result1 = coordinator.hydrate()
         }
         
-        // Wait a bit to ensure the first one has acquired the lock
-        delay(100)
+        // Ensure first coroutine starts and hits the delay
+        testDispatcher.scheduler.runCurrent()
+        testDispatcher.scheduler.advanceTimeBy(100)
         
         launch {
             result2 = coordinator.hydrate()
         }
 
-        // Wait for both to finish
-        delay(1500)
+        // Run until completion
+        testDispatcher.scheduler.advanceUntilIdle()
 
         // THEN: The second one should have aborted immediately
         assertTrue(result2 is HydrationResult.Aborted)

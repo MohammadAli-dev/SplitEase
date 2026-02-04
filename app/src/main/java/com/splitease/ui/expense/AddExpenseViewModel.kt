@@ -262,7 +262,7 @@ constructor(
 
                     state.copy(
                         availablePersonIds = availableIds,
-                        selectedPersonIds = newSelection.plus(state.selectedPersonIds).distinct(),
+                        selectedPersonIds = newSelection.toList(),
                         personNames = namesMap,
                         payerPersonId = newPayerId
                     ).withNormalizedShares()
@@ -387,76 +387,30 @@ constructor(
      * Creates a phantom Person and selects them in the current UI state.
      * Only explicit creation is allowed. No automatic merge.
      */
-    fun createPhantomPersonAndSelect(name: String) {
+    fun createPhantomPersonAndSelect(name: String, email: String? = null, phone: String? = null) {
         viewModelScope.launch {
             try {
                 // Strict No-Merge: Always create new.
-                val personId = personRepository.createPhantomPerson(name)
+                val personId = personRepository.createPhantomPerson(name, email, phone)
                 
-                // If in a group context, add them to group?
-                if (groupId != "" && groupId != PersonalGroupConstants.PERSONAL_GROUP_ID) {
-                     // Add Member needs userId? Or PersonId?
-                     // GroupRepository.addMember usually takes userId.
-                     // But Phantom Person has no userId.
-                     // If we add a Phantom to a Group, we need to create a `GroupMember` with `personId`.
-                     // Does GroupRepository support this?
-                     // Checking GroupRepository (we haven't updated it).
-                     // If GroupRepository expects userId, we are stuck.
-                     
-                     // Workaround: We can only add Phantom Persons to Groups IF GroupRepository supports it 
-                     // OR we just rely on "Person exists".
-                     // But Group Membership defines visibility.
-                     
-                     // If GroupRepository.addMember requires userId, we can't add pure phantoms to groups yet?
-                     // Sprint 29C Goal: "Group member selection uses Person picker."
-                     
-                     // If I can't modify GroupRepository, implies GroupRepository MUST support it or I need to update it?
-                     // "Explicit Out of Scope: ... Any repository ... changes".
-                     // BUT "Update the UI layer".
-                     
-                     // Actually, GroupMember HAS personId.
-                     // I can insert into GroupMember using DAO directly if Repo fails?
-                     // Or maybe Repo has `addPersonMember`?
-                     
-                     // Let's assume for now we just add to "selectedPersonIds" and "availablePersonIds" locally?
-                     // But persistence?
-                     // If saveExpense is called, expense is linked to groupId.
-                     // Does expense require payer/participants to be MEMBERS?
-                     // Not strictly by constraint, but UI usually enforces it.
-                     
-                     // Let's invoke GroupRepository.addMember if it supports personId.
-                     // If not, we might fail here.
-                     // Since I can't check Repo easily without viewing it (I viewed interface in list but didn't read file),
-                     // I'll optimistically try to add to group via DAO if needed or skip and warn.
-                     // Wait, I see `groupDao.insertMember`.
-                     
-                     // Proper way: Call GroupRepository.
-                     // Since I can't change it, I'll assumme it needs update OR I use DAO.
-                     // Using DAO directly in VM is discouraged but maybe necessary if Repo is out of scope.
-                     // But `GroupRepository` acts as gate.
-                     
-                     // Let's just create the person. If they are used in Expense, they are used.
-                     // Do they NEED to be in the group? Yes, for Group usage.
-                     
-                     // If this is blocked, I'll log/error.
-                     // For Sprint 29C, maybe we just allow creating person and selecting them for THIS expense?
-                     // And maybe add to group later?
-                }
+                // TODO: Group membership for pure Person-based members is blocked until GroupRepository supports Person IDs.
+                // For now, we only create the person and select them locally for this expense.
+                // User must manually add them to group via legacy means if needed.
                 
                 // Select the new person AND make them available
                 _uiState.update { state ->
                      val newAvailable = if (personId !in state.availablePersonIds) {
-                         state.availablePersonIds + personId
+                          state.availablePersonIds + personId
                      } else state.availablePersonIds
                      
                      val newNames = state.personNames.toMutableMap()
                      newNames[personId] = name
 
-                     state.copy(
+                    state.copy(
                          availablePersonIds = newAvailable,
                          personNames = newNames,
                          selectedPersonIds = state.selectedPersonIds + personId
-                     ).withNormalizedShares()
+                    ).withNormalizedShares()
                 }
                 recalculateSplits()
             } catch (e: Exception) {
@@ -759,13 +713,15 @@ constructor(
                 // No.
                 // (Logic continues with PersonDao batch fetch)
 
-                val splitPersonsMap: Map<String, com.splitease.data.local.entities.Person> = try {
-                     // Requires PersonDao in constructor. 
-                     // I will added it in the constructor replacement block below.
-                       personDao.getPersonsByIds(state.splitPreview.keys.toList()).associateBy { it.id }
-                } catch (e: Exception) {
-                     emptyMap()
-                }
+                     // BATCH FETCH (Fixed):
+                     // Fetch all person objects for the participants to resolve legacy user IDs.
+                     // Must not swallow errors; if this fails, we can't reliably map identities.
+                     val idsToFetch = state.splitPreview.keys.toList()
+                     val splitPersonsMap: Map<String, com.splitease.data.local.entities.Person> = if (idsToFetch.isNotEmpty()) {
+                         personDao.getPersonsByIds(idsToFetch).associateBy { it.id }
+                     } else {
+                         emptyMap()
+                     }
 
                 val splits =
                         state.splitPreview.map { (personId, splitAmount) ->

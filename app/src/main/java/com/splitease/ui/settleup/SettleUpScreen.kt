@@ -182,7 +182,7 @@ fun SettleUpScreen(
                 value = uiState.amountInput,
                 onValueChange = viewModel::onAmountChanged,
                 label = { Text("Amount") },
-                prefix = { Text("₹") },
+                prefix = { Text(uiState.currencySymbol) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
             )
