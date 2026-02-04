@@ -44,5 +44,14 @@ data class Person(
     /**
      * When this person identity was first created locally.
      */
-    val createdAt: Long
+    val createdAt: Long,
+    /**
+     * Flag indicating if this person was created deterministically 
+     * as a synthetic placeholder (Transitional Determinism).
+     */
+    val isSynthetic: Boolean = false,
+    /**
+     * If not null, this person has been merged into the referenced canonical Person.
+     */
+    val shadowedById: String? = null
 )

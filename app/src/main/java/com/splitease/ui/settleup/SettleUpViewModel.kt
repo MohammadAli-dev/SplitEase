@@ -12,18 +12,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
+import com.splitease.data.repository.PersonRepository
+import com.splitease.data.local.entities.Person
 import javax.inject.Inject
 
 data class SettleUpUiState(
     val friendId: String = "",
     val friendName: String = "",
-    val balance: BigDecimal = BigDecimal.ZERO, // Positive = They Owe You, Negative = You Owe Them
+    val availablePersons: List<Person> = emptyList(),
+    val payerPersonId: String? = null,
+    val receiverPersonId: String? = null,
+    val balance: BigDecimal = BigDecimal.ZERO, // Informational only
     val amountInput: String = "",
     val isLoading: Boolean = false,
     val isSettled: Boolean = false,
@@ -32,15 +39,14 @@ data class SettleUpUiState(
     val canSettle: Boolean
         get() {
             val amount = amountInput.toBigDecimalOrNull() ?: return false
-            return amount > BigDecimal.ZERO && amount <= balance.abs()
+            return amount > BigDecimal.ZERO && 
+                   payerPersonId != null && 
+                   receiverPersonId != null && 
+                   payerPersonId != receiverPersonId
         }
 
     val amountError: String?
-        get() {
-            val amount = amountInput.toBigDecimalOrNull()
-            if (amount != null && amount > balance.abs()) return "Amount exceeds balance"
-            return null
-        }
+        get() = null // Removed balance restriction for settling
 }
 
 @HiltViewModel
@@ -48,7 +54,7 @@ class SettleUpViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val settlementRepository: SettlementRepository,
-    private val userDao: UserDao,
+    private val personRepository: PersonRepository,
     private val userContext: UserContext,
     private val friendTransactionsRepository: com.splitease.data.repository.FriendTransactionsRepository
 ) : ViewModel() {
@@ -65,29 +71,87 @@ class SettleUpViewModel @Inject constructor(
     private fun loadData() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            // Load friend name (suspend, one-shot)
-            val friendName = try {
-                userDao.getUser(friendId).first()?.name ?: "Unknown"
-            } catch (e: Exception) {
-                "Unknown"
+            
+            // Observe Identity for Name & Canonical ID
+            launch {
+                friendTransactionsRepository.getFriendIdentity(friendId).collect { identity ->
+                    _uiState.update { it.copy(friendName = identity.displayName) }
+                    
+                    // Once identity is resolved, check available persons to auto-select
+                    // We need `availablePersons` loaded first? Or combine?
+                    // Let's rely on PersonRepository flow below.
+                }
             }
-
-            // Load balance (flow)
-            balanceSummaryRepository.getBalanceWithFriend(friendId)
-                .onEach { balance ->
-                    _uiState.update { 
-                        it.copy(
-                            friendName = friendName,
-                            balance = balance,
-                            isLoading = false
-                        ) 
+            
+            // Parallel load: Persons
+            launch {
+                // We need the Resolved Identity to pick the right friend in the list
+                // So strict dependency: Identity -> then pick from Persons.
+                // Or combine Persons + Identity.
+                
+                combine(
+                    personRepository.getAllPersons(),
+                    friendTransactionsRepository.getFriendIdentity(friendId),
+                    userContext.userId
+                ) { persons: List<Person>, identity: com.splitease.data.identity.model.ResolvedParticipant, currentUserId: String ->
+                    Triple(persons, identity, currentUserId)
+                }.collect { (persons, identity, currentUserId) ->
+                    _uiState.update { it.copy(availablePersons = persons) }
+                    
+                    // Initial Participant Setup (only if not set)
+                    if (_uiState.value.payerPersonId == null) {
+                         setupInitialParticipants(persons, identity, currentUserId)
                     }
                 }
-                .catch { e ->
-                    _uiState.update { it.copy(isLoading = false, errorMessage = "Failed to load data") }
+            }
+
+            // Load informational balance
+            balanceSummaryRepository.getBalanceWithFriend(friendId)
+                .onEach { balance ->
+                    _uiState.update { it.copy(balance = balance) }
                 }
+                .catch { /* ignore */ }
                 .collect()
         }
+    }
+
+    private fun setupInitialParticipants(
+        persons: List<Person>, 
+        identity: com.splitease.data.identity.model.ResolvedParticipant,
+        currentUserId: String?
+    ) {
+        val me = persons.find { it.linkedUserId == currentUserId }
+        // Use Stable ID from resolver to finding friend
+        val friend = persons.find { it.id == identity.stableId }
+        
+        // If friend not in the list (e.g. data desync), we rely on identity.stableId
+        val receiverId = friend?.id ?: identity.stableId
+
+        _uiState.update { state ->
+            state.copy(
+                friendName = identity.displayName,
+                payerPersonId = me?.id, 
+                receiverPersonId = receiverId, 
+                isLoading = false
+            )
+        }
+    }
+    
+    fun setPayer(personId: String) {
+        _uiState.update { it.copy(payerPersonId = personId) }
+    }
+
+    fun setReceiver(personId: String) {
+        _uiState.update { it.copy(receiverPersonId = personId) }
+    }
+    
+    fun swapPayerReceiver() {
+         _uiState.update { 
+             it.copy(
+                 payerPersonId = it.receiverPersonId,
+                 receiverPersonId = it.payerPersonId
+             )
+         }
     }
 
     fun onAmountChanged(newAmount: String) {
@@ -114,17 +178,16 @@ class SettleUpViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
-                val amount = _uiState.value.amountInput.toBigDecimal()
-                val balance = _uiState.value.balance
-                val currentUserId = userContext.userId.first()
+                val state = _uiState.value
+                val amount = state.amountInput.toBigDecimal()
 
-                if (currentUserId.isEmpty()) {
-                     _uiState.update { it.copy(isLoading = false, errorMessage = "User context missing") }
+
+                if (state.payerPersonId == null || state.receiverPersonId == null) {
+                     _uiState.update { it.copy(isLoading = false, errorMessage = "Select payer and receiver") }
                      return@launch
                 }
                 
                 // FAIL-CLOSED: Check balance/history for currency context
-                // We fetch the most recent transaction to determine currency.
                 val transactions = friendTransactionsRepository.getTransactionsForFriend(friendId).first()
                 val contextCurrency = transactions.firstOrNull()?.currency
                 
@@ -133,32 +196,13 @@ class SettleUpViewModel @Inject constructor(
                     return@launch
                 }
                 
-                // Determine direction
-                when {
-                    balance.signum() == 0 -> {
-                        // Zero balance - nothing to settle
-                        _uiState.update { it.copy(isLoading = false, errorMessage = "No balance to settle") }
-                        return@launch
-                    }
-                    balance.signum() < 0 -> {
-                        // I owe them. From = Me, To = Friend
-                        settlementRepository.createSettlement(
-                            fromUserId = currentUserId,
-                            toUserId = friendId,
-                            amount = amount,
-                            currency = contextCurrency
-                        )
-                    }
-                    else -> {
-                        // They owe me. From = Friend, To = Me
-                        settlementRepository.createSettlement(
-                            fromUserId = friendId,
-                            toUserId = currentUserId,
-                            amount = amount,
-                            currency = contextCurrency
-                        )
-                    }
-                }
+                // Explicit Settlement
+                settlementRepository.createSettlement(
+                    fromUserId = state.payerPersonId, // Mapping Person ID as User ID for patched Repo
+                    toUserId = state.receiverPersonId, // Mapping Person ID as User ID for patched Repo
+                    amount = amount,
+                    currency = contextCurrency
+                )
 
                 _uiState.update { it.copy(isLoading = false, isSettled = true) }
             } catch (e: Exception) {

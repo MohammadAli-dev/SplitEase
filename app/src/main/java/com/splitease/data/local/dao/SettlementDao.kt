@@ -22,8 +22,8 @@ interface SettlementDao {
 
     @Query("""
         SELECT * FROM settlements 
-        WHERE (fromUserId = :userA AND toUserId = :userB) 
-           OR (fromUserId = :userB AND toUserId = :userA) 
+        WHERE ((fromUserId = :userA OR fromPersonId = :userA) AND (toUserId = :userB OR toPersonId = :userB))
+           OR ((fromUserId = :userB OR fromPersonId = :userB) AND (toUserId = :userA OR toPersonId = :userA))
         ORDER BY date DESC
     """)
     fun observeSettlementsBetween(userA: String, userB: String): Flow<List<Settlement>>
@@ -101,4 +101,30 @@ interface SettlementDao {
      */
     @Query("UPDATE settlements SET lastModifiedByUserId = :newUserId WHERE lastModifiedByUserId = :oldUserId")
     suspend fun updateLastModifiedByUserId(oldUserId: String, newUserId: String)
+
+    // ========== Identity Migration (Sprint 29C-4) ==========
+
+    @Query("SELECT * FROM settlements WHERE fromPersonId IS NULL AND fromUserId IS NOT NULL")
+    suspend fun getSettlementsMissingFromPersonId(): List<Settlement>
+
+    @Query("SELECT * FROM settlements WHERE toPersonId IS NULL AND toUserId IS NOT NULL")
+    suspend fun getSettlementsMissingToPersonId(): List<Settlement>
+
+    @Query("UPDATE settlements SET fromPersonId = :personId WHERE id = :id")
+    suspend fun updateFromPersonId(id: String, personId: String)
+
+    @Query("UPDATE settlements SET toPersonId = :personId WHERE id = :id")
+    suspend fun updateToPersonId(id: String, personId: String)
+
+    @Query("UPDATE settlements SET fromPersonId = :newId WHERE fromPersonId = :oldId")
+    suspend fun rewriteFromPersonId(oldId: String, newId: String)
+
+    @Query("UPDATE settlements SET toPersonId = :newId WHERE toPersonId = :oldId")
+    suspend fun rewriteToPersonId(oldId: String, newId: String)
+
+    @Query("UPDATE settlements SET fromPersonId = :personId WHERE fromUserId = :userId AND fromPersonId IS NULL")
+    suspend fun backfillFromPersonIdForUser(userId: String, personId: String)
+
+    @Query("UPDATE settlements SET toPersonId = :personId WHERE toUserId = :userId AND toPersonId IS NULL")
+    suspend fun backfillToPersonIdForUser(userId: String, personId: String)
 }

@@ -3,6 +3,8 @@ package com.splitease.data.repository
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
 import com.splitease.data.local.dao.SettlementDao
+import com.splitease.data.local.dao.UserDao
+import com.splitease.data.local.dao.PersonDao
 import com.splitease.domain.ActivityItem
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,14 +21,28 @@ class ActivityRepositoryImpl
 constructor(
     private val expenseDao: ExpenseDao,
     private val settlementDao: SettlementDao,
-    private val groupDao: GroupDao
+    private val groupDao: GroupDao,
+    private val userDao: UserDao,
+    private val personDao: PersonDao
 ) : ActivityRepository {
     override fun getActivityFeed(): Flow<List<ActivityItem>> {
         return combine(
             expenseDao.getAllExpenses(),
             settlementDao.getAllSettlements(),
-            groupDao.getAllGroups()
-        ) { expenses, settlements, groups ->
+            groupDao.getAllGroups(),
+            userDao.getAllUsers(),
+            personDao.getAllPersons()
+        ) { expenses, settlements, groups, allUsers, allPersons ->
+            // Build name discovery maps
+            val userNames = allUsers.associate { it.id to it.name }
+            val personNames = allPersons.associate { it.id to it.displayName }
+            val personLinks = allPersons.filter { it.linkedUserId != null }.associate { it.linkedUserId!! to it.displayName }
+            
+            fun resolveName(id: String?, personId: String?): String {
+                if (id == null && personId == null) return "Unknown"
+                return personNames[personId] ?: userNames[id] ?: personLinks[id] ?: id?.take(8) ?: personId?.take(8) ?: "Unknown"
+            }
+            
             val expenseItems =
                 expenses.map { expense ->
                     val groupName = 
@@ -57,12 +73,12 @@ constructor(
                         }
                     ActivityItem.SettlementCreated(
                         id = "settlement_${settlement.id}",
-                        fromUserName = "You", // Placeholder until Auth
-                        toUserName = "Friend", // Placeholder until Auth
+                        fromUserName = resolveName(settlement.fromUserId, settlement.fromPersonId),
+                        toUserName = resolveName(settlement.toUserId, settlement.toPersonId),
                         amount = settlement.amount,
-                        currency = "INR", // Default currency
+                        currency = settlement.currency,
                         groupName = groupName,
-                        groupId = settlement.groupId, // Fixed usage
+                        groupId = settlement.groupId, 
                         timestamp = settlement.date.time
                     )
                 }

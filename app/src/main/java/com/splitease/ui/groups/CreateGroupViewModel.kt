@@ -2,8 +2,8 @@ package com.splitease.ui.groups
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.splitease.data.local.dao.UserDao
-import com.splitease.data.local.entities.User
+import com.splitease.data.local.entities.Person
+import com.splitease.data.repository.PersonRepository
 import com.splitease.data.identity.UserContext
 import com.splitease.data.repository.GroupRepository
 import com.splitease.data.repository.UserRepository
@@ -20,7 +20,7 @@ import javax.inject.Inject
 data class CreateGroupUiState(
     val name: String = "",
     val type: GroupType = GroupType.OTHER,
-    val availableUsers: List<User> = emptyList(),
+    val availablePersons: List<Person> = emptyList(),
     val selectedMemberIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
@@ -42,40 +42,37 @@ data class CreateGroupUiState(
 @HiltViewModel
 class CreateGroupViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
-    private val userRepository: UserRepository,
-    private val userContext: UserContext,
-    private val userDao: UserDao
+    private val personRepository: PersonRepository,
+    private val userContext: UserContext
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CreateGroupUiState())
     val uiState: StateFlow<CreateGroupUiState> = _uiState.asStateFlow()
 
-    // Reactive selection queue to auto-select users once they appear in the DB stream
-    private val pendingAutoSelectUserIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val pendingAutoSelectPersonIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     init {
-        loadUsers()
+        loadPersons()
         addCurrentUserAsDefault()
     }
 
-    private fun loadUsers() {
+    private fun loadPersons() {
         viewModelScope.launch {
-            userDao.getAllUsers().collect { users ->
+            personRepository.getAllPersons().collect { persons ->
                 _uiState.update { state ->
-                    val newUsers = users.sortedBy { it.name.ifBlank { it.id } }
+                    val newPersons = persons.sortedBy { it.displayName }
                     
-                    // Reactive Selection: Check if any pending users are now available
-                    // Use intersect to find IDs that are both PENDING and AVAILABLE
-                    val availableIds = newUsers.map { it.id }.toSet()
-                    val idsToAutoSelect = synchronized(pendingAutoSelectUserIds) {
-                        val found = pendingAutoSelectUserIds.intersect(availableIds)
-                        pendingAutoSelectUserIds.removeAll(found)
+                    // Reactive Selection: Check if any pending persons are now available
+                    val availableIds = newPersons.map { it.id }.toSet()
+                    val idsToAutoSelect = synchronized(pendingAutoSelectPersonIds) {
+                        val found = pendingAutoSelectPersonIds.intersect(availableIds)
+                        pendingAutoSelectPersonIds.removeAll(found)
                         found
                     }
                     
                     state.copy(
-                        availableUsers = newUsers,
-                        selectedMemberIds = state.selectedMemberIds + idsToAutoSelect // Set handles duplicates naturally
+                        availablePersons = newPersons,
+                        selectedMemberIds = state.selectedMemberIds + idsToAutoSelect
                     )
                 }
             }
@@ -84,12 +81,21 @@ class CreateGroupViewModel @Inject constructor(
 
     private fun addCurrentUserAsDefault() {
         viewModelScope.launch {
-            // Idiomatic: firstOrNull() returns null if flow is empty, no exceptions
-            val currentUserId = userContext.userId.firstOrNull()
-            if (currentUserId != null) {
-                _uiState.update { it.copy(selectedMemberIds = setOf(currentUserId)) }
+            val currentUserId = userContext.userId.firstOrNull() ?: return@launch
+            // Find person linked to current user
+            // We need to wait for persons to be loaded? Or just subscribe similarly?
+            // Ideally we check `personRepository.getAllPersons()` once it yields.
+            // Simplified: Wait for first emission of allPersons?
+            // Or just check currently loaded state if any?
+            
+            // We can resolve it by query if needed, but repo only exposes allPersons flow.
+            // Let's observe flow once.
+            val allPersons = personRepository.getAllPersons().first()
+            val myPerson = allPersons.find { it.linkedUserId == currentUserId }
+            
+            if (myPerson != null) {
+                _uiState.update { it.copy(selectedMemberIds = setOf(myPerson.id)) }
             }
-            // If null, gracefully leave selectedMemberIds empty
         }
     }
 
@@ -196,15 +202,18 @@ class CreateGroupViewModel @Inject constructor(
      * @param email Optional email address for the phantom user.
      * @param phone Optional phone number for the phantom user.
      */
-    fun createPhantomUserAndSelect(name: String, email: String? = null, phone: String? = null) {
+    /**
+     * Creates a phantom Person, writes to DB, and queues it for auto-selection.
+     */
+    fun createPhantomPersonAndSelect(name: String) {
         viewModelScope.launch {
-            val userId = userRepository.createPhantomUser(name, email, phone)
-            
-            // Queue for auto-selection when DB emits
-            pendingAutoSelectUserIds.add(userId)
-            
-            // Note: We deliberately do NOT update _uiState.availableUsers here.
-            // The DB observer will pick up the new user and apply the selection.
+            try {
+                val personId = personRepository.createPhantomPerson(name)
+                // Queue for auto-selection when DB emits
+                pendingAutoSelectPersonIds.add(personId)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "Failed to create person: ${e.message}") }
+            }
         }
     }
 }

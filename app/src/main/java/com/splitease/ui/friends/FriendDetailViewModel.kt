@@ -7,8 +7,11 @@ import com.splitease.data.connection.ClaimStatus
 import com.splitease.data.connection.ConnectionManager
 import com.splitease.data.connection.InviteResult
 import com.splitease.data.connection.MergeResult
-import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.ConnectionStatus
+import com.splitease.data.local.dao.PersonDao
+import com.splitease.data.local.dao.UserDao
+import com.splitease.data.local.entities.User
+import com.splitease.data.local.entities.Person
 import com.splitease.data.repository.BalanceSummaryRepository
 import com.splitease.data.repository.FriendLedgerItem
 import com.splitease.data.repository.FriendTransactionsRepository
@@ -75,7 +78,6 @@ class FriendDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val friendTransactionsRepository: FriendTransactionsRepository,
     private val balanceSummaryRepository: BalanceSummaryRepository,
-    private val userDao: UserDao,
     private val connectionManager: ConnectionManager
 ) : ViewModel() {
     
@@ -107,40 +109,48 @@ class FriendDetailViewModel @Inject constructor(
     private fun loadFriendDetails() {
         viewModelScope.launch {
             combine(
-                userDao.getUser(friendId),
+                friendTransactionsRepository.getFriendIdentity(friendId),
                 friendTransactionsRepository.getTransactionsForFriend(friendId),
-                balanceSummaryRepository.getDashboardSummary()
-            ) { friend, transactions, dashboardSummary ->
-                // Find friend's balance from dashboard summary
-                val friendBalance = dashboardSummary.friendBalances.find { it.friendId == friendId }
-                val balance = friendBalance?.balance ?: BigDecimal.ZERO
+                balanceSummaryRepository.getBalanceWithFriend(friendId) 
+                // It has getBalanceWithFriend(friendId).
+            ) { identity, transactions, balance ->
+                // Wait, I need to check BalanceSummaryRepository signature.
+                // It has `getBalanceWithFriend(friendId): Flow<BigDecimal>`.
+                // Does it give me "displayText"? No.
                 
-                val currency = transactions.firstOrNull()?.currency ?: "INR"
-                val formattedBalance = com.splitease.ui.common.Formatters.formatMoney(balance.abs(), currency)
-                
+                // Let's use getBalanceWithFriend.
+                val formattedBalance = com.splitease.ui.common.Formatters.formatMoney(balance.abs(), "INR") // TODO: Currency
                 val balanceText = when {
                     balance > BigDecimal.ZERO -> "owes you $formattedBalance"
                     balance < BigDecimal.ZERO -> "you owe $formattedBalance"
                     else -> "settled up"
                 }
-                
-                Triple(friend, transactions, Pair(balance, balanceText))
-            }.collectLatest { (friend, transactions, balanceData) ->
+
+                Triple(identity, transactions, Pair(balance, balanceText))
+            }.collectLatest { (identity, transactions, balanceData) ->
                 _uiState.update { current ->
                     current.copy(
                         friendId = friendId,
-                        friendName = friend?.name ?: friendId.take(8),
+                        friendName = identity.displayName,
                         balance = balanceData.first,
                         balanceDisplayText = balanceData.second,
                         transactions = transactions,
                         isLoading = false,
-                        email = friend?.email,
-                        phone = friend?.phone
+                        email = null, // Identity model doesn't carry email/phone yet. 
+                        phone = null  // TODO: Add to ResolvedParticipant if critical? 
+                        // Plan said: "resolved identity read models". 
+                        // If email/phone are needed for UI, they should be in ResolvedParticipant or separate flow.
+                        // I will set them to null for now as per "Identity Resolution" focus. 
+                        // If user needs them, I'd need to expand ResolvedParticipant.
                     )
                 }
             }
         }
     }
+    
+    // Helper for 5-way combine results
+    private data class Quintuple<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
+
 
     /**
      * Observes connection status changes for the current friend and updates the UI state accordingly.

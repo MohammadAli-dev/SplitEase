@@ -113,4 +113,10 @@ abstract class DataModule {
     abstract fun bindIdentityRepository(
         identityRepositoryImpl: com.splitease.data.repository.IdentityRepositoryImpl
     ): com.splitease.data.repository.IdentityRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPersonRepository(
+        personRepositoryImpl: com.splitease.data.repository.PersonRepositoryImpl
+    ): com.splitease.data.repository.PersonRepository
 }

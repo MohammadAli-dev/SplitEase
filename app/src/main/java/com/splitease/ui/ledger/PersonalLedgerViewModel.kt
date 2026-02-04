@@ -40,7 +40,8 @@ class PersonalLedgerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val friendTransactionsRepository: FriendTransactionsRepository,
     private val balanceSummaryRepository: BalanceSummaryRepository,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val personDao: com.splitease.data.local.dao.PersonDao
 ) : ViewModel() {
     
     private val friendId: String = savedStateHandle.get<String>("friendId") ?: ""
@@ -56,11 +57,26 @@ class PersonalLedgerViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 userDao.getUser(friendId),
+                personDao.getPersonByIdFlow(friendId),
+                personDao.getPersonByLinkedUserIdFlow(friendId),
                 friendTransactionsRepository.getTransactionsForFriend(friendId),
                 balanceSummaryRepository.getDashboardSummary()
-            ) { friend, ledgerItems, dashboardSummary ->
+            ) { user, personById, personByLink, ledgerItems, dashboardSummary ->
+                val resolvedName = user?.name ?: personById?.displayName ?: personByLink?.displayName ?: friendId.take(8)
+
                 // Find friend's balance from dashboard summary
-                val friendBalance = dashboardSummary.friendBalances.find { it.friendId == friendId }
+                // Note: BalanceSummaryRepository aggregates by canonical ID, so friendId (if canonical) matches directly.
+                // If friendId is legacy UserID, we depend on DashboardSummary having looked it up? 
+                // Wait, Dashboard uses Canonical ID. 
+                // If I am viewing with 'friendId' (Legacy), I need to know my Canonical ID?
+                // The DashboardSummary contains Canonical IDs.
+                // We should match against resolved canonical if possible?
+                // For now, assume friendId provided IS the ID used in Dashboard (or effectively matches).
+                
+                // Better: Check both if we can resolve.
+                val canonicalId = personById?.id ?: personByLink?.id ?: friendId
+                val friendBalance = dashboardSummary.friendBalances.find { it.friendId == canonicalId || it.friendId == friendId }
+                
                 val balance = friendBalance?.balance ?: BigDecimal.ZERO
                 
                 val currency = ledgerItems.firstOrNull()?.currency ?: "INR"
@@ -72,18 +88,20 @@ class PersonalLedgerViewModel @Inject constructor(
                     else -> "settled up"
                 }
                 
-                PersonalLedgerUiState(
+                Quintuple(resolvedName, balance, balanceText, ledgerItems, false)
+            }.collectLatest { (name, balance, balanceText, items, isLoading) ->
+                _uiState.value = PersonalLedgerUiState(
                     friendId = friendId,
-                    friendName = friend?.name ?: friendId.take(8),
+                    friendName = name,
                     balance = balance,
                     balanceDisplayText = balanceText,
-                    ledgerItems = ledgerItems,
-                    isLoading = false
+                    ledgerItems = items,
+                    isLoading = isLoading
                 )
-            }.collectLatest { state ->
-                _uiState.value = state
             }
         }
     }
+    
+    private data class Quintuple<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 }
 

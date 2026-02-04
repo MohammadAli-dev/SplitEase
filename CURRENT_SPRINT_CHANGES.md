@@ -851,3 +851,189 @@ This sprint migrates all transaction-level entities (Expenses, Splits, Settlemen
 - **Build**: Successfully passed.
 - **Tests**: `ReplayPersonTest` and `BootstrapPersonTest` passing 100%.
 - **Doc Precision**: Standardized terminology across the codebase (Fail-Fast, Dual-Read, Single-Write).
+
+---
+
+# Sprint 29C: Person-First Write Alignment & Deterministic Migration
+
+## Overview
+Sprint 29C completes the Person-First architecture by eliminating all null `personId` writes and implementing a deterministic, cross-device stable migration to reconcile historical identity fragmentation. This sprint ensures that every participant reference in the system is backed by a canonical Person identity, enabling conflict-free multi-device convergence.
+
+---
+
+## Sprint 29C-1: Person-First Write Alignment
+
+### Overview
+This sub-sprint enforces the **Person-First Principle** at the write boundary. All domain repositories now guarantee that every new Expense, Settlement, and Group Member is created with a valid `personId`, eliminating the root cause of identity fragmentation.
+
+### Key Changes
+
+#### 1. Write-Path Hardening
+- **ExpenseRepository**: Updated `createExpense` to call `personRepository.ensurePerson(payerId)` before persisting the expense.
+- **SettlementRepository**: Updated `createSettlement` to resolve both `fromPersonId` and `toPersonId` via `ensurePerson`.
+- **GroupRepository**: Updated `addMember` to resolve `personId` before creating the membership record.
+
+#### 2. Invariant Enforcement
+- **Zero Null Writes**: The system now mathematically guarantees that no new domain row is written with a null `personId`.
+- **Fail-Fast on Missing Users**: If a User does not exist, `ensurePerson` creates a deterministic synthetic Person rather than allowing the write to proceed with incomplete data.
+
+### Verification
+- **Build**: Passed.
+- **Tests**: Verified that all write paths correctly resolve Person IDs before database insertion.
+
+---
+
+## Sprint 29C-2: Deterministic Identity Healing
+
+### Overview
+This sub-sprint implements the core healing logic that prevents identity fragmentation. The `PersonRepository.ensurePerson` method now uses deterministic UUID generation to ensure that all devices create the same Person ID for a given User, enabling cross-device convergence without coordination.
+
+### Key Changes
+
+#### 1. Deterministic ID Generation
+- **Algorithm**: `UUID.nameUUIDFromBytes("Person:$userId".toByteArray())`
+- **Cross-Device Stability**: Device A and Device B generate identical Person IDs for the same User, regardless of timing or operation order.
+- **Synthetic Marking**: All deterministically created Persons are marked with `isSynthetic = true` to distinguish them from user-created identities.
+
+#### 2. Resolution Strategy
+1. **Existing Link**: Return the Person if `linkedUserId` already points to one.
+2. **Deterministic Fallback**: Generate a synthetic Person using the deterministic UUID.
+3. **Local Healing**: Persist the synthetic Person locally with `isSynthetic = true`.
+
+#### 3. Migration Context
+- Synthetic Persons created by this method are later merged into canonical Persons by the migration coordinator (Sprint 29C-4).
+- The migration prefers "real" Persons (`isSynthetic=false`) over synthetic ones, ensuring user-created identities take precedence.
+
+### Verification
+- **Build**: Passed.
+- **Cross-Device Test**: Verified that two devices generate identical Person IDs for the same User.
+
+---
+
+## Sprint 29C-3: Phantom Creation Strategy
+
+### Overview
+This sub-sprint refactors phantom participant creation to be ledger-backed. Phantom Users now emit `USER.CREATE` ledger operations before returning the Person ID, ensuring cross-device visibility and preventing orphan Persons.
+
+### Key Changes
+
+#### 1. Ledger-First Guarantee
+- **Old Flow**: Phantom User created locally → Person created locally → No ledger operation.
+- **New Flow**: Phantom User created → `USER.CREATE` emitted to ledger → Person created via `ensurePerson`.
+
+#### 2. Cross-Device Convergence
+- Because `ensurePerson` uses deterministic ID generation, all devices create the same Person ID for the phantom User, even if they process the ledger operation independently.
+
+#### 3. Upgrade Path
+- If a phantom User is later "upgraded" to a real User (e.g., they register), the migration coordinator merges duplicate Persons, preferring the real one over the phantom.
+
+### Verification
+- **Build**: Passed.
+- **Ledger Test**: Verified that phantom creation emits a `USER.CREATE` operation before returning.
+
+---
+
+## Sprint 29C-4: Phantom Merge & Migration
+
+### Overview
+This sub-sprint implements a one-time, deterministic migration that reconciles all historical identity data. It ensures that:
+- All domain rows have valid `personId` references (no nulls).
+- Duplicate Person records for the same User are merged into a single canonical identity.
+- Cross-device convergence is guaranteed through deterministic selection rules.
+
+### Key Changes
+
+#### 1. Migration Phases
+
+**Phase 0: Deterministic Backfill**
+- Heals legacy domain rows (Expenses, Settlements, Group Members) with null `personId` fields.
+- Uses the SAME canonical selection logic as the merge phase, ensuring backfilled IDs won't be immediately shadowed.
+- Strategy:
+  1. Pre-calculate canonical Person for each User (using `selectCanonical`).
+  2. Batch-update all domain rows for that User with the canonical Person ID.
+  3. Fall back to `ensurePerson` for Users with no linked Person.
+
+**Phase 1-3: Merge Duplicate Identities**
+- **Phase 1**: Identify Users with multiple Person records.
+- **Phase 2**: Rewrite all domain references to use the canonical Person ID.
+- **Phase 3**: Mark non-canonical Persons as shadowed (`shadowedById = canonicalId`).
+- **Transaction Safety**: Phase 2 and Phase 3 are wrapped in a single database transaction per Person to prevent partial merge states.
+
+#### 2. Canonical Selection Rules (`selectCanonical`)
+Deterministic precedence (stable across all devices):
+1. **Real over Synthetic**: `isSynthetic = false` wins over `isSynthetic = true`.
+2. **Older over Newer**: Earlier `createdAt` timestamp wins.
+3. **Lexicographical Tie-Breaker**: Smallest UUID string wins.
+
+This ensures Device A and Device B always select the same canonical Person.
+
+#### 3. Safety Properties
+
+**Determinism**
+- Same input (Person set) produces same canonical selection on all devices.
+- No dependency on operation order or timing.
+
+**Idempotency**
+- Safe to rerun if interrupted (e.g., app crash, device restart).
+- SQL updates use `WHERE` clauses that prevent duplicate work.
+- Version gate (`2904`) prevents re-execution after completion.
+
+**Non-Destructive**
+- Person records are never deleted, only shadowed.
+- Domain references are rewritten, not removed.
+- Ledger operations are never mutated.
+
+**Replay-Safe**
+- Migration runs AFTER ledger hydration completes (not during DB open).
+- Ensures all ledger-derived Persons are materialized before merging.
+
+#### 4. Lifecycle & Triggers
+
+**Triggered By**:
+- `HydrationCoordinatorImpl.hydrate` (after initial hydration completes).
+- `LedgerSyncCoordinatorImpl.sync` (after incremental sync completes).
+
+**NOT Triggered By**:
+- `AppDatabase.open()` (would cause partial materialization bugs).
+
+**Version Gate**: Migration runs once per device. Version `2904` is persisted in `DeviceRoleManager` to prevent re-execution.
+
+#### 5. Observability
+- Logs merge progress: `IDENTITY_MIGRATION: processed 45/120 persons`.
+- Logs canonical selection: `userId=U: merging 2 persons into canonical P`.
+- Guards against self-shadowing and already-shadowed records.
+
+### Verification
+- **Build**: Passed.
+- **Unit Tests**: `IdentityMigrationCoordinatorTest` passed (4/4 tests).
+  - Verified Phase 0 deterministic backfill.
+  - Verified Phase 1-3 merge logic.
+  - Verified version gate behavior.
+  - Verified transaction safety.
+
+---
+
+## Sprint 29C: Operational Notes
+
+### New Guarantees After Sprint 29C
+- **Canonical Person per User**: Every User has exactly one canonical Person identity.
+- **No Null `personId` Writes**: All new domain writes include a valid `personId`.
+- **Replay-Safe Migration**: Migration logic is deterministic and idempotent, safe to rerun.
+- **Cross-Device Convergence**: All devices select the same canonical Person for a given User.
+
+### What Sprint 29C Does NOT Do
+- Does not emit ledger operations (migration is local-only).
+- Does not show user-facing merge UI (automatic reconciliation).
+- Does not handle User merges (only Person merges).
+- Does not run during app startup (waits for hydration).
+- Does not delete Person records (only shadows them).
+
+### Version Gate
+- **Migration Version**: `2904`
+- **Persisted In**: `DeviceRoleManager` (DataStore)
+- **Effect**: Migration runs exactly once per device.
+
+---
+
+**Sprint 29C Status: Person-First Architecture Complete. Identity Reconciliation Verified.**
+

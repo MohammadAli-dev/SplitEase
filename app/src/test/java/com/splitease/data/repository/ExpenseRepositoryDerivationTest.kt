@@ -40,6 +40,8 @@ class ExpenseRepositoryDerivationTest {
     private val ledgerSyncScheduler: LedgerSyncScheduler = mockk(relaxed = true)
     private val deviceRoleManager: DeviceRoleManager = mockk(relaxed = true)
     private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate = mockk(relaxed = true)
+    private val personDao: com.splitease.data.local.dao.PersonDao = mockk(relaxed = true)
+    private val personRepository: PersonRepository = mockk(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var repository: ExpenseRepositoryImpl
@@ -61,7 +63,8 @@ class ExpenseRepositoryDerivationTest {
         repository = ExpenseRepositoryImpl(
             expenseDao, conflictDao, resolutionDao, ledgerDao,
             appDatabase, syncWriteService, ledgerOperationFactory,
-            ledgerSyncScheduler, deviceRoleManager, ledgerWriteGate
+            ledgerSyncScheduler, deviceRoleManager, ledgerWriteGate,
+            personDao, personRepository
         )
     }
 

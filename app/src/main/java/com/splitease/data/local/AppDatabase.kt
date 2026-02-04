@@ -44,7 +44,7 @@ import com.splitease.data.local.entities.User
         ConflictResolutionEntity::class,
         Person::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 

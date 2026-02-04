@@ -12,6 +12,7 @@ import com.splitease.data.hydration.LedgerSyncCoordinator
 import com.splitease.data.hydration.LedgerSyncCoordinatorImpl
 import com.splitease.data.hydration.ReplayEngine
 import com.splitease.data.hydration.ReplayEngineImpl
+import com.splitease.data.migration.IdentityMigrationCoordinator
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.remote.SplitEaseApi
 import dagger.Module
@@ -59,9 +60,10 @@ object HydrationModule {
         ledgerPullService: LedgerPullService,
         replayEngine: ReplayEngine,
         deviceRoleManager: com.splitease.data.device.DeviceRoleManager,
+        identityMigrationCoordinator: IdentityMigrationCoordinator,
         @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): HydrationCoordinator {
-        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, deviceRoleManager, ioDispatcher)
+        return HydrationCoordinatorImpl(db, ledgerPullService, replayEngine, deviceRoleManager, identityMigrationCoordinator, ioDispatcher)
     }
 
     @Provides
@@ -71,8 +73,9 @@ object HydrationModule {
         ledgerPullService: LedgerPullService,
         replayEngine: ReplayEngine,
         tokenManager: TokenManager,
+        identityMigrationCoordinator: IdentityMigrationCoordinator,
         @IoDispatcher ioDispatcher: kotlinx.coroutines.CoroutineDispatcher
     ): LedgerSyncCoordinator {
-        return LedgerSyncCoordinatorImpl(db, ledgerPullService, replayEngine, tokenManager, ioDispatcher)
+        return LedgerSyncCoordinatorImpl(db, ledgerPullService, replayEngine, tokenManager, identityMigrationCoordinator, ioDispatcher)
     }
 }

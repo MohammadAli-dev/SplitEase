@@ -100,33 +100,40 @@ class ExpenseRepositoryImpl @Inject constructor(
     private val ledgerSyncScheduler: LedgerSyncScheduler,
     private val deviceRoleManager: DeviceRoleManager,
     private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate,
-    private val personDao: com.splitease.data.local.dao.PersonDao
+    private val personDao: com.splitease.data.local.dao.PersonDao,
+    private val personRepository: PersonRepository
 ) : ExpenseRepository {
 
     override suspend fun addExpense(expense: Expense, splits: List<ExpenseSplit>) = 
         withContext(Dispatchers.IO) {
-            ensureIdentityInvariant(expense, splits)
+            val healedExpense = healExpense(expense)
+            val healedSplits = healSplits(splits)
+            ensureIdentityInvariant(healedExpense, healedSplits)
+            
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
                     throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
                 }
-                val syncOp = syncWriteService.createExpenseSyncOp(expense, splits)
-                val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(expense, splits, expense.createdByUserId)
-                appDatabase.insertExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+                val syncOp = syncWriteService.createExpenseSyncOp(healedExpense, healedSplits)
+                val ledgerOp = ledgerOperationFactory.createExpenseCreateOp(healedExpense, healedSplits, healedExpense.createdByUserId)
+                appDatabase.insertExpenseWithLedger(healedExpense, healedSplits, syncOp, ledgerOp)
                 ledgerSyncScheduler.schedulePush()
             }
         }
 
     override suspend fun updateExpense(expense: Expense, splits: List<ExpenseSplit>) =
         withContext(Dispatchers.IO) {
-            ensureIdentityInvariant(expense, splits)
+            val healedExpense = healExpense(expense)
+            val healedSplits = healSplits(splits)
+            ensureIdentityInvariant(healedExpense, healedSplits)
+            
             ledgerWriteGate.withWriteLock {
                 if (!deviceRoleManager.canWrite()) {
                     throw WritePermissionDeniedException(deviceRoleManager.getDeviceRole())
                 }
-                val syncOp = syncWriteService.createUpdateExpenseSyncOp(expense, splits)
-                val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(expense, splits, expense.lastModifiedByUserId)
-                appDatabase.updateExpenseWithLedger(expense, splits, syncOp, ledgerOp)
+                val syncOp = syncWriteService.createUpdateExpenseSyncOp(healedExpense, healedSplits)
+                val ledgerOp = ledgerOperationFactory.createExpenseUpdateOp(healedExpense, healedSplits, healedExpense.lastModifiedByUserId)
+                appDatabase.updateExpenseWithLedger(healedExpense, healedSplits, syncOp, ledgerOp)
                 ledgerSyncScheduler.schedulePush()
             }
         }
@@ -239,6 +246,22 @@ class ExpenseRepositoryImpl @Inject constructor(
             // Resolution failed -> Return as-is (Legacy mode)
             // Ideally we might want to flag this, but for now we follow "Do not invent data"
             expense
+        }
+    }
+
+    private suspend fun healExpense(expense: Expense): Expense {
+        if (expense.payerPersonId != null) return expense
+        val person = personRepository.ensurePerson(expense.payerId)
+        return expense.copy(payerPersonId = person.id)
+    }
+
+    private suspend fun healSplits(splits: List<ExpenseSplit>): List<ExpenseSplit> {
+        return splits.map { split ->
+            if (split.personId != null) split
+            else {
+                val person = personRepository.ensurePerson(split.userId)
+                split.copy(personId = person.id)
+            }
         }
     }
 

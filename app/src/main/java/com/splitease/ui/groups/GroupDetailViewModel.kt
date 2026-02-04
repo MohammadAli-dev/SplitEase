@@ -7,14 +7,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitease.data.local.dao.ExpenseDao
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.PersonDao
 import com.splitease.data.local.dao.SettlementDao
 import com.splitease.data.local.dao.SyncDao
 import com.splitease.data.local.dao.UserDao
 import com.splitease.data.local.entities.Expense
 import com.splitease.data.local.entities.ExpenseSplit
 import com.splitease.data.local.entities.Group
+import com.splitease.data.local.entities.GroupMember
 import com.splitease.data.identity.UserContext
 import com.splitease.data.local.entities.User
+import com.splitease.data.local.entities.Person
 import com.splitease.data.repository.GroupRepository
 import com.splitease.data.repository.LeaveGroupResult
 import com.splitease.data.repository.RemoveMemberResult
@@ -103,6 +106,7 @@ class GroupDetailViewModel @Inject constructor(
     private val userDao: UserDao,
     private val syncDao: SyncDao,
     private val syncRepository: SyncRepository,
+    private val personDao: PersonDao,
     private val userContext: UserContext
 ) : ViewModel() {
 
@@ -133,7 +137,8 @@ class GroupDetailViewModel @Inject constructor(
     // Combine data sources
     private data class GroupData(
         val group: Group?,
-        val members: List<User>,
+        val rawMembers: List<GroupMember>,
+        val enrichedMembers: List<User>,
         val expenses: List<Expense>,
         val splits: List<ExpenseSplit>,
         val settlements: List<com.splitease.data.local.entities.Settlement>
@@ -141,38 +146,91 @@ class GroupDetailViewModel @Inject constructor(
 
     private val groupData = combine(
         groupDao.getGroup(groupId),
-        groupDao.getGroupMembersWithDetails(groupId),
+        groupDao.getGroupMembers(groupId),
         expenseDao.getExpensesForGroup(groupId),
         expenseDao.getAllExpenseSplitsForGroup(groupId),
         settlementDao.getSettlementsForGroup(groupId),
-        userDao.getAllUsers()
+        userDao.getAllUsers(),
+        personDao.getAllPersons()
     ) { args: Array<Any?> ->
+        @Suppress("UNCHECKED_CAST")
         val group = args[0] as Group?
-        val members = args[1] as List<User>
+        @Suppress("UNCHECKED_CAST")
+        val members = args[1] as List<GroupMember>
+        @Suppress("UNCHECKED_CAST")
         val expenses = args[2] as List<Expense>
+        @Suppress("UNCHECKED_CAST")
         val splits = args[3] as List<ExpenseSplit>
+        @Suppress("UNCHECKED_CAST")
         val settlements = args[4] as List<com.splitease.data.local.entities.Settlement>
+        @Suppress("UNCHECKED_CAST")
         val allUsers = args[5] as List<User>
+        @Suppress("UNCHECKED_CAST")
+        val allPersons = args[6] as List<Person>
 
-        // Enrich members: Start with group members, add any other user found in expenses/splits/settlements
-        val memberIds = members.map { it.id }.toSet()
-        val participantIds = mutableSetOf<String>()
+        // 1. Build an authoritative Name Discovery Map
+        // This map covers every possible ID -> DisplayName mapping in the system.
+        val userNames = allUsers.associate { it.id to it.name }
+        val personNames = allPersons.associate { it.id to it.displayName }
+        val personLinks = allPersons.filter { it.linkedUserId != null }.associate { it.linkedUserId!! to it.displayName }
         
-        expenses.forEach { participantIds.add(it.createdByUserId) }
-        splits.forEach { participantIds.add(it.userId) }
-        settlements.forEach { 
-            participantIds.add(it.fromUserId)
-            participantIds.add(it.toUserId) 
+        fun resolveName(id: String): String? {
+            return userNames[id] ?: personNames[id] ?: personLinks[id]
+        }
+
+        // 2. Identify every single ID involved in this group's financial history
+        val allInvolvedIds = mutableSetOf<String>()
+        
+        // From Group Metadata
+        group?.let {
+             allInvolvedIds.add(it.createdBy)
+             allInvolvedIds.add(it.createdByUserId)
+             allInvolvedIds.add(it.lastModifiedByUserId)
         }
         
-        // Find users who are participants but NOT in the group member list
-        val missingUserIds = participantIds - memberIds
-        val missingUsers = allUsers.filter { it.id in missingUserIds }
+        // From Members
+        members.forEach { 
+            allInvolvedIds.add(it.userId)
+            it.personId?.let { pid -> allInvolvedIds.add(pid) }
+        }
         
-        // Final list: Group members + detected extra participants
-        val enrichedMembers = members + missingUsers
+        // From Expenses (Creators, Payers, and implicit split participants)
+        expenses.forEach { 
+            allInvolvedIds.add(it.createdByUserId)
+            allInvolvedIds.add(it.payerId)
+            it.payerPersonId?.let { pid -> allInvolvedIds.add(pid) }
+        }
         
-        GroupData(group, enrichedMembers.distinctBy { it.id }, expenses, splits, settlements)
+        // From Splits (Split users)
+        splits.forEach { 
+            allInvolvedIds.add(it.userId)
+            it.personId?.let { pid -> allInvolvedIds.add(pid) }
+        }
+        
+        // From Settlements (Actors)
+        settlements.forEach { 
+            allInvolvedIds.add(it.fromUserId)
+            it.fromPersonId?.let { pid -> allInvolvedIds.add(pid) }
+            allInvolvedIds.add(it.toUserId) 
+            it.toPersonId?.let { pid -> allInvolvedIds.add(pid) }
+        }
+        
+        // 3. Resolve all discovered IDs to displayable entities (Fail-Visible)
+        val enrichedMembers = allInvolvedIds.map { id ->
+            val discoveredName = resolveName(id)
+            
+            // Fail-Visible: If we can't find a name, we still keep the ID in the list 
+            // so balances can resolve. We use "Unknown ($id)" so we can debug.
+            val finalName = discoveredName ?: "Unknown Participant (${id.take(8)})"
+            
+            User(
+                id = id,
+                name = finalName,
+                email = allUsers.find { it.id == id || it.id == allPersons.find { p -> p.id == id }?.linkedUserId }?.email
+            )
+        }.distinctBy { it.id }
+        
+        GroupData(group, members, enrichedMembers, expenses, splits, settlements)
     }
 
     // Combine sync context (renamed to avoid conflict with SyncState enum)
@@ -225,6 +283,7 @@ class GroupDetailViewModel @Inject constructor(
     ) { values ->
         val data = values[0] as GroupData
         val sync = values[1] as GroupSyncContext
+        @Suppress("UNCHECKED_CAST")
         val executingSettlements = values[2] as Set<String>
         @Suppress("UNUSED_VARIABLE") val retryTrigger = values[3] as Int
         val settlementMode = values[4] as SettlementMode
@@ -232,7 +291,7 @@ class GroupDetailViewModel @Inject constructor(
         val oldestTimestamp = values[6] as Long?
         val currentUserId = values[7] as String
         val group = data.group
-        val members = data.members
+        val enrichedMembers = data.enrichedMembers
         val expenses = data.expenses
         val splits = data.splits
         val persistedSettlements = data.settlements
@@ -241,11 +300,9 @@ class GroupDetailViewModel @Inject constructor(
             GroupDetailUiState.Error("Group not found")
         } else {
             // Sort members: creator first, then alphabetically
-            val sortedMembers = members.sortedWith(
+            val sortedMembers = enrichedMembers.sortedWith(
                 compareBy<User> { it.id != group.createdBy }.thenBy { it.name }
             )
-
-            // Compute balances as derived state (no caching)
             // Includes persisted settlements in calculation
             val balanceResult = if (expenses.isEmpty() && persistedSettlements.isEmpty()) {
                 com.splitease.domain.BalanceResult(emptyMap(), true, BigDecimal.ZERO)

@@ -72,7 +72,7 @@ class PersonMigrationRepositoryTest {
             payerPersonId = null, // LEGACY
             createdBy = "u1"
         )
-        val person = Person(id = "person1", linkedUserId = "user1", displayName = "Resolved")
+        val person = Person(id = "person1", linkedUserId = "user1", displayName = "Resolved", createdAt = 1000L)
 
         every { expenseDao.getExpense("exp1") } returns flowOf(legacyExpense)
         every { ledgerConflictDao.observeConflictsForEntities(any()) } returns flowOf(emptyList())
@@ -128,12 +128,13 @@ class PersonMigrationRepositoryTest {
             payerPersonId = null, // VIOLATION
             createdBy = "u3"
         )
-        val splits = listOf(ExpenseSplit("exp3", "u3", BigDecimal.TEN))
+        val splits = listOf(ExpenseSplit(expenseId = "exp3", userId = "u3", personId = null, amount = BigDecimal.TEN))
 
         // When/Then
         try {
             repository.addExpense(invalidExpense, splits)
             fail("Should have thrown IdentityInvariantViolationException")
+        } catch (e: IdentityInvariantViolationException) {
             // Success
             assertTrue(e.message?.contains("Single-Write Violation") == true)
         }
@@ -152,7 +153,7 @@ class PersonMigrationRepositoryTest {
             createdBy = "u4"
         )
         val invalidSplits = listOf(
-            ExpenseSplit("exp4", "u4", BigDecimal.TEN, personId = null) // VIOLATION
+            ExpenseSplit(expenseId = "exp4", userId = "u4", personId = null, amount = BigDecimal.TEN) // VIOLATION
         )
 
         // When/Then
@@ -178,7 +179,7 @@ class PersonMigrationRepositoryTest {
             createdBy = "u5"
         )
         val splits = listOf(
-            ExpenseSplit("exp5", "user5", BigDecimal.TEN, personId = "person5")
+            ExpenseSplit(expenseId = "exp5", userId = "user5", personId = "person5", amount = BigDecimal.TEN)
         )
 
         // Mock Write Gate
