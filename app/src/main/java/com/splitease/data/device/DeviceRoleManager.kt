@@ -92,6 +92,37 @@ interface DeviceRoleManager {
      * Used during Logout to ensure next login starts clean.
      */
     suspend fun reset()
+
+    /**
+     * Get the current identity migration version.
+     *
+     * ## Sprint 29C-4: Version Gate
+     * Used by [IdentityMigrationCoordinator] to determine if the Phantom Merge & Migration
+     * has already been executed on this device. The migration runs exactly once per device.
+     *
+     * **Version 2904** = Sprint 29C-4 migration completed.
+     *
+     * @return The migration version (0 if never run, 2904 if Sprint 29C-4 completed).
+     * @see setIdentityMigrationVersion
+     * @see IdentityMigrationCoordinator.runMigration
+     */
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
+    suspend fun getIdentityMigrationVersion(): Int
+
+    /**
+     * Set the identity migration version after successful completion.
+     *
+     * ## Sprint 29C-4: Version Persistence
+     * Called by [IdentityMigrationCoordinator] after successfully completing the migration.
+     * Prevents re-execution on subsequent app launches or sync events.
+     *
+     * **Callers**: Only [IdentityMigrationCoordinator.runMigration].
+     *
+     * @param version The migration version to persist (2904 for Sprint 29C-4).
+     * @see getIdentityMigrationVersion
+     */
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
+    suspend fun setIdentityMigrationVersion(version: Int)
 }
 
 // Extension property for Context-scoped DataStore
@@ -110,6 +141,7 @@ class DeviceRoleManagerImpl @Inject constructor(
         private val KEY_HYDRATION_ATTEMPTED = booleanPreferencesKey("hydration_attempted")
         private val KEY_WIPE_OCCURRED = booleanPreferencesKey("wipe_occurred")
         private val KEY_REMEDIATION_IN_PROGRESS = booleanPreferencesKey("remediation_in_progress")
+        private val KEY_IDENTITY_MIGRATION_VERSION = androidx.datastore.preferences.core.intPreferencesKey("identity_migration_version")
     }
 
     override val deviceRoleFlow: Flow<DeviceRole> = context.deviceRoleDataStore.data
@@ -211,6 +243,20 @@ class DeviceRoleManagerImpl @Inject constructor(
     override suspend fun reset() {
         context.deviceRoleDataStore.edit { preferences ->
             preferences.clear()
+        }
+    }
+
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
+    override suspend fun getIdentityMigrationVersion(): Int {
+        return context.deviceRoleDataStore.data.map { preferences ->
+            preferences[KEY_IDENTITY_MIGRATION_VERSION] ?: 0
+        }.first()
+    }
+
+    @Deprecated("Use SystemMetadataDao for atomic versioning within the transaction.")
+    override suspend fun setIdentityMigrationVersion(version: Int) {
+        context.deviceRoleDataStore.edit { preferences ->
+            preferences[KEY_IDENTITY_MIGRATION_VERSION] = version
         }
     }
 }

@@ -183,4 +183,30 @@ interface ExpenseDao {
      */
     @Query("UPDATE expenses SET lastModifiedByUserId = :newUserId WHERE lastModifiedByUserId = :oldUserId")
     suspend fun updateLastModifiedByUserId(oldUserId: String, newUserId: String)
+
+    // ========== Identity Migration (Sprint 29C-4) ==========
+
+    @Query("SELECT * FROM expenses WHERE payerPersonId IS NULL AND payerId IS NOT NULL")
+    suspend fun getExpensesMissingPersonId(): List<Expense>
+
+    @Query("SELECT * FROM expense_splits WHERE personId IS NULL AND userId IS NOT NULL")
+    suspend fun getSplitsMissingPersonId(): List<ExpenseSplit>
+
+    @Query("UPDATE expenses SET payerPersonId = :personId WHERE id = :id")
+    suspend fun updatePayerPersonId(id: String, personId: String)
+
+    @Query("UPDATE expense_splits SET personId = :personId WHERE expenseId = :expenseId AND userId = :userId")
+    suspend fun updateSplitPersonId(expenseId: String, userId: String, personId: String)
+
+    @Query("UPDATE expenses SET payerPersonId = :newId WHERE payerPersonId = :oldId")
+    suspend fun rewritePayerPersonId(oldId: String, newId: String)
+
+    @Query("UPDATE expense_splits SET personId = :newId WHERE personId = :oldId")
+    suspend fun rewriteSplitPersonId(oldId: String, newId: String)
+
+    @Query("UPDATE expenses SET payerPersonId = :personId WHERE payerId = :userId AND payerPersonId IS NULL")
+    suspend fun backfillPayerPersonIdForUser(userId: String, personId: String)
+
+    @Query("UPDATE expense_splits SET personId = :personId WHERE userId = :userId AND personId IS NULL")
+    suspend fun backfillSplitPersonIdForUser(userId: String, personId: String)
 }

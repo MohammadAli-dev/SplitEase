@@ -78,7 +78,8 @@ class SettlementRepositoryImpl @Inject constructor(
     private val ledgerSyncScheduler: LedgerSyncScheduler,
     private val deviceRoleManager: DeviceRoleManager,
     private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate,
-    private val personDao: com.splitease.data.local.dao.PersonDao
+    private val personDao: com.splitease.data.local.dao.PersonDao,
+    private val personRepository: PersonRepository
 ) : SettlementRepository {
 
     /**
@@ -195,17 +196,9 @@ class SettlementRepositoryImpl @Inject constructor(
             }
             
             // Single-Write Guard: Must resolve Person IDs
-            // FAIL-FAST: Validates that both payer and payee have canonical Person
-            // identities before recording the settlement fact in the ledger.
-            val fromPerson = personDao.getPersonByLinkedUserId(fromUserId)
-                ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
-                    "Single-Write Violation: Cannot resolve personId for payer $fromUserId"
-                )
-            
-            val toPerson = personDao.getPersonByLinkedUserId(toUserId)
-                ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
-                    "Single-Write Violation: Cannot resolve personId for payee $toUserId"
-                )
+            // Use PersonRepository.ensurePerson to "Heal-on-Write" (Transitional Determinism)
+            val fromPerson = personRepository.ensurePerson(fromUserId)
+            val toPerson = personRepository.ensurePerson(toUserId)
 
             val settlement = Settlement(
                 id = UUID.randomUUID().toString(),

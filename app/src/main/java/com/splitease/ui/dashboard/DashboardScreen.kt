@@ -376,7 +376,7 @@ fun DashboardScreen(
                     }
                 }
                 
-                if (uiState.knownUserCount == 0) {
+                if (uiState.activeFriendCount == 0) {
                     // Empty state: No friends exist at all
                     item {
                         Card(

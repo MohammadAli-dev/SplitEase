@@ -70,7 +70,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.text.font.FontWeight
-import com.splitease.ui.components.AddPersonDialog
+
+import com.splitease.ui.components.PersonPicker
+import com.splitease.data.local.entities.Person
 
 /**
  * Renders the Add/Edit Expense screen UI and connects user interactions to the AddExpenseViewModel.
@@ -100,7 +102,7 @@ fun AddExpenseScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPayerSelector by remember { mutableStateOf(false) }
-    var showAddPersonDialog by remember { mutableStateOf(false) }
+
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
     if (showDeleteDialog) {
@@ -126,64 +128,83 @@ fun AddExpenseScreen(
         )
     }
     
+
     
+    // Construct Person objects for Picker
+    // We only have names, so we create lightweight objects. 
+    // Ideally ViewModel should provide List<Person>.
+    val availablePersons = remember(uiState.availablePersonIds, uiState.personNames) {
+        uiState.availablePersonIds.map { id ->
+            Person(
+                id = id,
+                displayName = uiState.personNames[id] ?: "Unknown",
+                linkedUserId = null, // Unknown in this view
+                createdAt = 0
+            )
+        }
+    }
+    
+    // Payer Selector (Single Select)
     if (showPayerSelector) {
         ModalBottomSheet(
             onDismissRequest = { showPayerSelector = false },
             sheetState = rememberModalBottomSheetState()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
                 Text(
                     text = "Who paid?",
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.padding(16.dp)
                 )
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(uiState.selectedParticipants) { userId ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.updatePayer(userId)
-                                    showPayerSelector = false
-                                }
-                                .padding(vertical = 12.dp, horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = uiState.userNames[userId] ?: "User",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            if (userId == uiState.payerId) {
-                                Icon(
-                                    imageVector = Icons.Filled.Check,
-                                    contentDescription = "Selected",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                        if (userId != uiState.selectedParticipants.last()) {
-                            HorizontalDivider()
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(32.dp))
+                // Filter participants only? Usually Payer must be a participant.
+                val participantPersons = availablePersons.filter { it.id in uiState.selectedPersonIds }
+                
+                PersonPicker(
+                    persons = participantPersons,
+                    selectedPersonIds = setOf(uiState.payerPersonId),
+                    onToggleSelection = { personId ->
+                        viewModel.updatePayer(personId)
+                        showPayerSelector = false
+                    },
+                    allowMultiple = false,
+                    onCreatePerson = null // No creating new people from Payer selector, must be participant
+                )
             }
         }
     }
 
-    if (showAddPersonDialog) {
-        AddPersonDialog(
-            onDismiss = { showAddPersonDialog = false },
-            onConfirm = { name, email, phone ->
-                viewModel.createPhantomUserAndSelect(name, email, phone)
-                showAddPersonDialog = false
+    // Participant Selector (Multi Select + Create)
+    // Launched via "Add/Edit" button in chips row
+    var showParticipantPicker by remember { mutableStateOf(false) }
+
+    if (showParticipantPicker) {
+        ModalBottomSheet(
+            onDismissRequest = { showParticipantPicker = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+             Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    text = "Select Participants",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp)
+                )
+                PersonPicker(
+                    persons = availablePersons,
+                    selectedPersonIds = uiState.selectedPersonIds.toSet(),
+                    onToggleSelection = { personId ->
+                        viewModel.toggleParticipant(personId)
+                    },
+                    allowMultiple = true,
+                    onCreatePerson = { name, email, phone ->
+                        viewModel.createPhantomPersonAndSelect(name, email, phone)
+                        // Keep picker open so they can see it added/selected
+                    }
+                )
             }
-        )
+        }
     }
+
+
 
     Scaffold(
             topBar = {
@@ -268,8 +289,9 @@ fun AddExpenseScreen(
                 )
             }
             
+            
             // Paid By Section
-            if (uiState.selectedParticipants.isNotEmpty()) {
+            if (uiState.selectedPersonIds.isNotEmpty()) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -293,7 +315,7 @@ fun AddExpenseScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = uiState.userNames[uiState.payerId] ?: "Select Payer",
+                                text = uiState.personNames[uiState.payerPersonId] ?: "Select Payer",
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium
                             )
@@ -355,113 +377,82 @@ fun AddExpenseScreen(
             }
 
             // Participant Selection
-            if (uiState.isPersonalExpense) {
-                // Non-Group expense: show "You" + all other users to select
-                Text("Select Participants", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    "Choose people to split this expense with",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+            Text("Participants", style = MaterialTheme.typography.labelMedium)
+            
+            Column {
+                // Info text for personal
+                if (uiState.isPersonalExpense) {
+                    Text(
+                        "Choose people to split this expense with",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
                 Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // "You" chip - always selected, cannot be removed
+                    // Manage/Add Button (First)
                     FilterChip(
-                            selected = true,
-                            onClick = { /* Cannot deselect self */ },
-                            label = { Text("You") },
-                            enabled = false // Visually indicate it's locked
+                        selected = false,
+                        onClick = { showParticipantPicker = true },
+                        label = { Text("Edit Participants") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
                     )
                     
-                    // Other users - selectable
-                    uiState.groupMembers.forEach { userId ->
+                    // Selected Chips
+                    uiState.selectedPersonIds.forEach { personId ->
                         FilterChip(
-                                selected = userId in uiState.selectedParticipants,
-                                onClick = { viewModel.toggleParticipant(userId) },
-                                label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
+                            selected = true,
+                            onClick = { viewModel.toggleParticipant(personId) },
+                            label = { Text(uiState.personNames[personId] ?: "Person") },
+                            trailingIcon = { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) }
                         )
                     }
-
-                    // Add New Person Chip
-                    FilterChip(
-                        selected = false,
-                        onClick = { showAddPersonDialog = true },
-                        label = { Text("Add new person") },
-                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
-                    )
-                }
-                
-                if (uiState.groupMembers.isEmpty()) {
-                    Text(
-                        "No other users found. Add users from a group first.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                // Group expense: show group members
-                Text("Participants", style = MaterialTheme.typography.labelMedium)
-                Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    uiState.groupMembers.forEach { userId ->
-                        FilterChip(
-                                selected = userId in uiState.selectedParticipants,
-                                onClick = { viewModel.toggleParticipant(userId) },
-                                label = { Text(uiState.userNames[userId] ?: "User ${userId.take(4)}") }
-                        )
-                    }
-
-                    // Add New Person Chip
-                    FilterChip(
-                        selected = false,
-                        onClick = { showAddPersonDialog = true },
-                        label = { Text("Add new person") },
-                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
-                    )
                 }
             }
 
             // Split Input Section - show for any expense with participants selected
-            if (uiState.selectedParticipants.isNotEmpty()) {
+            if (uiState.selectedPersonIds.isNotEmpty()) {
                 when (uiState.splitType) {
                     SplitType.EQUAL -> {
                         SplitPreviewSection(
                                 splitPreview = uiState.splitPreview,
-                                userNames = uiState.userNames
+                                personNames = uiState.personNames
                         )
                     }
                     SplitType.EXACT -> {
                         ExactAmountInputSection(
-                                participants = uiState.selectedParticipants,
+                                participants = uiState.selectedPersonIds,
                                 amounts = uiState.exactAmounts,
-                                userNames = uiState.userNames,
-                                onAmountChange = { userId, amount ->
-                                    viewModel.updateExactAmount(userId, amount)
+                                personNames = uiState.personNames,
+                                onAmountChange = { personId, amount ->
+                                    viewModel.updateExactAmount(personId, amount)
                                 }
                         )
                     }
                     SplitType.PERCENTAGE -> {
                         PercentageInputSection(
-                                participants = uiState.selectedParticipants,
+                                participants = uiState.selectedPersonIds,
                                 percentages = uiState.percentages,
-                                userNames = uiState.userNames,
-                                onPercentageChange = { userId, pct ->
-                                    viewModel.updatePercentage(userId, pct)
+                                personNames = uiState.personNames,
+                                onPercentageChange = { personId, pct ->
+                                    viewModel.updatePercentage(personId, pct)
                                 }
                         )
                     }
                     SplitType.SHARES -> {
                         SharesInputSection(
-                                participants = uiState.selectedParticipants,
+                                participants = uiState.selectedPersonIds,
                                 shares = uiState.shares,
-                                userNames = uiState.userNames,
-                                onSharesChange = { userId, count ->
-                                    viewModel.updateShares(userId, count)
+                                personNames = uiState.personNames,
+                                onSharesChange = { personId, count ->
+                                    viewModel.updateShares(personId, count)
                                 }
                         )
                     }
@@ -471,7 +462,7 @@ fun AddExpenseScreen(
             // Split Preview (for non-EQUAL types)
             if (uiState.splitType != SplitType.EQUAL && uiState.splitPreview.isNotEmpty()) {
                 Text("Preview", style = MaterialTheme.typography.labelMedium)
-                SplitPreviewSection(uiState.splitPreview, userNames = uiState.userNames)
+                SplitPreviewSection(uiState.splitPreview, personNames = uiState.personNames)
             }
 
             // Validation feedback
@@ -525,16 +516,16 @@ fun AddExpenseScreen(
 @Composable
 private fun SplitPreviewSection(
         splitPreview: Map<String, BigDecimal>,
-        userNames: Map<String, String>
+        personNames: Map<String, String>
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        splitPreview.entries.forEach { (userId, amount) ->
+        splitPreview.entries.forEach { (personId, amount) ->
             Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                        userNames[userId] ?: "User ${userId.take(4)}",
+                        personNames[personId] ?: personId,
                         style = MaterialTheme.typography.bodyMedium
                 )
                 Text("₹$amount", style = MaterialTheme.typography.bodyMedium)
@@ -547,15 +538,15 @@ private fun SplitPreviewSection(
 private fun ExactAmountInputSection(
         participants: List<String>,
         amounts: Map<String, String>,
-        userNames: Map<String, String>,
+        personNames: Map<String, String>,
         onAmountChange: (String, String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        participants.forEach { userId ->
+        participants.forEach { personId ->
             OutlinedTextField(
-                    value = amounts[userId] ?: "",
-                    onValueChange = { onAmountChange(userId, it) },
-                    label = { Text(userNames[userId] ?: "User ${userId.take(4)}") },
+                    value = amounts[personId] ?: "",
+                    onValueChange = { onAmountChange(personId, it) },
+                    label = { Text(personNames[personId] ?: personId) },
                     suffix = { Text("₹") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
@@ -568,15 +559,15 @@ private fun ExactAmountInputSection(
 private fun PercentageInputSection(
         participants: List<String>,
         percentages: Map<String, String>,
-        userNames: Map<String, String>,
+        personNames: Map<String, String>,
         onPercentageChange: (String, String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        participants.forEach { userId ->
+        participants.forEach { personId ->
             OutlinedTextField(
-                    value = percentages[userId] ?: "",
-                    onValueChange = { onPercentageChange(userId, it) },
-                    label = { Text(userNames[userId] ?: "User ${userId.take(4)}") },
+                    value = percentages[personId] ?: "",
+                    onValueChange = { onPercentageChange(personId, it) },
+                    label = { Text(personNames[personId] ?: personId) },
                     suffix = { Text("%") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
@@ -589,25 +580,25 @@ private fun PercentageInputSection(
 private fun SharesInputSection(
         participants: List<String>,
         shares: Map<String, Int>,
-        userNames: Map<String, String>,
+        personNames: Map<String, String>,
         onSharesChange: (String, Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        participants.forEach { userId ->
-            val currentShares = shares[userId] ?: 1
+        participants.forEach { personId ->
+            val currentShares = shares[personId] ?: 1
             Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                        userNames[userId] ?: "User ${userId.take(4)}",
+                        personNames[personId] ?: personId,
                         style = MaterialTheme.typography.bodyMedium
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                             onClick = {
-                                onSharesChange(userId, (currentShares - 1).coerceAtLeast(1))
+                                onSharesChange(personId, (currentShares - 1).coerceAtLeast(1))
                             }
                     ) { Text("-", style = MaterialTheme.typography.titleLarge) }
                     Text(
@@ -615,7 +606,7 @@ private fun SharesInputSection(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.width(32.dp)
                     )
-                    IconButton(onClick = { onSharesChange(userId, currentShares + 1) }) {
+                    IconButton(onClick = { onSharesChange(personId, currentShares + 1) }) {
                         Text("+", style = MaterialTheme.typography.titleLarge)
                     }
                 }

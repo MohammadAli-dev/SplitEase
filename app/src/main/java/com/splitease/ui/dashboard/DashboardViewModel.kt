@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitease.data.identity.UserContext
 import com.splitease.data.local.dao.GroupDao
+import com.splitease.data.local.dao.PersonDao
 import com.splitease.data.local.entities.Group
+import com.splitease.data.local.entities.Person
+import com.splitease.data.local.entities.User
 import com.splitease.data.repository.BalanceSummaryRepository
 import com.splitease.data.repository.SyncRepository
 import com.splitease.data.repository.UserRepository
@@ -35,7 +38,7 @@ data class DashboardUiState(
     val totalOwing: BigDecimal = BigDecimal.ZERO,
     val groups: List<Group> = emptyList(),
     val ledgerBalances: List<FriendBalanceUi> = emptyList(), // Balances derived from expenses/settlements
-    val knownUserCount: Int = 0, // Total known users (excluding self), derived from users table
+    val activeFriendCount: Int = 0, // Active friend count (users with ledger balances)
     val isLoading: Boolean = true,
     val isSyncing: Boolean = false,
     val isRefreshing: Boolean = false
@@ -45,9 +48,9 @@ data class DashboardUiState(
 class DashboardViewModel @Inject constructor(
     private val balanceSummaryRepository: BalanceSummaryRepository,
     private val groupDao: GroupDao,
-    private val userRepository: UserRepository,
     private val userContext: UserContext,
-    private val syncRepository: SyncRepository
+    private val syncRepository: SyncRepository,
+    private val userRepository: com.splitease.data.repository.UserRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
@@ -104,24 +107,12 @@ class DashboardViewModel @Inject constructor(
             combine(
                 balanceSummaryRepository.getDashboardSummary(),
                 groupDao.getAllGroups(),
-                userRepository.getAllUsers(),
                 userContext.userId
-            ) { summary, groups, allUsers, currentUserId ->
-                // Explicitly sort users by name for consistent UI display (Repository contract)
-                val sortedUsers = allUsers.sortedBy { it.name }
+            ) { summary, groups, _ ->
                 
-                // Build name lookup
-                val userNameMap = sortedUsers.associate { it.id to it.name }
-                
-                // Count known users (all users except self) — this is the "friend existence" check
-                val knownUserCount = sortedUsers.count { it.id != currentUserId }
-                
-                // Map ledger balances to UI model with resolved names
+                // Map ledger balances to UI model (Names are already resolved by Repository)
                 val ledgerBalancesUi = summary.friendBalances.map { fb ->
-                    val name = userNameMap[fb.friendId] ?: fb.friendId.take(8)
-                    // TEMPORARY: Assume INR for personal ledger summaries.
-                    // Strictly cosmetic placeholder for empty/mixed states.
-                    // TODO(Sprint 28): Plumb currency through BalanceSummaryRepository.
+                    // TEMPORARY: Assume INR. TODO: Plumb currency.
                     val currency = "INR"
                     val formattedBalance = com.splitease.ui.common.Formatters.formatMoney(fb.balance.abs(), currency)
                     
@@ -132,27 +123,30 @@ class DashboardViewModel @Inject constructor(
                     }
                     FriendBalanceUi(
                         friendId = fb.friendId,
-                        friendName = name,
+                        friendName = fb.friendName, // Pre-resolved by Repository
                         balance = fb.balance,
                         displayText = displayText
                     )
                 }
+                
+                // Known User Count - Previously counted Persons. 
+                // Now irrelevant for pure dashboard view, or we can use friends count.
+                // Setting to ledgerBalancesUi.size for now as a valid approximation of "Active Friends".
+                val knownUserCount = ledgerBalancesUi.size
                 
                 DashboardUiState(
                     totalOwed = summary.totalOwed,
                     totalOwing = summary.totalOwing,
                     groups = groups,
                     ledgerBalances = ledgerBalancesUi,
-                    knownUserCount = knownUserCount,
+                    activeFriendCount = ledgerBalancesUi.size,
                     isLoading = false,
-                    isSyncing = false, // Default, will be merged
-                    isRefreshing = false // Default, will be merged
+                    isSyncing = false,
+                    isRefreshing = false
                 )
             }.collectLatest { repoState ->
-                // Atomic update to merge Repository data with transient UI flags
                 _uiState.update { currentState ->
                     repoState.copy(
-                        // Preserve transient flags from current state
                         isRefreshing = currentState.isRefreshing,
                         isSyncing = currentState.isSyncing
                     )

@@ -42,6 +42,9 @@ interface PersonDao {
     @Query("SELECT * FROM persons WHERE id = :id")
     suspend fun getPersonById(id: String): Person?
 
+    @Query("SELECT * FROM persons WHERE id = :id")
+    fun getPersonByIdFlow(id: String): Flow<Person?>
+
     /**
      * Resolves a person by their linked user account.
      *
@@ -55,11 +58,29 @@ interface PersonDao {
     @Query("SELECT * FROM persons WHERE linkedUserId = :userId")
     suspend fun getPersonByLinkedUserId(userId: String): Person?
 
-    /**
-     * Returns a stream of all persons in the system.
-     */
+    @Query("SELECT * FROM persons WHERE linkedUserId = :userId")
+    fun getPersonByLinkedUserIdFlow(userId: String): Flow<Person?>
+
     @Query("SELECT * FROM persons")
     fun getAllPersons(): Flow<List<Person>>
+
+    @Query("SELECT * FROM persons")
+    suspend fun getAllPersonsSync(): List<Person>
+
+    /**
+     * Marks a person as shadowed by a canonical person.
+     */
+    @Query("UPDATE persons SET shadowedById = :canonicalId WHERE id = :id")
+    suspend fun shadowPerson(id: String, canonicalId: String)
+
+    /**
+     * Finds all persons who share the same linkedUserId.
+     */
+    @Query("SELECT * FROM persons WHERE linkedUserId IS NOT NULL AND linkedUserId IN (SELECT linkedUserId FROM persons WHERE linkedUserId IS NOT NULL GROUP BY linkedUserId HAVING COUNT(*) > 1)")
+    suspend fun getPersonsWithDuplicateLinks(): List<Person>
+
+    @Query("SELECT * FROM persons WHERE id IN (:ids)")
+    suspend fun getPersonsByIds(ids: List<String>): List<Person>
     
     // NO DELETE METHOD: People are never deleted to preserve ledger auditability.
 }

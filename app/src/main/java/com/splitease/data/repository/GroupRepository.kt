@@ -138,7 +138,7 @@ class GroupRepositoryImpl @Inject constructor(
     private val ledgerSyncScheduler: LedgerSyncScheduler,
     private val deviceRoleManager: DeviceRoleManager,
     private val ledgerWriteGate: com.splitease.data.ledger.LedgerWriteGate,
-    private val personDao: com.splitease.data.local.dao.PersonDao
+    private val personRepository: PersonRepository
 ) : GroupRepository {
 
     companion object {
@@ -175,10 +175,8 @@ class GroupRepositoryImpl @Inject constructor(
             // the operation is aborted to prevent identity orphans.
             val resolvedMembers = mutableMapOf<String, String>() // userId -> personId
             for (uid in memberIds) {
-                val person = personDao.getPersonByLinkedUserId(uid)
-                    ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
-                        "Single-Write Violation: createGroup failed. Cannot resolve personId for member $uid"
-                    )
+                // Use PersonRepository.ensurePerson to "Heal-on-Write" (Transitional Determinism)
+                val person = personRepository.ensurePerson(uid)
                 resolvedMembers[uid] = person.id
             }
 
@@ -385,10 +383,8 @@ class GroupRepositoryImpl @Inject constructor(
                 }
                 
                 // 3. Single-Write Guard: Resolve Person ID
-                val person = personDao.getPersonByLinkedUserId(userId)
-                    ?: throw com.splitease.data.identity.IdentityInvariantViolationException(
-                        "Single-Write Violation: addMember failed. Cannot resolve personId for user $userId"
-                    )
+                // Use PersonRepository.ensurePerson to "Heal-on-Write" (Transitional Determinism)
+                val person = personRepository.ensurePerson(userId)
 
                 // 4. Execute Add
                 val member = GroupMember(groupId = groupId, userId = userId, personId = person.id)

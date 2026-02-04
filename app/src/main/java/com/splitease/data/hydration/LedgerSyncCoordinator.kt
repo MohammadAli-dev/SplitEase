@@ -3,6 +3,7 @@ package com.splitease.data.hydration
 import android.util.Log
 import androidx.room.withTransaction
 import com.splitease.data.local.AppDatabase
+import com.splitease.data.migration.IdentityMigrationCoordinator
 import com.splitease.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -42,6 +43,7 @@ class LedgerSyncCoordinatorImpl @Inject constructor(
     private val ledgerPullService: LedgerPullService,
     private val replayEngine: ReplayEngine,
     private val tokenManager: com.splitease.data.auth.TokenManager,
+    private val identityMigrationCoordinator: IdentityMigrationCoordinator,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : LedgerSyncCoordinator {
 
@@ -103,6 +105,10 @@ class LedgerSyncCoordinatorImpl @Inject constructor(
 
             // 5. Hydrate User Profiles
             hydrateMissingUserProfiles()
+
+            // === PHANTOM MERGE & MIGRATION (Sprint 29C-4) ===
+            // Trigger migration after sync to reconcile deterministic identities.
+            identityMigrationCoordinator.runMigration()
 
             Log.i(TAG, "Ledger pull sync completed successfully")
             LedgerSyncResult.Success

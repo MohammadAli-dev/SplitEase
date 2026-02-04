@@ -4,6 +4,7 @@ import android.util.Log
 import com.splitease.data.local.AppDatabase
 import com.splitease.data.device.DeviceRole
 import com.splitease.data.device.DeviceRoleManager
+import com.splitease.data.migration.IdentityMigrationCoordinator
 import com.splitease.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +89,7 @@ class HydrationCoordinatorImpl @Inject constructor(
     private val ledgerPullService: LedgerPullService,
     private val replayEngine: ReplayEngine,
     private val deviceRoleManager: DeviceRoleManager,
+    private val identityMigrationCoordinator: IdentityMigrationCoordinator,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : HydrationCoordinator {
 
@@ -217,6 +219,18 @@ class HydrationCoordinatorImpl @Inject constructor(
             // Sprint 23: Hydration ensures we are consistent, so we promote to allow writes on this device.
             deviceRoleManager.setDeviceRole(DeviceRole.PROMOTED)
             deviceRoleManager.setHydrationAttempted(false)
+
+            // === PHANTOM MERGE & MIGRATION (Sprint 29C-4) ===
+            // Trigger migration after hydration completes to reconcile deterministic identities.
+            // Wrapped in try/catch so migration failures don't block hydration success.
+            try {
+                identityMigrationCoordinator.runMigration()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Identity migration failed (non-fatal)", e)
+                // Do not rethrow; hydration is already successful.
+            }
+
             Log.d(TAG, "Entered PROMOTED role, hydration complete (Writable)")
             HydrationResult.Success
 

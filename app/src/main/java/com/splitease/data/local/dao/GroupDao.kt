@@ -107,4 +107,18 @@ interface GroupDao {
      */
     @Query("SELECT DISTINCT userId FROM group_members")
     suspend fun getAllMemberUserIds(): List<String>
+
+    // ========== Identity Migration (Sprint 29C-4) ==========
+
+    @Query("SELECT * FROM group_members WHERE personId IS NULL AND userId IS NOT NULL")
+    suspend fun getMembersMissingPersonId(): List<GroupMember>
+
+    @Query("UPDATE group_members SET personId = :personId WHERE groupId = :groupId AND userId = :userId")
+    suspend fun updateMemberPersonId(groupId: String, userId: String, personId: String)
+
+    @Query("UPDATE group_members SET personId = :newId WHERE personId = :oldId")
+    suspend fun rewriteMemberPersonId(oldId: String, newId: String)
+
+    @Query("UPDATE group_members SET personId = :personId WHERE userId = :userId AND personId IS NULL")
+    suspend fun backfillMemberPersonIdForUser(userId: String, personId: String)
 }

@@ -301,6 +301,18 @@ object DatabaseModule {
     }
 
     /**
+     * Migration from version 15 to 16:
+     * - Add `isSynthetic` (INTEGER, NOT NULL, DEFAULT 0) to `persons`
+     * - Add `shadowedById` (TEXT, NULLABLE) to `persons`
+     */
+    private val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE persons ADD COLUMN isSynthetic INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE persons ADD COLUMN shadowedById TEXT")
+        }
+    }
+
+    /**
      * Creates and provides the singleton Room database used by the application.
      *
      * Registers migrations 2→3, 3→4, 4→5, 5→6, 6→7, 7→8, 9→10, 10→11, 11→12, 12→13, 13→14, and 14→15.
@@ -327,6 +339,7 @@ object DatabaseModule {
             .addMigrations(MIGRATION_12_13)
             .addMigrations(MIGRATION_13_14)
             .addMigrations(MIGRATION_14_15)
+            .addMigrations(MIGRATION_15_16)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -404,5 +417,13 @@ object DatabaseModule {
     @Provides
     fun provideIdentityAuditDao(db: AppDatabase): com.splitease.data.local.dao.IdentityAuditDao {
         return db.identityAuditDao()
+    }
+
+    /**
+     * Provides the SystemMetadataDao for atomic versioning within transactions.
+     */
+    @Provides
+    fun provideSystemMetadataDao(db: AppDatabase): com.splitease.data.local.dao.SystemMetadataDao {
+        return db.systemMetadataDao()
     }
 }

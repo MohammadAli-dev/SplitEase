@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -24,6 +25,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -45,7 +47,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.splitease.ui.components.AddPersonDialog
+import com.splitease.ui.components.PersonPicker
+import com.splitease.data.local.entities.Person
 
 /**
  * Composable screen for creating a group, including fields for name and type, optional trip date range,
@@ -79,17 +82,34 @@ fun CreateGroupScreen(
 
     var showStartDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
-    var showAddPersonDialog by remember { mutableStateOf(false) }
+    var showMemberPicker by remember { mutableStateOf(false) }
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
-    if (showAddPersonDialog) {
-        AddPersonDialog(
-            onDismiss = { showAddPersonDialog = false },
-            onConfirm = { name, email, phone ->
-                viewModel.createPhantomUserAndSelect(name, email, phone)
-                showAddPersonDialog = false
+    if (showMemberPicker) {
+        ModalBottomSheet(
+            onDismissRequest = { showMemberPicker = false },
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState()
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    text = "Select Members",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp)
+                )
+                PersonPicker(
+                    persons = uiState.availablePersons,
+                    selectedPersonIds = uiState.selectedMemberIds,
+                    onToggleSelection = { personId ->
+                        viewModel.toggleMember(personId)
+                    },
+                    allowMultiple = true,
+                    onCreatePerson = { name, email, phone ->
+                        viewModel.createPhantomPersonAndSelect(name, email, phone)
+                        // Keep picker open
+                    }
+                )
             }
-        )
+        }
     }
 
     Scaffold(
@@ -237,26 +257,33 @@ fun CreateGroupScreen(
 
             // Member Selection
             Text("Members (select at least 2)", style = MaterialTheme.typography.labelMedium)
+            
+            // Chips Row: Show "Edit" button + Selected People
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                uiState.availableUsers.forEach { user ->
-                    val displayName = user.name.ifBlank { "User ${user.id.take(6)}" }
-                    FilterChip(
-                        selected = user.id in uiState.selectedMemberIds,
-                        onClick = { viewModel.toggleMember(user.id) },
-                        label = { Text(displayName) }
-                    )
-                }
-                
-                // Add New Person Chip
+                // Edit / Add Button
                 FilterChip(
                     selected = false,
-                    onClick = { showAddPersonDialog = true },
-                    label = { Text("+ Add new person") },
+                    onClick = { showMemberPicker = true },
+                    label = { Text("Edit Members") },
                     leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
                 )
+                
+                // Show selected members
+                uiState.selectedMemberIds.forEach { personId ->
+                    val person = uiState.availablePersons.find { it.id == personId }
+                    val displayName = person?.displayName ?: "Person"
+                    
+                    FilterChip(
+                        selected = true,
+                        onClick = { viewModel.toggleMember(personId) },
+                        label = { Text(displayName) },
+                        trailingIcon = { Icon(Icons.Default.Check, null) }
+                    )
+                }
             }
 
             // Validation hint

@@ -8,11 +8,15 @@ import com.splitease.data.local.dao.LedgerDao
 import com.splitease.data.local.entities.LedgerOperation
 import com.splitease.data.device.DeviceRole
 import com.splitease.data.device.DeviceRoleManager
+import com.splitease.data.migration.IdentityMigrationCoordinator
+import com.splitease.data.hydration.PullResult
 import io.mockk.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -28,17 +32,20 @@ class HydrationCoordinatorTest {
     private val ledgerPullService: LedgerPullService = mockk(relaxed = true)
     private val replayEngine: ReplayEngine = mockk(relaxed = true)
     private val deviceRoleManager: DeviceRoleManager = mockk(relaxed = true)
+    private val identityMigrationCoordinator: IdentityMigrationCoordinator = mockk(relaxed = true)
 
     private val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
     private lateinit var coordinator: HydrationCoordinatorImpl
 
     @Before
     fun setup() {
+        kotlinx.coroutines.Dispatchers.setMain(testDispatcher)
         coordinator = HydrationCoordinatorImpl(
             appDatabase,
             ledgerPullService,
             replayEngine,
             deviceRoleManager,
+            identityMigrationCoordinator,
             testDispatcher
         )
         mockkStatic(android.util.Log::class)
@@ -52,6 +59,13 @@ class HydrationCoordinatorTest {
         every { appDatabase.groupDao() } returns groupDao
         every { appDatabase.settlementDao() } returns settlementDao
         every { appDatabase.ledgerDao() } returns ledgerDao
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        kotlinx.coroutines.Dispatchers.resetMain()
+        io.mockk.unmockkStatic(android.util.Log::class)
+        io.mockk.clearAllMocks()
     }
 
     @Test
@@ -164,7 +178,7 @@ class HydrationCoordinatorTest {
             logicalClock = 1L,
             createdAt = 1000L
         )
-        coEvery { ledgerPullService.fetchAllOperations() } returns Result.success(listOf(mockOp))
+        coEvery { ledgerPullService.fetchAllOperations() } returns PullResult.Success(listOf(mockOp))
 
         // AND: Replay succeeds
         coEvery { replayEngine.replay(any()) } returns ReplayResult.Success
@@ -198,7 +212,7 @@ class HydrationCoordinatorTest {
         // AND: fetchAllOperations is slow
         coEvery { ledgerPullService.fetchAllOperations() } coAnswers {
             delay(1000)
-            Result.success(emptyList())
+            PullResult.Success(emptyList())
         }
 
         // WHEN: Two calls are made in parallel
@@ -209,15 +223,16 @@ class HydrationCoordinatorTest {
             result1 = coordinator.hydrate()
         }
         
-        // Wait a bit to ensure the first one has acquired the lock
-        delay(100)
+        // Ensure first coroutine starts and hits the delay
+        testDispatcher.scheduler.runCurrent()
+        testDispatcher.scheduler.advanceTimeBy(100)
         
         launch {
             result2 = coordinator.hydrate()
         }
 
-        // Wait for both to finish
-        delay(1500)
+        // Run until completion
+        testDispatcher.scheduler.advanceUntilIdle()
 
         // THEN: The second one should have aborted immediately
         assertTrue(result2 is HydrationResult.Aborted)

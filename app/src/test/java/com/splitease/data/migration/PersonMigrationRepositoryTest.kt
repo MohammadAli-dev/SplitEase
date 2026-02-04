@@ -1,6 +1,6 @@
 package com.splitease.data.migration
 
-import com.splitease.data.conflict.LedgerConflictDao
+import com.splitease.data.local.dao.LedgerConflictDao
 import com.splitease.data.device.DeviceRole
 import com.splitease.data.device.DeviceRoleManager
 import com.splitease.data.identity.IdentityInvariantViolationException
@@ -20,18 +20,23 @@ import com.splitease.data.sync.SyncWriteService
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.fail
 import org.junit.Test
 import java.math.BigDecimal
 import java.util.Date
-
 import org.junit.Assert.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PersonMigrationRepositoryTest {
 
     private val expenseDao: ExpenseDao = mockk(relaxed = true)
@@ -45,6 +50,9 @@ class PersonMigrationRepositoryTest {
     private val deviceRoleManager: DeviceRoleManager = mockk(relaxed = true)
     private val ledgerWriteGate: LedgerWriteGate = mockk(relaxed = false) // Not relaxed to force withWriteLock mocking
     private val personDao: PersonDao = mockk(relaxed = true)
+    private val personRepository: com.splitease.data.repository.PersonRepository = mockk(relaxed = true)
+
+    private val testDispatcher = UnconfinedTestDispatcher()
 
     private val repository = ExpenseRepositoryImpl(
         expenseDao,
@@ -57,11 +65,33 @@ class PersonMigrationRepositoryTest {
         ledgerSyncScheduler,
         deviceRoleManager,
         ledgerWriteGate,
-        personDao
+        personDao,
+        personRepository
     )
 
+    @org.junit.Before
+    fun setup() {
+        Dispatchers.setMain(testDispatcher)
+        io.mockk.mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any(), any()) } returns 0
+        every { android.util.Log.e(any(), any()) } returns 0
+        
+        coEvery { ledgerWriteGate.withWriteLock<Unit>(any()) } coAnswers {
+            firstArg<suspend () -> Unit>().invoke()
+        }
+        coEvery { deviceRoleManager.canWrite() } returns true
+        coEvery { deviceRoleManager.getDeviceRole() } returns DeviceRole.PRIMARY
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        Dispatchers.resetMain()
+        io.mockk.unmockkStatic(android.util.Log::class)
+        io.mockk.clearAllMocks()
+    }
+
     @Test
-    fun `verifyDualRead - legacy expense populates payerPersonId from PersonDao`() = runBlocking {
+    fun `verifyDualRead - legacy expense populates payerPersonId from PersonDao`() = runTest {
         // Given
         val legacyExpense = Expense(
             id = "exp1",
@@ -72,7 +102,7 @@ class PersonMigrationRepositoryTest {
             payerPersonId = null, // LEGACY
             createdBy = "u1"
         )
-        val person = Person(id = "person1", linkedUserId = "user1", displayName = "Resolved")
+        val person = Person(id = "person1", linkedUserId = "user1", displayName = "Resolved", createdAt = 1000L)
 
         every { expenseDao.getExpense("exp1") } returns flowOf(legacyExpense)
         every { ledgerConflictDao.observeConflictsForEntities(any()) } returns flowOf(emptyList())
@@ -89,7 +119,7 @@ class PersonMigrationRepositoryTest {
     }
 
     @Test
-    fun `verifyDualRead - new expense preserves payerPersonId`() = runBlocking {
+    fun `verifyDualRead - new expense preserves payerPersonId`() = runTest {
         // Given
         val newExpense = Expense(
             id = "exp2",
@@ -105,10 +135,6 @@ class PersonMigrationRepositoryTest {
         every { ledgerConflictDao.observeConflictsForEntities(any()) } returns flowOf(emptyList())
         every { conflictResolutionDao.observeAllResolutions() } returns flowOf(emptyList())
         
-        // Ensure no DB lookup happened (strict optimization check)
-        // coEvery { personDao.getPersonByLinkedUserId(any()) } throws Exception("Should not call DB") 
-        // MockK strict verification is better but simple return is fine.
-
         // When
         val result = repository.getExpense("exp2").first()
 
@@ -117,7 +143,7 @@ class PersonMigrationRepositoryTest {
     }
 
     @Test
-    fun `verifySingleWrite - missing payerPersonId throws exception`() = runBlocking {
+    fun `verifySingleWrite - missing payerPersonId throws exception`() = runTest {
         // Given
         val invalidExpense = Expense(
             id = "exp3",
@@ -128,19 +154,22 @@ class PersonMigrationRepositoryTest {
             payerPersonId = null, // VIOLATION
             createdBy = "u3"
         )
-        val splits = listOf(ExpenseSplit("exp3", "u3", BigDecimal.TEN))
+        val splits = listOf(ExpenseSplit(expenseId = "exp3", userId = "u3", personId = null, amount = BigDecimal.TEN))
 
         // When/Then
         try {
             repository.addExpense(invalidExpense, splits)
             fail("Should have thrown IdentityInvariantViolationException")
+        } catch (e: IdentityInvariantViolationException) {
             // Success
             assertTrue(e.message?.contains("Single-Write Violation") == true)
+        } finally {
+            testDispatcher.scheduler.advanceUntilIdle()
         }
     }
 
     @Test
-    fun `verifySingleWrite - missing split personId throws exception`() = runBlocking {
+    fun `verifySingleWrite - missing split personId throws exception`() = runTest {
         // Given
         val validExpense = Expense(
             id = "exp4",
@@ -152,7 +181,7 @@ class PersonMigrationRepositoryTest {
             createdBy = "u4"
         )
         val invalidSplits = listOf(
-            ExpenseSplit("exp4", "u4", BigDecimal.TEN, personId = null) // VIOLATION
+            ExpenseSplit(expenseId = "exp4", userId = "u4", personId = null, amount = BigDecimal.TEN) // VIOLATION
         )
 
         // When/Then
@@ -162,11 +191,13 @@ class PersonMigrationRepositoryTest {
         } catch (e: IdentityInvariantViolationException) {
             // Success
             assertTrue(e.message?.contains("Single-Write Violation") == true)
+        } finally {
+            testDispatcher.scheduler.advanceUntilIdle()
         }
     }
 
     @Test
-    fun `verifySingleWrite - valid new expense succeeds`() = runBlocking {
+    fun `verifySingleWrite - valid new expense succeeds`() = runTest {
         // Given
         val validExpense = Expense(
             id = "exp5",
@@ -178,15 +209,10 @@ class PersonMigrationRepositoryTest {
             createdBy = "u5"
         )
         val splits = listOf(
-            ExpenseSplit("exp5", "user5", BigDecimal.TEN, personId = "person5")
+            ExpenseSplit(expenseId = "exp5", userId = "user5", personId = "person5", amount = BigDecimal.TEN)
         )
 
-        // Mock Write Gate
-        coEvery { ledgerWriteGate.withWriteLock<Unit>(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
-        every { deviceRoleManager.canWrite() } returns true
-        every { deviceRoleManager.getDeviceRole() } returns DeviceRole.OWNER
+        // Mocks are already setup in @Before
 
         // When
         repository.addExpense(validExpense, splits)

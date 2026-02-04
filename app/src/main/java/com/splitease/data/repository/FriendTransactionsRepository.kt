@@ -78,9 +78,11 @@ class FriendTransactionsRepository @Inject constructor(
     private val expenseRepository: ExpenseRepository,
     private val expenseDao: ExpenseDao,
     private val groupDao: GroupDao,
+    private val settlementRepository: SettlementRepository,
+    private val personDao: com.splitease.data.local.dao.PersonDao,
     private val userDao: UserDao,
     private val userContext: UserContext,
-    private val settlementRepository: SettlementRepository
+    private val identityResolver: com.splitease.data.identity.IdentityResolver
 ) {
     
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -92,13 +94,41 @@ class FriendTransactionsRepository @Inject constructor(
                 expenseRepository.getAllEffectiveExpenses(),
                 expenseDao.getAllSplits(),
                 groupDao.getAllGroups(),
-                userDao.getAllUsers(),
                 settlementRepository.observeSettlementsBetween(currentUserId, friendId)
-            ) { expenses, splits, groups, users, settlements ->
+            ) { expenses, splits, groups, settlements ->
                 
                 // Lookup data maps
                 val groupNameMap = groups.associate { it.id to it.name }
-                val userNameMap = users.associate { it.id to it.name }
+                
+                // Collect all involved IDs for batch resolution
+                val involvedIds = mutableSetOf<String>()
+                involvedIds.add(currentUserId)
+                involvedIds.add(friendId)
+                
+                expenses.forEach { involvedIds.add(it.payerId) }
+                settlements.forEach { 
+                    involvedIds.add(it.fromUserId) 
+                    involvedIds.add(it.toUserId)
+                }
+                
+                // Batch resolve known IDs
+                // Note: We are missing split user IDs here in the batch if we don't iterate splits relative to filtered expenses.
+                // However, filtering effectively happens below.
+                // Let's iterate splits for relevant expenses only? Or just all splits? 
+                // Iterating all splits is safer for correctness.
+                splits.forEach { involvedIds.add(it.userId) }
+
+                val resolvedMap = identityResolver.resolveBatchByUserId(involvedIds.toList())
+                
+                // Helper to resolve identities to canonical Person IDs
+                fun toCanonicalId(id: String): String = resolvedMap[id]?.stableId ?: id
+                
+                // Determine target friend canonical ID
+                val friendCanonicalId = toCanonicalId(friendId)
+                
+                // Determine current user canonical ID
+                val myCanonicalId = toCanonicalId(currentUserId)
+
                 val expenseSplitsMap = splits.groupBy { it.expenseId }
                 
                 // Helper to check participation
@@ -110,19 +140,27 @@ class FriendTransactionsRepository @Inject constructor(
                 // 1. Process Expenses
                 val relevantExpenses = expenses.filter { expense ->
                     val participants = expenseParticipantsMap[expense.id] ?: emptySet()
-                    val currentUserInvolved = expense.payerId == currentUserId || participants.contains(currentUserId)
-                    val friendInvolved = expense.payerId == friendId || participants.contains(friendId)
+                    
+                    // Unified Check: Did Me OR My-Proxy participate?
+                    val payerCanonical = toCanonicalId(expense.payerId)
+                    val currentUserInvolved = payerCanonical == myCanonicalId || participants.any { toCanonicalId(it) == myCanonicalId }
+                    
+                    // Unified Check: Did Friend OR Friend-Proxy participate?
+                    val friendInvolved = payerCanonical == friendCanonicalId || participants.any { toCanonicalId(it) == friendCanonicalId }
+                    
                     currentUserInvolved && friendInvolved
                 }
 
                 val expenseItems = relevantExpenses.map { expense ->
-                    val payerName = userNameMap[expense.payerId] 
-                        ?: if (expense.payerId == currentUserId) "You" else "Unknown"
-                    val displayPayerName = if (expense.payerId == currentUserId) "You" else payerName
-                    val paidByCurrentUser = expense.payerId == currentUserId
+                    val payerCanonical = toCanonicalId(expense.payerId)
+                    val paidByCurrentUser = payerCanonical == myCanonicalId
+                    
+                    // Use resolved display name
+                    val displayPayerName = resolvedMap[expense.payerId]?.displayName ?: "Unknown"
+                    
                     
                     val expenseSplits = expenseSplitsMap[expense.id] ?: emptyList()
-                    val myShare = expenseSplits.find { it.userId == currentUserId }?.amount ?: BigDecimal.ZERO
+                    val myShare = expenseSplits.find { toCanonicalId(it.userId) == myCanonicalId }?.amount ?: BigDecimal.ZERO
                     
                     if (expense.groupId == PersonalGroupConstants.PERSONAL_GROUP_ID) {
                         FriendLedgerItem.DirectExpense(
@@ -153,9 +191,19 @@ class FriendTransactionsRepository @Inject constructor(
                 }
 
                 // 2. Process Settlements
-                val settlementItems = settlements.map { settlement ->
-                    val isPayerMe = settlement.fromUserId == currentUserId
-                    val displayPayerName = if (isPayerMe) "You" else (userNameMap[settlement.fromUserId] ?: "Unknown")
+                // 2. Process Settlements
+                val settlementItems = settlements.filter { settlement ->
+                    val fromCanonical = toCanonicalId(settlement.fromUserId)
+                    val toCanonical = toCanonicalId(settlement.toUserId)
+                    
+                    val meInvolved = fromCanonical == myCanonicalId || toCanonical == myCanonicalId
+                    val friendInvolved = fromCanonical == friendCanonicalId || toCanonical == friendCanonicalId
+                    
+                    meInvolved && friendInvolved
+                }.map { settlement ->
+                    val fromCanonical = toCanonicalId(settlement.fromUserId)
+                    val isPayerMe = fromCanonical == myCanonicalId
+                    val displayPayerName = resolvedMap[settlement.fromUserId]?.displayName ?: "Unknown"
 
                     FriendLedgerItem.SettlementItem(
                         id = settlement.id,
@@ -170,6 +218,16 @@ class FriendTransactionsRepository @Inject constructor(
                 // 3. Merge and Sort
                 (expenseItems + settlementItems).sortedByDescending { it.timestamp }
             }
+
+}
+    }
+
+    fun getFriendIdentity(friendId: String): Flow<com.splitease.data.identity.model.ResolvedParticipant> {
+        return combine(
+            personDao.getPersonByIdFlow(friendId),
+            userDao.getUser(friendId)
+        ) { _, _ ->
+            identityResolver.resolveIdeally(friendId)
         }
     }
 }
